@@ -1,0 +1,156 @@
+ESP32 Game Flow – Keyboard Implementation
+
+Display: 1.44" TFT (128×128), Pixel Art arcade style. Virtual QWERTY keyboard optimized for 128×128 resolution.
+
+=== KEYBOARD DRAWING METHOD ===
+
+1. TWO-STEP DRAWING PROCESS:
+   - Step 1: Draw all key backgrounds first (fillRect for all keys)
+   - Step 2: Fill text into keys after (print text on each key)
+   - This approach reduces flicker and improves rendering performance
+
+2. KEY SPECIFICATIONS:
+   - Key size: 12x12 pixels
+   - Spacing between keys: 1 pixel
+   - Keyboard position: X=0, Y=80 (starts at 80px from top)
+   - Total keyboard layout: 3 rows of 10 keys + 1 Space key row
+
+3. TEXT RENDERING:
+   - Text size: Variable (default = 1, can be changed via setTextSize())
+   - Text width calculation: ~4px * textSize per character
+   - Text positioning:
+     * Horizontal margin: 2px from edges to avoid border overlap
+     * Vertical position: yPos + 1 (1px from top of key)
+     * Text X offset: textX - 1.5 (fine-tuned for better alignment)
+   - Text truncation: If text length > 1, only show first 2 characters
+   - Text centering: Automatically centered if text fits within key width
+
+4. COLOR SYSTEM (All customizable via setter methods):
+   - keyBgColor: Normal key background (default: TFT_WHITE)
+   - keySelectedColor: Selected key background (default: TFT_YELLOW)
+   - keyTextColor: Text color on keys (default: TFT_BLACK)
+   - bgScreenColor: Screen background color (default: TFT_BLACK)
+
+5. KEYBOARD LAYOUT:
+   Row 1: Q W E R T Y U I O P (10 keys)
+   Row 2: 123 A S D F G H J K L (10 keys)
+   Row 3: ic Z X C V B N M |e < (10 keys)
+   Row 4: Space key (centered, width = 8 keys)
+
+6. KEYBOARD MODES:
+   - Alphabet mode: Letters and special keys (123, ic, |e, <)
+   - Numeric mode: Numbers and special characters (ABC, /, :, ;, etc.)
+   - Switch between modes by selecting "123" or "ABC" keys
+
+7. CURSOR MANAGEMENT:
+   - Cursor position: cursorRow (0-3), cursorCol (0-9)
+   - Selected key highlighted with keySelectedColor
+   - Cursor wraps around edges (left-right, up-down)
+
+8. IMPLEMENTATION DETAILS:
+   - Class-based design (Keyboard class)
+   - Uses TFT_eSprite for rendering
+   - All colors and text size are configurable
+   - Optimized for 128x128 display resolution
+
+=== WIFI PASSWORD SCREEN IMPLEMENTATION ===
+
+1. OVERVIEW:
+   - WiFi password input screen with integrated virtual keyboard
+   - Displays title, password input box, and keyboard
+   - Password always displayed in plain text (no asterisk hiding)
+   - Allows users to directly set password string
+   - Arcade-style visual design with neon colors
+
+2. SCREEN LAYOUT:
+   - Title: "WiFi Password" at position Y=5
+   - Input Box: 
+     * Position Y=20, Height=18px, Width=120px (centered on screen)
+     * Arcade-style design with double border (cyan neon)
+     * Black background, cyan border, green neon text
+     * Displays placeholder "Enter pwd..." when empty
+     * Text display: Shows password minus last character to prevent overflow
+   - Keyboard: Drawn below (Y=80) using Keyboard class
+
+3. PASSWORD MANAGEMENT:
+   - Password stored in String password
+   - Password always displayed in plain text (no hiding feature)
+   - Maximum length: 20 characters (configurable)
+   - Display optimization: Shows password minus last character to prevent text overflow
+   - Methods:
+     * getPassword() - Get current password
+     * setPassword(String pwd) - Set entire password
+     * appendPassword(String str) - Append string to end
+     * clearPassword() - Clear password
+
+4. KEY HANDLING:
+   - handleKeyPress(String key) - Handles key press events:
+     * Regular keys: Add to password (if not at max length)
+     * Delete ("<"): Remove last character
+     * Space (" "): Add space character
+     * Enter ("|e"): Can be used for submit (not yet implemented)
+     * Ignored: "123", "ABC", "ic" (mode switching keys)
+
+5. DRAWING PROCESS:
+   - draw() - Draws entire screen:
+     1. Fill screen background (bgColor)
+     2. Draw title (drawTitle)
+     3. Draw input box with double border (arcade style)
+     4. Draw password text in box (drawPassword)
+     5. Draw keyboard (keyboard->draw())
+     6. Redraw bottom border after keyboard to ensure visibility
+     7. Push sprite to display
+   - Automatically redraws when password changes
+
+6. COLOR SYSTEM - ARCADE STYLE (All customizable):
+   - bgColor: Screen background (default: TFT_BLACK)
+   - titleColor: Title color (default: TFT_YELLOW - neon yellow)
+   - inputBoxBgColor: Input box background (default: TFT_BLACK - arcade style)
+   - inputBoxBorderColor: Input box border (default: TFT_CYAN - neon cyan)
+   - textColor: Text color in input box (default: TFT_GREEN - neon green)
+   - Placeholder color: Light grey (0x5AEB in RGB565)
+   - Border style: Double border (2px thick) for arcade aesthetic
+
+7. INTEGRATION WITH KEYBOARD:
+   - Uses callback mechanism:
+     * Keyboard has onKeySelected callback
+     * When "select" is pressed on keyboard → callback is invoked
+     * Callback calls wifiScreen->handleKeyPress(key)
+   - Setup in main.cpp:
+     * keyboard->setOnKeySelectedCallback(onKeyboardKeySelected)
+     * onKeyboardKeySelected() calls wifiScreen->handleKeyPress()
+
+8. USAGE EXAMPLE:
+   ```cpp
+   // Khởi tạo
+   Keyboard* keyboard = new Keyboard(&sprite);
+   WiFiPasswordScreen* wifiScreen = new WiFiPasswordScreen(&sprite, keyboard);
+   keyboard->setOnKeySelectedCallback(onKeyboardKeySelected);
+   
+   // Vẽ màn hình
+   wifiScreen->draw();
+   
+   // Set password trực tiếp
+   wifiScreen->setPassword("MyPassword123");
+   wifiScreen->draw();
+   
+   // Thêm string
+   wifiScreen->appendPassword("456");
+   wifiScreen->draw();
+   
+   // Lấy password
+   String pwd = wifiScreen->getPassword();
+   ```
+
+9. IMPLEMENTATION DETAILS:
+   - Class: WiFiPasswordScreen
+   - Files: wifi_password.h, wifi_password.cpp
+   - Dependencies: TFT_eSPI, Keyboard class
+   - Uses TFT_eSprite for rendering
+   - All colors and dimensions are configurable
+   - Optimized for 128x128 display resolution
+   - Arcade-style visual design with neon colors
+   - Input box: 18px height (increased from 15px) to prevent text clipping
+   - Border rendering: Double border (2px) drawn with drawFastHLine/VLine for precision
+   - Text positioning: textY = inputBoxY + 7 for better vertical centering
+
