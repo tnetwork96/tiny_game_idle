@@ -154,3 +154,143 @@ Display: 1.44" TFT (128×128), Pixel Art arcade style. Virtual QWERTY keyboard o
    - Border rendering: Double border (2px) drawn with drawFastHLine/VLine for precision
    - Text positioning: textY = inputBoxY + 7 for better vertical centering
 
+=== WIFI LIST SCREEN IMPLEMENTATION ===
+
+1. OVERVIEW:
+   - Screen displays top 5 strongest WiFi networks
+   - Arcade-style design with rounded corners
+   - No borders, clean look
+   - Centered WiFi names
+   - Selected item highlighted with cyan background and yellow text
+
+2. SCREEN LAYOUT:
+   - Title: "WiFi Networks" at position Y=5 (neon yellow)
+   - List items: Start at Y=20, each item height=18px
+   - Item width: 100px (centered, with 3px rounded corners)
+   - Maximum 5 items displayed
+   - Item spacing: 2px between items
+
+3. WIFI SCANNING:
+   - scanNetworks() - Scans available WiFi networks
+   - Sorts by RSSI (signal strength) - strongest first
+   - Only displays top 5 networks
+   - Uses ESP32 WiFi library
+
+4. DISPLAY FEATURES:
+   - No borders on items (clean arcade look)
+   - Rounded corners (3px radius) using fillRoundRect
+   - Selected item: Cyan background (TFT_CYAN) with yellow text (TFT_YELLOW)
+   - Unselected items: Black background with green text (TFT_GREEN)
+   - Centered text in items
+   - Text truncation: Max 15 characters per SSID
+
+5. NAVIGATION:
+   - selectNext() - Move to next WiFi
+   - selectPrevious() - Move to previous WiFi
+   - selectIndex(uint8_t index) - Select by index
+   - Wraps around (circular navigation)
+
+6. COLOR SYSTEM - ARCADE STYLE:
+   - bgColor: Screen background (default: TFT_BLACK)
+   - titleColor: Title color (default: TFT_YELLOW - neon yellow)
+   - itemBgColor: Unselected item background (default: TFT_BLACK)
+   - itemSelectedBgColor: Selected item background (default: TFT_CYAN - neon cyan)
+   - itemTextColor: Unselected item text (default: TFT_GREEN - neon green)
+   - itemSelectedTextColor: Selected item text (default: TFT_YELLOW - neon yellow)
+   - All colors are customizable via setter methods
+
+7. IMPLEMENTATION DETAILS:
+   - Class: WiFiListScreen
+   - Files: wifi_list.h, wifi_list.cpp
+   - Dependencies: TFT_eSPI, WiFi library
+   - Uses TFT_eSprite for rendering
+   - Optimized for 128x128 display resolution
+   - Rounded corners using fillRoundRect
+
+=== WIFI MANAGER IMPLEMENTATION ===
+
+1. OVERVIEW:
+   - Manages complete WiFi connection flow
+   - State machine-based design
+   - Integrates WiFiListScreen and WiFiPasswordScreen
+   - Handles automatic WiFi selection and connection
+   - Auto-fills password for specific networks (e.g., "Van Ninh" with "123456a@")
+
+2. STATE MACHINE:
+   - WIFI_STATE_SCAN: Scanning for WiFi networks
+   - WIFI_STATE_SELECT: Selecting WiFi from list
+   - WIFI_STATE_PASSWORD: Entering password
+   - WIFI_STATE_CONNECTING: Attempting connection
+   - WIFI_STATE_CONNECTED: Successfully connected
+   - WIFI_STATE_ERROR: Connection failed/timeout
+
+3. FLOW EXAMPLE - "Van Ninh" WiFi:
+   1. Scan networks → Auto-find "Van Ninh" if available
+   2. Auto-select "Van Ninh" → Move to password screen
+   3. Auto-fill password "123456a@"
+   4. User presses Enter (|e) → Start connecting
+   5. Show "Connecting..." message
+   6. On success → Show "Connected!" with SSID
+   7. On failure → Show "Connection failed!" after 10s timeout
+
+4. METHODS:
+   - begin() - Initialize and start scanning (auto-finds "Van Ninh")
+   - update() - Update state machine (call in loop)
+   - handleUp() - Navigate up in WiFi list
+   - handleDown() - Navigate down in WiFi list
+   - handleSelect() - Select current WiFi
+   - handleKeyboardInput(String key) - Handle keyboard input in password screen
+   - getState() - Get current state
+   - isConnected() - Check if connected
+   - getConnectedSSID() - Get connected WiFi name
+   - getPasswordScreen() - Get WiFiPasswordScreen instance
+   - getListScreen() - Get WiFiListScreen instance
+   - disconnect() - Disconnect from WiFi
+
+5. AUTO-FEATURES:
+   - Auto-find "Van Ninh" in scan results during begin()
+   - Auto-select if found
+   - Auto-fill password "123456a@" for "Van Ninh"
+   - Automatic connection when Enter is pressed
+
+6. CONNECTION HANDLING:
+   - Uses WiFi.begin(ssid, password)
+   - 10-second timeout
+   - Shows status messages on screen (Connecting/Connected/Error)
+   - Handles connection errors gracefully
+
+7. INTEGRATION:
+   - Manages WiFiListScreen instance
+   - Manages WiFiPasswordScreen instance
+   - Integrates with Keyboard for password input
+   - Uses callback mechanism for keyboard events
+
+8. USAGE EXAMPLE:
+   ```cpp
+   // Initialize
+   WiFiManager* wifiManager = new WiFiManager(&sprite, keyboard);
+   wifiManager->begin();  // Auto-scans and finds "Van Ninh"
+   
+   // In loop
+   wifiManager->update();  // Update state machine
+   
+   // Navigation (from buttons/joystick)
+   wifiManager->handleUp();
+   wifiManager->handleDown();
+   wifiManager->handleSelect();
+   
+   // Check status
+   if (wifiManager->isConnected()) {
+       String ssid = wifiManager->getConnectedSSID();
+   }
+   ```
+
+9. IMPLEMENTATION DETAILS:
+   - Class: WiFiManager
+   - Files: wifi_manager.h, wifi_manager.cpp
+   - Dependencies: TFT_eSPI, WiFi library, WiFiListScreen, WiFiPasswordScreen, Keyboard
+   - State machine pattern
+   - Automatic flow for known networks ("Van Ninh" → "123456a@")
+   - Error handling and timeout management
+   - Clean separation of concerns
+
