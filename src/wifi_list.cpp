@@ -16,8 +16,9 @@ WiFiListScreen::WiFiListScreen(TFT_eSprite* bg) {
     this->bgColor = TFT_BLACK;
     this->titleColor = TFT_YELLOW;  // Neon yellow
     this->itemBgColor = TFT_BLACK;
-    this->itemSelectedBgColor = TFT_NAVY;  // Dark blue for selection
+    this->itemSelectedBgColor = TFT_CYAN;  // Neon cyan for arcade highlight
     this->itemTextColor = TFT_GREEN;  // Neon green
+    this->itemSelectedTextColor = TFT_YELLOW;  // Neon yellow for selected item text
     this->itemBorderColor = TFT_CYAN;  // Neon cyan
     
     // Initialize networks
@@ -121,31 +122,34 @@ void WiFiListScreen::drawWiFiItem(uint8_t index, uint8_t yPos) {
     if (index >= networkCount) return;
     
     WiFiNetwork* net = &networks[index];
-    uint8_t itemWidth = 120;
-    uint8_t itemX = (128 - itemWidth) / 2;
+    uint8_t itemWidth = 100;  // Shorter width
+    uint8_t itemX = (128 - itemWidth) / 2;  // Center
+    uint8_t cornerRadius = 3;  // Rounded corner radius
     
-    // Determine background color
+    // Determine background color (tô màu background cho item được chọn)
     uint16_t bgItemColor = net->isSelected ? itemSelectedBgColor : itemBgColor;
     
-    // Draw item background
-    bg->fillRect(itemX, yPos, itemWidth, itemHeight, bgItemColor);
+    // Draw item background with rounded corners
+    bg->fillRoundRect(itemX, yPos, itemWidth, itemHeight, cornerRadius, bgItemColor);
     
-    // Draw border
-    bg->drawRect(itemX, yPos, itemWidth, itemHeight, itemBorderColor);
-    
-    // Draw SSID (truncate if too long)
-    bg->setTextColor(itemTextColor, bgItemColor);
+    // Draw SSID (truncate if too long and center it)
+    // Use different text color for selected item to make it stand out
+    uint16_t textColor = net->isSelected ? itemSelectedTextColor : itemTextColor;
+    bg->setTextColor(textColor, bgItemColor);
     bg->setTextSize(1);
     String displaySSID = net->ssid;
-    if (displaySSID.length() > 12) {
-        displaySSID = displaySSID.substring(0, 12);
+    if (displaySSID.length() > 15) {
+        displaySSID = displaySSID.substring(0, 15);
     }
-    bg->setCursor(itemX + 3, yPos + 5);
-    bg->print(displaySSID);
     
-    // Draw signal strength indicator
-    uint8_t signalX = itemX + itemWidth - 15;
-    drawSignalStrength(signalX, yPos + 2, net->rssi);
+    // Calculate text width (approximately 6px per character)
+    uint8_t textWidth = displaySSID.length() * 6;
+    // Center text in item width
+    uint8_t textX = itemX + (itemWidth - textWidth) / 2;  // Center horizontally in item
+    uint8_t textY = yPos + 5;  // Center vertically
+    
+    bg->setCursor(textX, textY);
+    bg->print(displaySSID);
 }
 
 void WiFiListScreen::draw() {

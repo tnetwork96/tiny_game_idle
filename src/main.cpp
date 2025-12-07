@@ -3,16 +3,17 @@
 #include "keyboard.h"
 #include "wifi_password.h"
 #include "wifi_list.h"
+#include "wifi_manager.h"
 
 TFT_eSPI tft = TFT_eSPI();
 TFT_eSprite sprite = TFT_eSprite(&tft);
 Keyboard* keyboard;  // Con trỏ tới đối tượng Keyboard
-WiFiPasswordScreen* wifiScreen;  // Con trỏ tới màn hình nhập mật khẩu WiFi
-WiFiListScreen* wifiListScreen;  // Con trỏ tới màn hình danh sách WiFi
+WiFiManager* wifiManager;  // WiFi Manager để quản lý flow
 
 // Callback function khi nhấn phím trên bàn phím
 void onKeyboardKeySelected(String key) {
-    wifiScreen->handleKeyPress(key);
+    // Pass to WiFi manager
+    wifiManager->handleKeyboardInput(key);
 }
 
 void setup() {
@@ -34,23 +35,15 @@ void setup() {
     // Khởi tạo bàn phím (tạo đối tượng Keyboard)
     keyboard = new Keyboard(&sprite);
     
-    // Khởi tạo màn hình nhập mật khẩu WiFi
-    wifiScreen = new WiFiPasswordScreen(&sprite, keyboard);
-    
-    // Khởi tạo màn hình danh sách WiFi
-    wifiListScreen = new WiFiListScreen(&sprite);
-    
-    // Thiết lập callback cho bàn phím để xử lý khi nhấn phím
+    // Thiết lập callback cho bàn phím
     keyboard->setOnKeySelectedCallback(onKeyboardKeySelected);
     
-    // Scan và hiển thị danh sách WiFi
-    wifiListScreen->scanNetworks();
-    wifiListScreen->draw();
+    // Khởi tạo WiFi Manager (quản lý toàn bộ flow)
+    wifiManager = new WiFiManager(&sprite, keyboard);
+    wifiManager->begin();
     
-    Serial.println("WiFi List Screen initialized!");
-    Serial.print("Found ");
-    Serial.print(wifiListScreen->getNetworkCount());
-    Serial.println(" networks");
+    Serial.println("WiFi Manager initialized!");
+    Serial.println("Flow: Scan -> Select 'Van Ninh' -> Enter password '123456a@' -> Connect");
 }
 
 void loop() {
@@ -69,20 +62,28 @@ void loop() {
     // wifiListScreen->selectNext();
     // wifiListScreen->selectPrevious();
     
-    // Ví dụ test: Di chuyển trong danh sách WiFi tự động (để test)
+    // Update WiFi manager state machine
+    wifiManager->update();
+    
+    // TODO: Thay thế logic này bằng input thực tế từ joystick/nút bấm
+    // Ví dụ:
+    // if (buttonUp) wifiManager->handleUp();
+    // if (buttonDown) wifiManager->handleDown();
+    // if (buttonSelect) wifiManager->handleSelect();
+    
+    // Auto flow: If in password screen and password is ready, press Enter to connect
     static unsigned long lastAction = 0;
-    static bool scanDone = false;
     
-    if (!scanDone && millis() > 3000) {
-        // Scan lại sau 3 giây
-        wifiListScreen->scanNetworks();
-        wifiListScreen->draw();
-        scanDone = true;
-    }
-    
-    if (millis() - lastAction > 2000) {  // Mỗi 2 giây
-        wifiListScreen->selectNext();
-        lastAction = millis();
+    if (millis() - lastAction > 3000) {  // Mỗi 3 giây
+        WiFiState state = wifiManager->getState();
+        
+        if (state == WIFI_STATE_PASSWORD) {
+            // Password is auto-filled for "Van Ninh", press Enter to connect
+            // Find Enter key on keyboard and press it
+            // Enter key is at position row 2, col 8 (|e)
+            keyboard->moveCursorByCommand("select", 0, 0);  // This will trigger Enter if cursor is on Enter key
+            lastAction = millis();
+        }
     }
     
     delay(10);
