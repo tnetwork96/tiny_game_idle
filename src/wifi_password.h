@@ -1,20 +1,21 @@
 #ifndef WIFI_PASSWORD_H
 #define WIFI_PASSWORD_H
 
-#include <TFT_eSPI.h>
-#include "keyboard.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
+#include "keyboard.h"  // Sử dụng keyboard thường
 
 class WiFiPasswordScreen {
 private:
-    TFT_eSprite* bg;
-    Keyboard* keyboard;
+    Adafruit_ST7789* tft;
+    Keyboard* keyboard;  // Sử dụng keyboard thường
     
     // Vị trí và kích thước
-    uint8_t titleY;
-    uint8_t inputBoxY;
-    uint8_t inputBoxHeight;
-    uint8_t inputBoxWidth;
-    uint8_t maxPasswordLength;
+    uint16_t titleY;
+    uint16_t inputBoxY;
+    uint16_t inputBoxHeight;
+    uint16_t inputBoxWidth;
+    uint16_t maxPasswordLength;
     
     // Mật khẩu
     String password;
@@ -37,7 +38,7 @@ private:
 
 public:
     // Constructor
-    WiFiPasswordScreen(TFT_eSprite* bg, Keyboard* keyboard);
+    WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard);  // Sử dụng keyboard thường
     
     // Destructor
     ~WiFiPasswordScreen();

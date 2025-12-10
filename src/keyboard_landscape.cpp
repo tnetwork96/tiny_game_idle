@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "keyboard.h"
+#include "keyboard_landscape.h"
 #include "keyboard_skins_wrapper.h"  // Include wrapper để có KeyboardSkins namespace
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
@@ -23,34 +23,35 @@
 #define YELLOW_ORANGE 0xFE20       // Yellow-orange (như "GAME OVER" text)
 #define DARK_PURPLE 0x8010        // Dark purple background (theo hình arcade)
 #define SOFT_WHITE 0xCE79         // Soft white (not too bright)
-// Khởi tạo các static members
-const String Keyboard::KEY_ENTER = "|e";
-const String Keyboard::KEY_DELETE = "<";
-const String Keyboard::KEY_SHIFT = "shift";
-const String Keyboard::KEY_SPACE = " ";
-const String Keyboard::KEY_ICON = "ic";
 
-// Bảng phím chữ cái (chữ viết thường)
-String Keyboard::qwertyKeysArray[3][10] = {
+// Khởi tạo các static members
+const String KeyboardLandscape::KEY_ENTER = "|e";
+const String KeyboardLandscape::KEY_DELETE = "<";
+const String KeyboardLandscape::KEY_SHIFT = "shift";
+const String KeyboardLandscape::KEY_SPACE = " ";
+const String KeyboardLandscape::KEY_ICON = "ic";
+
+// Bảng phím chữ cái (chữ viết thường) - layout nằm ngang
+String KeyboardLandscape::qwertyKeysArray[3][10] = {
   { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
   { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
   { "ic", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
 };
 
 // Bảng phím số và ký tự đặc biệt
-String Keyboard::numericKeysArray[3][10] = {
+String KeyboardLandscape::numericKeysArray[3][10] = {
   { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
   { "ABC", "/", ":", ";", "(", ")", "$", "&", "@", "\"" },
   { "ic", "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
 };
 
 // Constructor
-Keyboard::Keyboard(Adafruit_ST7789* tft) {
+KeyboardLandscape::KeyboardLandscape(Adafruit_ST7789* tft) {
     this->tft = tft;
     this->cursorRow = 0;
     this->cursorCol = 0;
     this->kb_x = 0;
-    this->kb_y = 0;  // Vị trí bàn phím cho màn hình 320x240 với rotation 3 (ở dưới cùng vì Y đảo ngược)
+    this->kb_y = 0;  // Vị trí bàn phím cho màn hình 320x240 (nằm ngang)
     this->currentChar = "";
     this->selectedIndex = 0;
     this->isAlphabetMode = true;
@@ -75,33 +76,35 @@ Keyboard::Keyboard(Adafruit_ST7789* tft) {
 }
 
 // Destructor
-Keyboard::~Keyboard() {
+KeyboardLandscape::~KeyboardLandscape() {
     // Không cần giải phóng gì vì chỉ lưu con trỏ
 }
 
-void Keyboard::draw() {
+void KeyboardLandscape::draw() {
     // Tăng animation frame cho hiệu ứng cyberpunk
     animationFrame++;
     if (animationFrame > 1000) animationFrame = 0;  // Reset sau 1000 frame
     
     // Sử dụng kích thước từ skin
-    uint16_t keyWidth = currentSkin.keyWidth;
-    uint16_t keyHeight = currentSkin.keyHeight;
-    uint16_t spacing = currentSkin.spacing;
+    int16_t keyWidth = currentSkin.keyWidth;
+    int16_t keyHeight = currentSkin.keyHeight;
+    int16_t spacing = currentSkin.spacing;
     
-    // Tính toán để căn giữa keyboard - phù hợp với rotation 3 (-90 độ)
-    // Với rotation 3: màn hình 320x240, gốc (0,0) ở góc dưới bên trái
-    // X: 0 ở trái, tăng sang phải (bình thường)
-    // Y: 0 ở dưới, tăng lên trên (đảo ngược)
-    uint16_t keyboardWidth = 10 * (keyWidth + spacing) - spacing; // Tổng chiều rộng 10 phím
-    uint16_t keyboardHeight = 3 * (keyHeight + spacing) - spacing; // Tổng chiều cao 3 hàng phím
-    uint16_t screenWidth = 320;   // Chiều rộng màn hình sau rotation 3
-    uint16_t screenHeight = 240;  // Chiều cao màn hình sau rotation 3
+    // XOAY 90 ĐỘ: Tính toán để căn giữa keyboard theo chiều dọc 240px (màn hình nằm ngang)
+    // Sau khi xoay: 3 hàng x 10 cột -> 10 hàng x 3 cột
+    // LƯU Ý: Với rotation 3 (-90 độ), màn hình 320x240, gốc tọa độ (0,0) ở góc dưới bên trái
+    // X: 0 ở bên trái, tăng sang phải (bình thường)
+    // Y: 0 ở dưới cùng, tăng lên trên (đảo ngược)
+    int16_t keyboardHeight = 10 * (keyWidth + spacing) - spacing; // Tổng chiều cao 10 hàng (dùng keyWidth vì xoay)
+    int16_t keyboardWidth = 3 * (keyHeight + spacing) - spacing; // Tổng chiều rộng 3 cột (dùng keyHeight vì xoay)
     
-    uint16_t xStart = (screenWidth - keyboardWidth) / 2;  // Căn giữa theo chiều ngang 320px
-    // Với rotation 3, Y đảo ngược (0 ở dưới, tăng lên trên)
-    // Giảm yStart để bàn phím có khoảng cách với đáy, không quá sát
-    uint16_t yStart = 120;  // Bàn phím cách đáy một chút (giảm từ 130 để có khoảng cách)
+    // Với rotation 3 (-90 độ): màn hình 320x240, gốc (0,0) ở góc dưới bên trái
+    int16_t screenWidth = 320;   // Chiều rộng màn hình sau rotation 3
+    int16_t screenHeight = 240; // Chiều cao màn hình sau rotation 3
+    // X bình thường với rotation 3, tính từ trái sang phải
+    int16_t xStart = (screenWidth - keyboardWidth) / 2;  // Căn giữa theo chiều ngang
+    // Y bị đảo ngược với rotation 3, nên tính từ dưới lên
+    int16_t yStart = screenHeight - (screenHeight - keyboardHeight) / 2 - keyboardHeight;  // Căn giữa theo chiều dọc (từ dưới)
 
     // Chọn bảng phím dựa vào chế độ hiện tại
     String (*currentKeys)[10];
@@ -111,81 +114,88 @@ void Keyboard::draw() {
         currentKeys = numericKeysArray; // Sử dụng bảng phím số/ký tự đặc biệt
     }
 
-    // BƯỚC 1: Vẽ tất cả các phím (nền) trước
-    for (uint16_t row = 0; row < 3; row++) {  // Điều chỉnh để duyệt qua 3 hàng
-        for (uint16_t col = 0; col < 10; col++) {
-            uint16_t xPos = xStart + col * (keyWidth + spacing);
-            uint16_t yPos = yStart + row * (keyHeight + spacing);
+    // BƯỚC 1: Vẽ tất cả các phím (nền) trước - XOAY 90 ĐỘ và LẬT NGƯỢC, phù hợp với rotation 3 (-90 độ)
+    // Duyệt qua col (0-9) và row (0-2) nhưng vẽ theo chiều xoay 90 độ, đảo ngược cả row và col để lật ngược
+    // Với rotation 3: Y bị đảo ngược (0 ở dưới, tăng lên trên), nên cần đảo ngược col
+    for (int16_t col = 0; col < 10; col++) {  // 10 cột trong mảng ban đầu -> 10 hàng sau khi xoay
+        for (int16_t row = 0; row < 3; row++) {  // 3 hàng trong mảng ban đầu -> 3 cột sau khi xoay
+            // XOAY 90 ĐỘ + LẬT NGƯỢC: đổi chỗ keyWidth và keyHeight, đảo ngược cả row và col
+            // row: 0->cột 2 (phải), 1->cột 1 (giữa), 2->cột 0 (trái) - đảo ngược
+            // col: 0->hàng 9 (dưới), 1->hàng 8, ..., 9->hàng 0 (trên) - đảo ngược vì Y bị đảo với rotation 3
+            int16_t xPos = xStart + (2 - row) * (keyHeight + spacing);  // row đảo ngược: 0->2, 1->1, 2->0
+            int16_t yPos = yStart + (9 - col) * (keyWidth + spacing);   // col đảo ngược: 0->9, 1->8, ..., 9->0 (vì Y đảo với rotation 3)
 
             // Vẽ nền phím
-            uint16_t bgColor;
+            int16_t bgColor;
             if (row == cursorRow && col == cursorCol) {
                 bgColor = currentSkin.keySelectedColor; // Tô sáng phím hiện tại
             } else {
                 bgColor = currentSkin.keyBgColor;  // Màu nền phím bình thường
             }
             
-            // Vẽ phím với bo góc hoặc không
+            // Vẽ phím với bo góc hoặc không - XOAY: đổi chỗ keyWidth và keyHeight
             if (currentSkin.roundedCorners && currentSkin.cornerRadius > 0) {
-                tft->fillRoundRect(xPos, yPos, keyWidth, keyHeight, currentSkin.cornerRadius, bgColor);
+                tft->fillRoundRect(xPos, yPos, keyHeight, keyWidth, currentSkin.cornerRadius, bgColor);
                 if (currentSkin.hasBorder) {
-                    tft->drawRoundRect(xPos, yPos, keyWidth, keyHeight, currentSkin.cornerRadius, currentSkin.keyBorderColor);
+                    tft->drawRoundRect(xPos, yPos, keyHeight, keyWidth, currentSkin.cornerRadius, currentSkin.keyBorderColor);
                 }
             } else {
-            tft->fillRect(xPos, yPos, keyWidth, keyHeight, bgColor);
+                tft->fillRect(xPos, yPos, keyHeight, keyWidth, bgColor);
                 if (currentSkin.hasBorder) {
-                    tft->drawRect(xPos, yPos, keyWidth, keyHeight, currentSkin.keyBorderColor);
+                    tft->drawRect(xPos, yPos, keyHeight, keyWidth, currentSkin.keyBorderColor);
                 }
             }
             
-            // Vẽ hoa văn nữ tính nếu đang dùng feminine skin
+            // Vẽ hoa văn nữ tính nếu đang dùng feminine skin - XOAY 90: đổi chỗ keyWidth và keyHeight
             // Kiểm tra bằng cách so sánh màu nền (màu hồng đặc trưng)
             if (currentSkin.keyBgColor == 0xF81F || currentSkin.keyBgColor == 0xFE1F) {
-                drawFemininePattern(xPos, yPos, keyWidth, keyHeight);
+                drawFemininePattern(xPos, yPos, keyHeight, keyWidth);
             }
             
-            // Vẽ hiệu ứng cyberpunk/tron (grid pattern và glow) nếu đang dùng cyberpunk skin
+            // Vẽ hiệu ứng cyberpunk/tron (grid pattern và glow) nếu đang dùng cyberpunk skin - XOAY 90
             // Kiểm tra bằng cách so sánh màu nền đen và viền cyan
             if (currentSkin.keyBgColor == 0x0000 && currentSkin.keyBorderColor == 0x07FF) {
-                // Vẽ grid pattern nhỏ ở giữa phím
-                uint16_t gridColor = 0x07FF;  // Neon cyan
-                // Vẽ đường kẻ ngang nhỏ ở giữa
-                tft->drawFastHLine(xPos + 2, yPos + keyHeight / 2, keyWidth - 4, gridColor);
-                // Vẽ đường kẻ dọc nhỏ ở giữa
-                tft->drawFastVLine(xPos + keyWidth / 2, yPos + 2, keyHeight - 4, gridColor);
+                // Vẽ grid pattern nhỏ ở giữa phím - XOAY 90: đổi chỗ keyWidth và keyHeight
+                int16_t gridColor = 0x07FF;  // Neon cyan
+                // Vẽ đường kẻ ngang nhỏ ở giữa (sau khi xoay 90)
+                tft->drawFastHLine(xPos + 2, yPos + keyWidth / 2, keyHeight - 4, gridColor);
+                // Vẽ đường kẻ dọc nhỏ ở giữa (sau khi xoay 90)
+                tft->drawFastVLine(xPos + keyHeight / 2, yPos + 2, keyWidth - 4, gridColor);
                 
-                // Vẽ hiệu ứng điện chạy xung quanh phím
-                drawCyberpunkGlow(xPos, yPos, keyWidth, keyHeight, animationFrame);
+                // Vẽ hiệu ứng điện chạy xung quanh phím - XOAY 90: đổi chỗ keyWidth và keyHeight
+                drawCyberpunkGlow(xPos, yPos, keyHeight, keyWidth, animationFrame);
             }
             
-            // Vẽ pattern máy móc cơ học steampunk nếu đang dùng mechanical skin
+            // Vẽ pattern máy móc cơ học steampunk nếu đang dùng mechanical skin - XOAY 90
             // Kiểm tra bằng cách so sánh màu nền đỏ và viền đồng
             if (currentSkin.keyBgColor == 0x8000 && currentSkin.keyBorderColor == 0xFD20) {
-                drawMechanicalPattern(xPos, yPos, keyWidth, keyHeight);
+                drawMechanicalPattern(xPos, yPos, keyHeight, keyWidth);
             }
         }
     }
     
-    // Vẽ hiệu ứng điện xung quanh toàn bộ bàn phím (cyberpunk skin)
+    // Vẽ hiệu ứng điện xung quanh toàn bộ bàn phím (cyberpunk skin) - XOAY 90
     if (currentSkin.keyBgColor == 0x0000 && currentSkin.keyBorderColor == 0x07FF) {
-        uint16_t keyboardHeight = 3 * (keyHeight + spacing) - spacing; // Tổng chiều cao 3 hàng
         drawCyberpunkKeyboardBorder(xStart, yStart, keyboardWidth, keyboardHeight, animationFrame);
     }
 
-    // BƯỚC 2: Điền chữ vào các phím sau
-    for (uint16_t row = 0; row < 3; row++) {
-        for (uint16_t col = 0; col < 10; col++) {
-
-            uint16_t xPos = xStart + col * (keyWidth + spacing);
-            uint16_t yPos = yStart + row * (keyHeight + spacing) - 2;
+    // BƯỚC 2: Điền chữ vào các phím sau - XOAY 90 ĐỘ và LẬT NGƯỢC, phù hợp với rotation 3 (-90 độ)
+    for (int16_t col = 0; col < 10; col++) {  // 10 cột trong mảng ban đầu -> 10 hàng sau khi xoay
+        for (int16_t row = 0; row < 3; row++) {  // 3 hàng trong mảng ban đầu -> 3 cột sau khi xoay
+            // XOAY 90 ĐỘ + LẬT NGƯỢC: đổi chỗ keyWidth và keyHeight, đảo ngược cả row và col
+            // row: 0->cột 2 (phải), 1->cột 1 (giữa), 2->cột 0 (trái) - đảo ngược
+            // col: 0->hàng 9 (dưới), 1->hàng 8, ..., 9->hàng 0 (trên) - đảo ngược vì Y bị đảo với rotation 3
+            int16_t xPos = xStart + (2 - row) * (keyHeight + spacing);  // row đảo ngược: 0->2, 1->1, 2->0
+            int16_t yPos = yStart + (9 - col) * (keyWidth + spacing);   // col đảo ngược: 0->9, 1->8, ..., 9->0 (vì Y đảo với rotation 3)
+            
             if (currentKeys[row][col].length() > 1) {
                 xPos -= 1;
             }
             // In ký tự của từng phím nếu không phải là phím trống
             if (currentKeys[row][col] != "") {
                 // Xác định màu nền và màu chữ của phím
-                uint16_t bgColor;
-                uint16_t textColor;
+                int16_t bgColor;
+                int16_t textColor;
                 if (row == cursorRow && col == cursorCol) {
                     bgColor = currentSkin.keySelectedColor;
                     // Luôn tự động tính màu chữ tương phản để đảm bảo dễ nhìn
@@ -206,14 +216,15 @@ void Keyboard::draw() {
                     keyText = keyText.substring(0, 2);
                 }
                 
-                // Tính toán vị trí để căn giữa text (ước tính text width ~6px * textSize cho 1 ký tự với font size 1)
-                uint16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
-                uint16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
-                uint16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
-                if (textWidth < keyWidth - (marginX * 2)) {
-                    textX = xPos + (keyWidth - textWidth) / 2;  // Căn giữa nếu đủ chỗ
+                // Tính toán vị trí để căn giữa text - XOAY 90: đổi chỗ keyWidth và keyHeight
+                int16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
+                int16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
+                int16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
+                if (textWidth < keyHeight - (marginX * 2)) {  // XOAY 90: dùng keyHeight thay vì keyWidth
+                    textX = xPos + (keyHeight - textWidth) / 2;  // Căn giữa nếu đủ chỗ
                 }
-                uint16_t textY = yPos + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc (text height ~8px với size 1)
+                int16_t textHeight = 8 * currentSkin.textSize;  // Text height ~8px * textSize
+                int16_t textY = yPos + (keyWidth - textHeight) / 2;  // XOAY 90: dùng keyWidth thay vì keyHeight
                 
                 tft->setCursor(textX, textY);
                 tft->print(keyText);  // In ký tự
@@ -221,47 +232,41 @@ void Keyboard::draw() {
         }
     }
 
-    // Vẽ phím Space ở hàng dưới cùng và căn giữa - phù hợp với rotation 3
-    uint16_t spaceKeyWidth = 8 * (keyWidth + spacing) - spacing; // Phím Space chiếm 8 ô
-    uint16_t spaceXStart = (screenWidth - spaceKeyWidth) / 2; // Căn giữa theo chiều ngang (320px width)
-    // Với rotation 3, Y đảo ngược, Space sẽ ở trên cùng của bàn phím (hàng 3)
-    uint16_t spaceYStart = yStart + 3 * (keyHeight + spacing); // Đặt phím Space ở hàng 3 (trên cùng của bàn phím)
+    // Vẽ phím Space ở cột bên phải sau khi xoay 90 độ và lật ngược - XOAY 90 + LẬT NGƯỢC, phù hợp với rotation 3
+    // Sau khi xoay 90 và lật ngược, Space sẽ nằm ở cột bên phải (cột 2) thay vì hàng dưới
+    int16_t spaceKeyHeight = 8 * (keyWidth + spacing) - spacing; // Phím Space chiếm 8 ô (dùng keyWidth vì xoay)
+    int16_t spaceXStart = xStart + 2 * (keyHeight + spacing); // Đặt phím Space ở cột 2 (bên phải sau khi lật ngược)
+    int16_t spaceYStart = yStart; // Bắt đầu từ cùng vị trí Y với bàn phím
 
     // BƯỚC 1: Vẽ nền phím Space trước
-    uint16_t spaceBgColor;
+    int16_t spaceBgColor;
     if (cursorRow == 3) {
         spaceBgColor = currentSkin.keySelectedColor; // Tô sáng phím Space khi chọn
     } else {
         spaceBgColor = currentSkin.keyBgColor;  // Màu nền phím bình thường
     }
     
-    // Vẽ phím Space với bo góc hoặc không
+    // Vẽ phím Space với bo góc hoặc không - XOAY: đổi chỗ keyWidth và keyHeight
     if (currentSkin.roundedCorners && currentSkin.cornerRadius > 0) {
-        tft->fillRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, keyHeight, currentSkin.cornerRadius, spaceBgColor);
+        tft->fillRoundRect(spaceXStart, spaceYStart, keyHeight, spaceKeyHeight, currentSkin.cornerRadius, spaceBgColor);
         if (currentSkin.hasBorder) {
-            tft->drawRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, keyHeight, currentSkin.cornerRadius, currentSkin.keyBorderColor);
+            tft->drawRoundRect(spaceXStart, spaceYStart, keyHeight, spaceKeyHeight, currentSkin.cornerRadius, currentSkin.keyBorderColor);
         }
     } else {
-    tft->fillRect(spaceXStart, spaceYStart, spaceKeyWidth, keyHeight, spaceBgColor);
+        tft->fillRect(spaceXStart, spaceYStart, keyHeight, spaceKeyHeight, spaceBgColor);
         if (currentSkin.hasBorder) {
-            tft->drawRect(spaceXStart, spaceYStart, spaceKeyWidth, keyHeight, currentSkin.keyBorderColor);
+            tft->drawRect(spaceXStart, spaceYStart, keyHeight, spaceKeyHeight, currentSkin.keyBorderColor);
         }
     }
     
     // BƯỚC 2: Điền chữ vào phím Space sau
     // Luôn tự động tính màu chữ tương phản để đảm bảo dễ nhìn
-    uint16_t spaceTextColor = getContrastColor(spaceBgColor);
+    int16_t spaceTextColor = getContrastColor(spaceBgColor);
     tft->setTextColor(spaceTextColor, spaceBgColor);
     tft->setTextSize(currentSkin.textSize);  // Sử dụng textSize từ skin
-    // String spaceText = "sp";  // Rút gọn để fit vào phím
-    // uint16_t spaceTextWidth = spaceText.length() * 6 * textSize;  // Tính theo textSize (6px cho font size 1)
-    // uint16_t spaceTextX = spaceXStart + (spaceKeyWidth - spaceTextWidth) / 2;
-    // uint16_t spaceTextY = spaceYStart + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc
-    // tft->setCursor(spaceTextX, spaceTextY);
-    // tft->print(spaceText);  // In text "Sp"
 }
 
-void Keyboard::updateCurrentCursor() {
+void KeyboardLandscape::updateCurrentCursor() {
     // Lấy ký tự tại vị trí con trỏ hiện tại
     String currentKey = getCurrentKey();
     // Cập nhật thông tin ký tự hiện tại
@@ -269,7 +274,7 @@ void Keyboard::updateCurrentCursor() {
 }
 
 // Hàm lấy ký tự hiện tại từ bàn phím
-String Keyboard::getCurrentKey() const {
+String KeyboardLandscape::getCurrentKey() const {
     if (cursorRow == 3) {
         return KEY_SPACE;  // Trả về phím Space nếu con trỏ ở hàng cuối cùng
     }
@@ -284,7 +289,7 @@ String Keyboard::getCurrentKey() const {
     return currentKeys[cursorRow][cursorCol];
 }
 
-void Keyboard::moveCursor(int8_t deltaRow, int8_t deltaCol) {
+void KeyboardLandscape::moveCursor(int8_t deltaRow, int8_t deltaCol) {
     cursorCol += deltaCol;
     cursorRow += deltaRow;
 
@@ -313,7 +318,7 @@ void Keyboard::moveCursor(int8_t deltaRow, int8_t deltaCol) {
 }
 
 // Hàm xử lý khi người dùng nhấn phím
-void Keyboard::moveCursorByCommand(String command, int x, int y) {
+void KeyboardLandscape::moveCursorByCommand(String command, int x, int y) {
     if (command == "up") {
         moveCursor(-1, 0);  // Di chuyển lên
     } else if (command == "down") {
@@ -344,7 +349,7 @@ void Keyboard::moveCursorByCommand(String command, int x, int y) {
     }
 }
 
-void Keyboard::moveCursorTo(uint16_t row, int8_t col) {
+void KeyboardLandscape::moveCursorTo(int16_t row, int8_t col) {
     cursorRow = row;
     cursorCol = col;
     
@@ -357,7 +362,7 @@ void Keyboard::moveCursorTo(uint16_t row, int8_t col) {
     draw();
 }
 
-bool Keyboard::typeChar(char c) {
+bool KeyboardLandscape::typeChar(char c) {
     // Chuyển đổi ký tự thành String để so sánh
     String charStr = String(c);
     
@@ -394,8 +399,8 @@ bool Keyboard::typeChar(char c) {
         currentKeys = numericKeysArray;
     }
     
-    for (uint16_t row = 0; row < 3; row++) {
-        for (uint16_t col = 0; col < 10; col++) {
+    for (int16_t row = 0; row < 3; row++) {
+        for (int16_t col = 0; col < 10; col++) {
             String key = currentKeys[row][col];
             // So sánh ký tự (bỏ qua các phím đặc biệt như "123", "ABC", "|e", "<", "ic")
             if (key.length() == 1 && key.charAt(0) == c) {
@@ -417,8 +422,8 @@ bool Keyboard::typeChar(char c) {
         currentKeys = qwertyKeysArray;
     }
     
-    for (uint16_t row = 0; row < 3; row++) {
-        for (uint16_t col = 0; col < 10; col++) {
+    for (int16_t row = 0; row < 3; row++) {
+        for (int16_t col = 0; col < 10; col++) {
             String key = currentKeys[row][col];
             if (key.length() == 1 && key.charAt(0) == c) {
                 // Chuyển đổi chế độ trước
@@ -444,25 +449,25 @@ bool Keyboard::typeChar(char c) {
     return false;  // Không tìm thấy ký tự
 }
 
-void Keyboard::typeString(String text) {
-    for (uint16_t i = 0; i < text.length(); i++) {
+void KeyboardLandscape::typeString(String text) {
+    for (int16_t i = 0; i < text.length(); i++) {
         char c = text.charAt(i);
         typeChar(c);
         delay(150);  // Delay giữa các ký tự
     }
 }
 
-void Keyboard::turnOff() {
+void KeyboardLandscape::turnOff() {
     tft->fillScreen(currentSkin.bgScreenColor);
 }
 
 // Skin management methods
-void Keyboard::setSkin(const KeyboardSkin& skin) {
+void KeyboardLandscape::setSkin(const KeyboardSkin& skin) {
     currentSkin = skin;
     applySkin();
 }
 
-void Keyboard::applySkin() {
+void KeyboardLandscape::applySkin() {
     // Áp dụng skin vào các biến màu sắc cũ để backward compatibility
     keyBgColor = currentSkin.keyBgColor;
     keySelectedColor = currentSkin.keySelectedColor;
@@ -471,17 +476,14 @@ void Keyboard::applySkin() {
     textSize = currentSkin.textSize;
 }
 
-// Các skin mẫu đã được di chuyển vào namespace KeyboardSkins
-// Sử dụng KeyboardSkins::getFeminineSkin(), KeyboardSkins::getCyberpunkSkin(), etc.
-
 // Vẽ hoa văn nữ tính (trái tim, hoa, pattern) trên phím
-void Keyboard::drawFemininePattern(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
+void KeyboardLandscape::drawFemininePattern(int16_t x, int16_t y, int16_t width, int16_t height) {
     // Chỉ vẽ hoa văn nhỏ ở góc phím, không che chữ
-    uint16_t patternColor = 0xFFFF;  // Màu trắng cho hoa văn
+    int16_t patternColor = 0xFFFF;  // Màu trắng cho hoa văn
     
     // Vẽ trái tim nhỏ ở góc trên bên phải
-    uint16_t heartX = x + width - 6;
-    uint16_t heartY = y + 2;
+    int16_t heartX = x + width - 6;
+    int16_t heartY = y + 2;
     
     // Vẽ trái tim đơn giản (3 pixel)
     tft->drawPixel(heartX, heartY, patternColor);
@@ -489,8 +491,8 @@ void Keyboard::drawFemininePattern(uint16_t x, uint16_t y, uint16_t width, uint1
     tft->drawPixel(heartX, heartY + 1, patternColor);
     
     // Vẽ hoa nhỏ ở góc dưới bên trái
-    uint16_t flowerX = x + 2;
-    uint16_t flowerY = y + height - 4;
+    int16_t flowerX = x + 2;
+    int16_t flowerY = y + height - 4;
     
     // Vẽ hoa 5 cánh đơn giản
     tft->drawPixel(flowerX, flowerY, patternColor);      // Cánh giữa
@@ -501,101 +503,68 @@ void Keyboard::drawFemininePattern(uint16_t x, uint16_t y, uint16_t width, uint1
     
     // Vẽ pattern nhỏ ở giữa (chấm tròn)
     if (width > 15 && height > 15) {
-        uint16_t dotX = x + width / 2;
-        uint16_t dotY = y + height / 2;
+        int16_t dotX = x + width / 2;
+        int16_t dotY = y + height / 2;
         tft->drawPixel(dotX, dotY, patternColor);
     }
 }
 
-
 // Vẽ pattern máy móc cơ học steampunk (bánh răng, đường kẻ cơ khí) trên phím
-// Vẽ bánh răng chi tiết màu đồng nâu, nhỏ ở góc để không che chữ
-void Keyboard::drawMechanicalPattern(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-    // Màu đồng nâu (copper brown)
-    uint16_t copperColor = 0xCC00;   // Copper brown (đồng nâu)
-    uint16_t darkCopper = 0x9800;    // Dark copper (đồng đậm)
-    uint16_t lightCopper = 0xFD20;   // Light copper (đồng nhạt)
-    uint16_t accentColor = 0x05DF;   // Teal nhạt cho tâm bánh răng
-    
-    // Vẽ bánh răng chi tiết nhỏ ở góc trên bên trái
-    uint16_t gearX = x + 4;
-    uint16_t gearY = y + 4;
-    uint16_t gearRadius = 4;  // Bánh răng nhỏ
-    
-    // Vẽ vòng tròn ngoài (đồng nâu)
-    tft->drawCircle(gearX, gearY, gearRadius, copperColor);
-    tft->drawCircle(gearX, gearY, gearRadius - 1, darkCopper);
-    
-    // Vẽ tâm bánh răng (hub) với lỗ tròn
-    tft->fillCircle(gearX, gearY, 1, accentColor);
-    tft->drawCircle(gearX, gearY, 1, copperColor);
-    
-    // Vẽ các răng cưa chi tiết (8 răng)
-    // Răng ở 4 hướng chính
-    tft->drawPixel(gearX, gearY - gearRadius - 1, copperColor);  // Trên
-    tft->drawPixel(gearX, gearY + gearRadius + 1, copperColor);  // Dưới
-    tft->drawPixel(gearX - gearRadius - 1, gearY, copperColor);  // Trái
-    tft->drawPixel(gearX + gearRadius + 1, gearY, copperColor);  // Phải
-    
-    // Răng ở 4 góc
-    tft->drawPixel(gearX - 3, gearY - 3, copperColor);  // Góc trên trái
-    tft->drawPixel(gearX + 3, gearY - 3, copperColor);  // Góc trên phải
-    tft->drawPixel(gearX - 3, gearY + 3, copperColor);  // Góc dưới trái
-    tft->drawPixel(gearX + 3, gearY + 3, copperColor);  // Góc dưới phải
-    
-    // Vẽ các răng phụ (chi tiết hơn)
-    tft->drawPixel(gearX - 2, gearY - gearRadius, lightCopper);
-    tft->drawPixel(gearX + 2, gearY - gearRadius, lightCopper);
-    tft->drawPixel(gearX - 2, gearY + gearRadius, lightCopper);
-    tft->drawPixel(gearX + 2, gearY + gearRadius, lightCopper);
-    tft->drawPixel(gearX - gearRadius, gearY - 2, lightCopper);
-    tft->drawPixel(gearX - gearRadius, gearY + 2, lightCopper);
-    tft->drawPixel(gearX + gearRadius, gearY - 2, lightCopper);
-    tft->drawPixel(gearX + gearRadius, gearY + 2, lightCopper);
-    
-    // Vẽ bánh răng nhỏ thứ 2 ở góc dưới bên phải
-    uint16_t gearX2 = x + width - 5;
-    uint16_t gearY2 = y + height - 5;
-    
-    // Vẽ vòng tròn ngoài
-    tft->drawCircle(gearX2, gearY2, gearRadius, copperColor);
-    tft->drawCircle(gearX2, gearY2, gearRadius - 1, darkCopper);
-    
-    // Tâm bánh răng
-    tft->fillCircle(gearX2, gearY2, 1, accentColor);
-    tft->drawCircle(gearX2, gearY2, 1, copperColor);
-    
-    // Răng cưa
-    tft->drawPixel(gearX2, gearY2 - gearRadius - 1, copperColor);
-    tft->drawPixel(gearX2, gearY2 + gearRadius + 1, copperColor);
-    tft->drawPixel(gearX2 - gearRadius - 1, gearY2, copperColor);
-    tft->drawPixel(gearX2 + gearRadius + 1, gearY2, copperColor);
-    tft->drawPixel(gearX2 - 3, gearY2 - 3, copperColor);
-    tft->drawPixel(gearX2 + 3, gearY2 - 3, copperColor);
-    tft->drawPixel(gearX2 - 3, gearY2 + 3, copperColor);
-    tft->drawPixel(gearX2 + 3, gearY2 + 3, copperColor);
-    
-    // Vẽ các điểm rivet (đinh tán) ở góc (đồng nâu)
-    tft->drawPixel(x + 2, y + 2, copperColor);
-    tft->drawPixel(x + width - 3, y + 2, copperColor);
-    tft->drawPixel(x + 2, y + height - 3, copperColor);
-    tft->drawPixel(x + width - 3, y + height - 3, copperColor);
+void KeyboardLandscape::drawMechanicalPattern(int16_t x, int16_t y, int16_t width, int16_t height) {
+    int16_t gearColor = 0xFD20;     // Copper/Bronze (đồng nâu)
+    int16_t accentColor = 0xFA00;   // Orange/rust (cam gỉ)
+    int16_t rivetColor = 0xFFE0;    // Golden yellow (vàng sáng)
+
+    // Vẽ bánh răng nhỏ ở góc trên bên trái
+    int16_t gearX1 = x + 4;
+    int16_t gearY1 = y + 4;
+    int16_t smallGearRadius = 3;
+    tft->drawCircle(gearX1, gearY1, smallGearRadius, gearColor);
+    tft->drawPixel(gearX1, gearY1, accentColor); // Tâm bánh răng
+    // Thêm 4 răng nhỏ
+    tft->drawPixel(gearX1, gearY1 - smallGearRadius - 1, gearColor);
+    tft->drawPixel(gearX1, gearY1 + smallGearRadius + 1, gearColor);
+    tft->drawPixel(gearX1 - smallGearRadius - 1, gearY1, gearColor);
+    tft->drawPixel(gearX1 + smallGearRadius + 1, gearY1, gearColor);
+
+    // Vẽ bánh răng nhỏ ở góc dưới bên phải
+    int16_t gearX2 = x + width - 5;
+    int16_t gearY2 = y + height - 5;
+    tft->drawCircle(gearX2, gearY2, smallGearRadius, gearColor);
+    tft->drawPixel(gearX2, gearY2, accentColor); // Tâm bánh răng
+    // Thêm 4 răng nhỏ
+    tft->drawPixel(gearX2, gearY2 - smallGearRadius - 1, gearColor);
+    tft->drawPixel(gearX2, gearY2 + smallGearRadius + 1, gearColor);
+    tft->drawPixel(gearX2 - smallGearRadius - 1, gearY2, gearColor);
+    tft->drawPixel(gearX2 + smallGearRadius + 1, gearY2, gearColor);
+
+    // Vẽ các điểm rivet (đinh tán) ở 4 góc
+    tft->fillCircle(x + 2, y + 2, 1, rivetColor);
+    tft->fillCircle(x + width - 3, y + 2, 1, rivetColor);
+    tft->fillCircle(x + 2, y + height - 3, 1, rivetColor);
+    tft->fillCircle(x + width - 3, y + height - 3, 1, rivetColor);
+
+    // Vẽ các đường kẻ mỏng ở cạnh (texture kim loại)
+    tft->drawFastHLine(x + 1, y + 1, width - 2, accentColor); // Top edge
+    tft->drawFastHLine(x + 1, y + height - 2, width - 2, accentColor); // Bottom edge
+    tft->drawFastVLine(x + 1, y + 1, height - 2, accentColor); // Left edge
+    tft->drawFastVLine(x + width - 2, y + 1, height - 2, accentColor); // Right edge
 }
 
 // Vẽ hiệu ứng điện chạy xung quanh phím (cyberpunk/tron style)
-void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t animationFrame) {
-    uint16_t glowColor = 0x07FF;  // Neon cyan
-    uint16_t brightGlow = 0xFFFF;  // White (sáng nhất)
+void KeyboardLandscape::drawCyberpunkGlow(int16_t x, int16_t y, int16_t width, int16_t height, int16_t animationFrame) {
+    int16_t glowColor = 0x07FF;  // Neon cyan
+    int16_t brightGlow = 0xFFFF;  // White (sáng nhất)
     
     // Tính vị trí điện chạy dựa trên animation frame
     // Điện chạy theo chu vi phím (4 cạnh)
-    uint16_t perimeter = (width + height) * 2;
-    uint16_t currentPos = (animationFrame * 2) % perimeter;  // Tốc độ chạy
+    int16_t perimeter = (width + height) * 2;
+    int16_t currentPos = (animationFrame * 2) % perimeter;  // Tốc độ chạy
     
     // Vẽ đường điện chạy quanh viền phím
     // Cạnh trên (trái -> phải)
     if (currentPos < width) {
-        uint16_t glowX = x + currentPos;
+        int16_t glowX = x + currentPos;
         tft->drawPixel(glowX, y, brightGlow);
         tft->drawPixel(glowX, y + 1, glowColor);
         if (currentPos > 0) tft->drawPixel(glowX - 1, y, glowColor);
@@ -603,7 +572,7 @@ void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_
     }
     // Cạnh phải (trên -> dưới)
     else if (currentPos < width + height) {
-        uint16_t glowY = y + (currentPos - width);
+        int16_t glowY = y + (currentPos - width);
         tft->drawPixel(x + width - 1, glowY, brightGlow);
         tft->drawPixel(x + width - 2, glowY, glowColor);
         if (glowY > y) tft->drawPixel(x + width - 1, glowY - 1, glowColor);
@@ -611,7 +580,7 @@ void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_
     }
     // Cạnh dưới (phải -> trái)
     else if (currentPos < width * 2 + height) {
-        uint16_t glowX = x + width - 1 - (currentPos - width - height);
+        int16_t glowX = x + width - 1 - (currentPos - width - height);
         tft->drawPixel(glowX, y + height - 1, brightGlow);
         tft->drawPixel(glowX, y + height - 2, glowColor);
         if (glowX > x) tft->drawPixel(glowX - 1, y + height - 1, glowColor);
@@ -619,7 +588,7 @@ void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_
     }
     // Cạnh trái (dưới -> trên)
     else {
-        uint16_t glowY = y + height - 1 - (currentPos - width * 2 - height);
+        int16_t glowY = y + height - 1 - (currentPos - width * 2 - height);
         tft->drawPixel(x, glowY, brightGlow);
         tft->drawPixel(x + 1, glowY, glowColor);
         if (glowY > y) tft->drawPixel(x, glowY - 1, glowColor);
@@ -627,34 +596,34 @@ void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_
     }
     
     // Vẽ đuôi điện (trail) - các điểm phía sau
-    for (uint16_t i = 1; i <= 3; i++) {
-        uint16_t trailPos = (currentPos - i + perimeter) % perimeter;
-        uint16_t trailBrightness = 0x07FF - (i * 0x1000);  // Mờ dần
+    for (int16_t i = 1; i <= 3; i++) {
+        int16_t trailPos = (currentPos - i + perimeter) % perimeter;
+        int16_t trailBrightness = 0x07FF - (i * 0x1000);  // Mờ dần
         
         // Cạnh trên
         if (trailPos < width) {
-            uint16_t trailX = x + trailPos;
+            int16_t trailX = x + trailPos;
             if (trailX >= x && trailX < x + width) {
                 tft->drawPixel(trailX, y, trailBrightness);
             }
         }
         // Cạnh phải
         else if (trailPos < width + height) {
-            uint16_t trailY = y + (trailPos - width);
+            int16_t trailY = y + (trailPos - width);
             if (trailY >= y && trailY < y + height) {
                 tft->drawPixel(x + width - 1, trailY, trailBrightness);
             }
         }
         // Cạnh dưới
         else if (trailPos < width * 2 + height) {
-            uint16_t trailX = x + width - 1 - (trailPos - width - height);
+            int16_t trailX = x + width - 1 - (trailPos - width - height);
             if (trailX >= x && trailX < x + width) {
                 tft->drawPixel(trailX, y + height - 1, trailBrightness);
             }
         }
         // Cạnh trái
         else {
-            uint16_t trailY = y + height - 1 - (trailPos - width * 2 - height);
+            int16_t trailY = y + height - 1 - (trailPos - width * 2 - height);
             if (trailY >= y && trailY < y + height) {
                 tft->drawPixel(x, trailY, trailBrightness);
             }
@@ -663,19 +632,19 @@ void Keyboard::drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_
 }
 
 // Vẽ hiệu ứng điện chạy xung quanh toàn bộ bàn phím (cyberpunk/tron style)
-void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t animationFrame) {
-    uint16_t glowColor = 0x07FF;  // Neon cyan
-    uint16_t brightGlow = 0xFFFF;  // White (sáng nhất)
+void KeyboardLandscape::drawCyberpunkKeyboardBorder(int16_t x, int16_t y, int16_t width, int16_t height, int16_t animationFrame) {
+    int16_t glowColor = 0x07FF;  // Neon cyan
+    int16_t brightGlow = 0xFFFF;  // White (sáng nhất)
     
     // Tính vị trí điện chạy dựa trên animation frame
     // Điện chạy theo chu vi toàn bộ bàn phím (4 cạnh)
-    uint16_t perimeter = (width + height) * 2;
-    uint16_t currentPos = (animationFrame * 3) % perimeter;  // Tốc độ chạy nhanh hơn (x3)
+    int16_t perimeter = (width + height) * 2;
+    int16_t currentPos = (animationFrame * 3) % perimeter;  // Tốc độ chạy nhanh hơn (x3)
     
     // Vẽ đường điện chạy quanh viền ngoài bàn phím
     // Cạnh trên (trái -> phải)
     if (currentPos < width) {
-        uint16_t glowX = x + currentPos;
+        int16_t glowX = x + currentPos;
         // Vẽ điểm sáng chính
         tft->drawPixel(glowX, y, brightGlow);
         tft->drawPixel(glowX, y + 1, glowColor);
@@ -691,7 +660,7 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
     }
     // Cạnh phải (trên -> dưới)
     else if (currentPos < width + height) {
-        uint16_t glowY = y + (currentPos - width);
+        int16_t glowY = y + (currentPos - width);
         tft->drawPixel(x + width - 1, glowY, brightGlow);
         tft->drawPixel(x + width - 2, glowY, glowColor);
         if (glowY > y) {
@@ -705,7 +674,7 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
     }
     // Cạnh dưới (phải -> trái)
     else if (currentPos < width * 2 + height) {
-        uint16_t glowX = x + width - 1 - (currentPos - width - height);
+        int16_t glowX = x + width - 1 - (currentPos - width - height);
         tft->drawPixel(glowX, y + height - 1, brightGlow);
         tft->drawPixel(glowX, y + height - 2, glowColor);
         if (glowX > x) {
@@ -719,7 +688,7 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
     }
     // Cạnh trái (dưới -> trên)
     else {
-        uint16_t glowY = y + height - 1 - (currentPos - width * 2 - height);
+        int16_t glowY = y + height - 1 - (currentPos - width * 2 - height);
         tft->drawPixel(x, glowY, brightGlow);
         tft->drawPixel(x + 1, glowY, glowColor);
         if (glowY > y) {
@@ -733,10 +702,10 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
     }
     
     // Vẽ đuôi điện (trail) - các điểm phía sau với độ dài dài hơn
-    for (uint16_t i = 1; i <= 8; i++) {
-        uint16_t trailPos = (currentPos - i + perimeter) % perimeter;
+    for (int16_t i = 1; i <= 8; i++) {
+        int16_t trailPos = (currentPos - i + perimeter) % perimeter;
         // Tính độ sáng giảm dần
-        uint16_t trailBrightness;
+        int16_t trailBrightness;
         if (i <= 3) {
             trailBrightness = glowColor - (i * 0x2000);
         } else if (i <= 6) {
@@ -749,28 +718,28 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
         
         // Cạnh trên
         if (trailPos < width) {
-            uint16_t trailX = x + trailPos;
+            int16_t trailX = x + trailPos;
             if (trailX >= x && trailX < x + width) {
                 tft->drawPixel(trailX, y, trailBrightness);
             }
         }
         // Cạnh phải
         else if (trailPos < width + height) {
-            uint16_t trailY = y + (trailPos - width);
+            int16_t trailY = y + (trailPos - width);
             if (trailY >= y && trailY < y + height) {
                 tft->drawPixel(x + width - 1, trailY, trailBrightness);
             }
         }
         // Cạnh dưới
         else if (trailPos < width * 2 + height) {
-            uint16_t trailX = x + width - 1 - (trailPos - width - height);
+            int16_t trailX = x + width - 1 - (trailPos - width - height);
             if (trailX >= x && trailX < x + width) {
                 tft->drawPixel(trailX, y + height - 1, trailBrightness);
             }
         }
         // Cạnh trái
         else {
-            uint16_t trailY = y + height - 1 - (trailPos - width * 2 - height);
+            int16_t trailY = y + height - 1 - (trailPos - width * 2 - height);
             if (trailY >= y && trailY < y + height) {
                 tft->drawPixel(x, trailY, trailBrightness);
             }
@@ -780,7 +749,7 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
 
 // Tính màu chữ tương phản dựa trên màu nền
 // Sử dụng công thức tính độ sáng (luminance) để quyết định dùng màu đen hay trắng
-uint16_t Keyboard::getContrastColor(uint16_t bgColor) {
+int16_t KeyboardLandscape::getContrastColor(int16_t bgColor) {
     // Chuyển đổi RGB565 sang RGB
     uint8_t r = (bgColor >> 11) & 0x1F;  // 5 bits red
     uint8_t g = (bgColor >> 5) & 0x3F;   // 6 bits green
@@ -793,7 +762,7 @@ uint16_t Keyboard::getContrastColor(uint16_t bgColor) {
     
     // Tính độ sáng (luminance) theo công thức ITU-R BT.709
     // L = 0.299*R + 0.587*G + 0.114*B
-    uint16_t luminance = (299 * r + 587 * g + 114 * b) / 1000;
+    int16_t luminance = (299 * r + 587 * g + 114 * b) / 1000;
     
     // Nếu nền sáng (luminance > 128), dùng chữ đen, ngược lại dùng chữ trắng
     if (luminance > 128) {
@@ -802,3 +771,4 @@ uint16_t Keyboard::getContrastColor(uint16_t bgColor) {
         return 0xFFFF;  // White text
     }
 }
+

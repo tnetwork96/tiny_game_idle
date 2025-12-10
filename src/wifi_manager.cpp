@@ -1,8 +1,17 @@
 #include <Arduino.h>
 #include "wifi_manager.h"
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
 
-WiFiManager::WiFiManager(TFT_eSprite* bg, Keyboard* keyboard) {
-    this->bg = bg;
+// Synthwave/Vaporwave color palette (softened, less harsh)
+#define NEON_PURPLE 0xB81A        // Soft purple (reduced brightness)
+#define NEON_GREEN 0x05A0         // Soft green (reduced brightness)
+#define NEON_CYAN 0x05DF          // Soft cyan (reduced brightness)
+#define YELLOW_ORANGE 0xFC00      // Soft yellow-orange (reduced brightness)
+#define SOFT_WHITE 0xCE79         // Soft white (not too bright)
+
+WiFiManager::WiFiManager(Adafruit_ST7789* tft, Keyboard* keyboard) {  // Sử dụng keyboard thường
+    this->tft = tft;
     this->keyboard = keyboard;
     this->currentState = WIFI_STATE_SCAN;
     this->selectedSSID = "";
@@ -11,8 +20,8 @@ WiFiManager::WiFiManager(TFT_eSprite* bg, Keyboard* keyboard) {
     this->connectAttempts = 0;
     
     // Initialize screens
-    this->wifiList = new WiFiListScreen(bg);
-    this->wifiPassword = new WiFiPasswordScreen(bg, keyboard);
+    this->wifiList = new WiFiListScreen(tft);
+    this->wifiPassword = new WiFiPasswordScreen(tft, keyboard);
 }
 
 WiFiManager::~WiFiManager() {
@@ -23,44 +32,49 @@ WiFiManager::~WiFiManager() {
 void WiFiManager::begin() {
     // Start with scanning WiFi
     currentState = WIFI_STATE_SCAN;
+    Serial.println("WiFi Manager: Starting WiFi scan...");
     wifiList->scanNetworks();
     
-    // Try to find "Van Ninh" and select it automatically
-    for (uint8_t i = 0; i < wifiList->getNetworkCount(); i++) {
-        wifiList->selectIndex(i);
-        if (wifiList->getSelectedSSID() == "Van Ninh") {
-            Serial.println("WiFi Manager: Found 'Van Ninh', auto-selecting...");
-            currentState = WIFI_STATE_SELECT;
-            onWiFiSelected();  // Auto-select and move to password
-            return;
-        }
+    // Đợi scan hoàn thành (scanNetworks có thể mất vài giây)
+    delay(3000);  // Đợi 3 giây để scan hoàn thành
+    
+    currentState = WIFI_STATE_SELECT;
+    Serial.print("WiFi Manager: Network count = ");
+    Serial.println(wifiList->getNetworkCount());
+    
+    // Chọn WiFi đầu tiên nếu có
+    if (wifiList->getNetworkCount() > 0) {
+        wifiList->selectIndex(0);
     }
     
-    // If not found, show list for manual selection
-    currentState = WIFI_STATE_SELECT;
+    // Vẽ danh sách WiFi
+    delay(200);
     wifiList->draw();
-    Serial.println("WiFi Manager: Starting scan...");
+    Serial.println("WiFi Manager: WiFi list drawn and displayed");
+    Serial.println("WiFi Manager: Use up/down to navigate, select to choose WiFi");
 }
 
 void WiFiManager::onWiFiSelected() {
     selectedSSID = wifiList->getSelectedSSID();
+    Serial.println("========================================");
     Serial.print("WiFi Manager: Selected SSID: ");
     Serial.println(selectedSSID);
+    Serial.print("WiFi Manager: Selected RSSI: ");
+    Serial.println(wifiList->getSelectedRSSI());
+    Serial.print("WiFi Manager: Selected Index: ");
+    Serial.println(wifiList->getSelectedIndex());
+    Serial.println("========================================");
     
     // Always move to password screen when WiFi is selected
     currentState = WIFI_STATE_PASSWORD;
     
-    // Auto-fill password if it's "Van Ninh"
-    if (selectedSSID == "Van Ninh") {
-        wifiPassword->clearPassword();
-        wifiPassword->setPassword("123456a@");  // Auto-fill password
-        Serial.println("WiFi Manager: Auto-filled password for Van Ninh");
-    } else {
-        wifiPassword->clearPassword();
-    }
-    
+    // Clear password and show password screen
+    wifiPassword->clearPassword();
     wifiPassword->draw();
-    Serial.println("WiFi Manager: Moving to password screen");
+    
+    Serial.print("WiFi Manager: Ready to type password for: ");
+    Serial.println(selectedSSID);
+    Serial.println("WiFi Manager: Use keyboard to enter password, press Enter to connect");
 }
 
 void WiFiManager::onPasswordEntered() {
@@ -91,12 +105,11 @@ void WiFiManager::connectToWiFi() {
     connectAttempts++;
     
     // Show connecting message
-    bg->fillScreen(TFT_BLACK);
-    bg->setTextColor(TFT_YELLOW, TFT_BLACK);
-    bg->setTextSize(1);
-    bg->setCursor(10, 50);
-    bg->print("Connecting...");
-    bg->pushSprite(0, 0);
+    tft->fillScreen(ST77XX_BLACK);
+    tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);  // Yellow-orange sunset color
+    tft->setTextSize(1);
+    tft->setCursor(10, 50);
+    tft->print("Connecting...");
 }
 
 void WiFiManager::update() {
@@ -107,27 +120,25 @@ void WiFiManager::update() {
             Serial.println("WiFi Manager: Connected successfully!");
             
             // Show connected message
-            bg->fillScreen(TFT_BLACK);
-            bg->setTextColor(TFT_GREEN, TFT_BLACK);
-            bg->setTextSize(1);
-            bg->setCursor(10, 50);
-            bg->print("Connected!");
-            bg->setCursor(10, 65);
-            bg->setTextColor(TFT_CYAN, TFT_BLACK);
-            bg->print(selectedSSID);
-            bg->pushSprite(0, 0);
+            tft->fillScreen(ST77XX_BLACK);
+            tft->setTextColor(NEON_GREEN, ST77XX_BLACK);  // Neon green
+            tft->setTextSize(1);
+            tft->setCursor(10, 50);
+            tft->print("Connected!");
+            tft->setCursor(10, 65);
+            tft->setTextColor(NEON_CYAN, ST77XX_BLACK);  // Neon cyan
+            tft->print(selectedSSID);
         } else if (millis() - connectStartTime > 10000) {
             // Timeout after 10 seconds
             currentState = WIFI_STATE_ERROR;
             Serial.println("WiFi Manager: Connection timeout");
             
             // Show error message
-            bg->fillScreen(TFT_BLACK);
-            bg->setTextColor(TFT_RED, TFT_BLACK);
-            bg->setTextSize(1);
-            bg->setCursor(10, 50);
-            bg->print("Connection failed!");
-            bg->pushSprite(0, 0);
+            tft->fillScreen(ST77XX_BLACK);
+            tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+            tft->setTextSize(1);
+            tft->setCursor(10, 50);
+            tft->print("Connection failed!");
         }
     }
 }

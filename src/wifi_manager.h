@@ -3,9 +3,11 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ST7789.h>
 #include "wifi_list.h"
 #include "wifi_password.h"
-#include "keyboard.h"
+#include "keyboard.h"  // Sử dụng keyboard thường
 
 enum WiFiState {
     WIFI_STATE_SCAN,
@@ -20,14 +22,14 @@ class WiFiManager {
 private:
     WiFiListScreen* wifiList;
     WiFiPasswordScreen* wifiPassword;
-    Keyboard* keyboard;
-    TFT_eSprite* bg;
+    Keyboard* keyboard;  // Sử dụng keyboard thường
+    Adafruit_ST7789* tft;
     
     WiFiState currentState;
     String selectedSSID;
     String password;
     unsigned long connectStartTime;
-    uint8_t connectAttempts;
+    uint16_t connectAttempts;
     
     // Callback functions
     void onWiFiSelected();
@@ -35,7 +37,7 @@ private:
     void connectToWiFi();
     
 public:
-    WiFiManager(TFT_eSprite* bg, Keyboard* keyboard);
+    WiFiManager(Adafruit_ST7789* tft, Keyboard* keyboard);  // Sử dụng keyboard thường
     ~WiFiManager();
     
     // Initialize and start flow
