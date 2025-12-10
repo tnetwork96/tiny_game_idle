@@ -43,7 +43,7 @@ void typePasswordByMovingKeyboard(String password) {
     // Bảng phím chữ cái (qwertyKeysArray)
     String qwertyKeys[3][10] = {
         { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
-        { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
+        { "12", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
         { "ic", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
     };
     
@@ -51,14 +51,30 @@ void typePasswordByMovingKeyboard(String password) {
     
     for (uint16_t i = 0; i < password.length(); i++) {
         char targetChar = password.charAt(i);
+        Serial.print("TEST: Looking for character '");
+        Serial.print(targetChar);
+        Serial.print("' (ASCII: ");
+        Serial.print((int)targetChar);
+        Serial.println(")");
         bool found = false;
         
         // Tìm ký tự trong bảng phím
         for (uint16_t row = 0; row < 3; row++) {
             for (uint16_t col = 0; col < 10; col++) {
                 String key = qwertyKeys[row][col];
+                Serial.print("  Checking key '");
+                Serial.print(key);
+                Serial.print("' at row ");
+                Serial.print(row);
+                Serial.print(", col ");
+                Serial.print(col);
+                Serial.print(" (length: ");
+                Serial.print(key.length());
+                Serial.print(")");
+                
                 // Chỉ tìm các phím có 1 ký tự (bỏ qua "123", "ABC", "|e", "<", "ic")
                 if (key.length() == 1 && key.charAt(0) == targetChar) {
+                    Serial.println(" -> MATCH!");
                     Serial.print("TEST: Moving to key '");
                     Serial.print(targetChar);
                     Serial.print("' at row ");
@@ -78,6 +94,8 @@ void typePasswordByMovingKeyboard(String password) {
                     
                     found = true;
                     break;
+                } else {
+                    Serial.println(" -> no match");
                 }
             }
             if (found) break;
@@ -103,13 +121,20 @@ void testAutoConnect() {
     WiFiListScreen* wifiList = wifiManager->getListScreen();
     if (wifiList == nullptr) return;
     
-    // Tìm WiFi "Hai Dung"
+    // Tìm WiFi "Hai Dung" bằng cách di chuyển từng bước từ trên xuống
     bool foundHaiDung = false;
+    
+    // Đảm bảo bắt đầu từ đầu danh sách (index 0)
+    while (wifiList->getSelectedIndex() != 0) {
+        wifiList->selectPrevious();
+        delay(100);  // Delay nhỏ để thấy di chuyển
+    }
+    
+    // Di chuyển từng bước từ trên xuống để tìm "Hai Dung"
     for (uint16_t i = 0; i < wifiList->getNetworkCount(); i++) {
-        wifiList->selectIndex(i);
         String ssid = wifiList->getSelectedSSID();
         Serial.print("  Checking [");
-        Serial.print(i);
+        Serial.print(wifiList->getSelectedIndex());
         Serial.print("]: ");
         Serial.println(ssid);
         
@@ -119,6 +144,12 @@ void testAutoConnect() {
             Serial.println("TEST: Found 'Hai Dung'! Auto-selecting...");
             Serial.println("========================================");
             break;
+        }
+        
+        // Di chuyển xuống item tiếp theo (nếu chưa phải item cuối)
+        if (i < wifiList->getNetworkCount() - 1) {
+            wifiList->selectNext();
+            delay(200);  // Delay để thấy di chuyển và kiểm tra nháy
         }
     }
     
@@ -134,10 +165,11 @@ void testAutoConnect() {
         Serial.println("TEST: Auto-typing password 'hoilamgi' by moving keyboard...");
         typePasswordByMovingKeyboard("hoilamgi");
         
-        Serial.println("TEST: Password typed, auto-connecting...");
-        delay(1500);
+        Serial.println("TEST: Password typed, waiting before auto-connecting...");
+        delay(2000);  // Tăng delay để đảm bảo ký tự cuối cùng được hiển thị
         
         // Tự động nhấn Enter để kết nối
+        Serial.println("TEST: Pressing Enter to connect...");
         wifiManager->handleKeyboardInput("|e");
         
         testStarted = true;
@@ -165,7 +197,7 @@ void setup() {
     
     // TEST: Áp dụng skin màu hồng (feminine)
     Serial.println("TEST: Applying feminine (mint) skin to keyboard...");
-    keyboard->setSkin(KeyboardSkins::getFeminineMint());
+    keyboard->setSkin(KeyboardSkins::getFeminineLilac());
     Serial.println("TEST: Feminine (mint) skin applied to keyboard!");
     
     // Để test skin khác, uncomment:

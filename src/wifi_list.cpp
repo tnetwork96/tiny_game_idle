@@ -197,6 +197,13 @@ void WiFiListScreen::drawWiFiItem(uint16_t index, uint16_t yPos) {
     tft->print(displaySSID);
 }
 
+void WiFiListScreen::updateItem(uint16_t index) {
+    // Chỉ vẽ lại một item cụ thể để tránh nháy màn hình
+    if (index >= networkCount) return;
+    uint16_t yPos = listStartY + index * (itemHeight + 4);  // Spacing 4px giữa các item
+    drawWiFiItem(index, yPos);
+}
+
 void WiFiListScreen::draw() {
     Serial.print("WiFi List: Drawing screen with ");
     Serial.print(networkCount);
@@ -229,25 +236,34 @@ void WiFiListScreen::draw() {
 void WiFiListScreen::selectNext() {
     if (networkCount == 0) return;
     
-    networks[selectedIndex].isSelected = false;
+    uint16_t oldIndex = selectedIndex;
+    networks[oldIndex].isSelected = false;
     selectedIndex = (selectedIndex + 1) % networkCount;
     networks[selectedIndex].isSelected = true;
-    draw();
+    
+    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
+    updateItem(oldIndex);
+    updateItem(selectedIndex);
 }
 
 void WiFiListScreen::selectPrevious() {
     if (networkCount == 0) return;
     
-    networks[selectedIndex].isSelected = false;
+    uint16_t oldIndex = selectedIndex;
+    networks[oldIndex].isSelected = false;
     selectedIndex = (selectedIndex == 0) ? networkCount - 1 : selectedIndex - 1;
     networks[selectedIndex].isSelected = true;
-    draw();
+    
+    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
+    updateItem(oldIndex);
+    updateItem(selectedIndex);
 }
 
 void WiFiListScreen::selectIndex(uint16_t index) {
     if (index >= networkCount) return;
     
-    networks[selectedIndex].isSelected = false;
+    uint16_t oldIndex = selectedIndex;
+    networks[oldIndex].isSelected = false;
     selectedIndex = index;
     networks[selectedIndex].isSelected = true;
     
@@ -258,7 +274,11 @@ void WiFiListScreen::selectIndex(uint16_t index) {
     Serial.print(" - RSSI: ");
     Serial.println(networks[selectedIndex].rssi);
     
-    draw();
+    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
+    if (oldIndex != selectedIndex) {
+        updateItem(oldIndex);
+        updateItem(selectedIndex);
+    }
 }
 
 String WiFiListScreen::getSelectedSSID() const {

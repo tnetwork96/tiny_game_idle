@@ -73,13 +73,8 @@ void WiFiPasswordScreen::drawPassword() {
         tft->setTextColor(placeholderColor, inputBoxBgColor);
         tft->print("Enter pwd...");
     } else {
-        // Luôn hiển thị mật khẩu thật, nhưng cắt bớt 1 ký tự cuối để tránh tràn
-        if (password.length() > 1) {
-            String displayPassword = password.substring(0, password.length() - 1);
-            tft->print(displayPassword);
-        } else {
-            tft->print(password);
-        }
+        // Hiển thị đầy đủ mật khẩu (không cắt bớt ký tự cuối)
+        tft->print(password);
     }
     
     // Vẽ lại viền dưới để đảm bảo không bị mất

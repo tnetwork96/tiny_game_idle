@@ -201,22 +201,28 @@ void Keyboard::draw() {
                 tft->setTextSize(currentSkin.textSize);  // Sử dụng textSize từ skin
                 
                 String keyText = currentKeys[row][col];
-                // Rút gọn text nếu quá dài (chỉ lấy 1-2 ký tự đầu)
-                if (keyText.length() > 1) {
-                    keyText = keyText.substring(0, 2);
-                }
                 
-                // Tính toán vị trí để căn giữa text (ước tính text width ~6px * textSize cho 1 ký tự với font size 1)
-                uint16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
-                uint16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
-                uint16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
-                if (textWidth < keyWidth - (marginX * 2)) {
-                    textX = xPos + (keyWidth - textWidth) / 2;  // Căn giữa nếu đủ chỗ
+                // Nếu là phím Enter, vẽ ký tự Enter (mũi tên) thay vì text
+                if (keyText == KEY_ENTER) {
+                    drawEnterSymbol(xPos, yPos, keyWidth, keyHeight, textColor);
+                } else {
+                    // Rút gọn text nếu quá dài (chỉ lấy 1-2 ký tự đầu)
+                    if (keyText.length() > 1) {
+                        keyText = keyText.substring(0, 2);
+                    }
+                    
+                    // Tính toán vị trí để căn giữa text (ước tính text width ~6px * textSize cho 1 ký tự với font size 1)
+                    uint16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
+                    uint16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
+                    uint16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
+                    if (textWidth < keyWidth - (marginX * 2)) {
+                        textX = xPos + (keyWidth - textWidth) / 2;  // Căn giữa nếu đủ chỗ
+                    }
+                    uint16_t textY = yPos + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc (text height ~8px với size 1)
+                    
+                    tft->setCursor(textX, textY);
+                    tft->print(keyText);  // In ký tự
                 }
-                uint16_t textY = yPos + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc (text height ~8px với size 1)
-                
-                tft->setCursor(textX, textY);
-                tft->print(keyText);  // In ký tự
             }
         }
     }
@@ -776,6 +782,46 @@ void Keyboard::drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t widt
             }
         }
     }
+}
+
+// Vẽ ký tự ⏎ (Return Symbol) bằng các đường thẳng
+void Keyboard::drawEnterSymbol(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color) {
+    // Tính toán vị trí trung tâm của phím
+    uint16_t centerX = x + width / 2;
+    uint16_t centerY = y + height / 2;
+    
+    // Kích thước biểu tượng phù hợp với kích thước phím
+    uint16_t symbolSize = (width < height ? width : height) / 3;  // Kích thước = 1/3 kích thước nhỏ hơn
+    
+    // Vẽ ký tự ⏎: một đường ngang với một đường cong xuống và mũi tên chỉ xuống
+    // Đường ngang (phần trên) - từ trái sang phải
+    uint16_t lineStartX = centerX - symbolSize;
+    uint16_t lineEndX = centerX + symbolSize / 3;
+    uint16_t lineY = centerY - symbolSize / 2;
+    tft->drawLine(lineStartX, lineY, lineEndX, lineY, color);
+    
+    // Đường cong xuống (phần giữa) - từ điểm cuối đường ngang xuống dưới
+    uint16_t curveStartX = lineEndX;
+    uint16_t curveStartY = lineY;
+    uint16_t curveEndX = centerX + symbolSize / 2;
+    uint16_t curveEndY = centerY + symbolSize / 2;
+    
+    // Vẽ đường cong bằng cách vẽ nhiều đoạn thẳng ngắn
+    // Hoặc đơn giản hơn: vẽ đường thẳng từ trên xuống dưới, hơi cong
+    tft->drawLine(curveStartX, curveStartY, curveEndX, curveEndY, color);
+    
+    // Mũi tên chỉ xuống: vẽ 2 đường chéo tạo thành đầu mũi tên
+    uint16_t arrowTipX = curveEndX;
+    uint16_t arrowTipY = centerY + symbolSize;
+    uint16_t arrowLeftX = curveEndX - symbolSize / 3;
+    uint16_t arrowLeftY = centerY + symbolSize / 2;
+    uint16_t arrowRightX = curveEndX + symbolSize / 3;
+    uint16_t arrowRightY = centerY + symbolSize / 2;
+    
+    // Đường chéo trái
+    tft->drawLine(arrowTipX, arrowTipY, arrowLeftX, arrowLeftY, color);
+    // Đường chéo phải
+    tft->drawLine(arrowTipX, arrowTipY, arrowRightX, arrowRightY, color);
 }
 
 // Tính màu chữ tương phản dựa trên màu nền

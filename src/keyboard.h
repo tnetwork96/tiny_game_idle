@@ -68,6 +68,7 @@ private:
     void drawCyberpunkGlow(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t animationFrame);  // Vẽ hiệu ứng điện chạy xung quanh phím
     void drawCyberpunkKeyboardBorder(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t animationFrame);  // Vẽ hiệu ứng điện chạy xung quanh toàn bộ bàn phím
     uint16_t getContrastColor(uint16_t bgColor);  // Tính màu chữ tương phản dựa trên màu nền
+    void drawEnterSymbol(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color);  // Vẽ ký tự Enter (mũi tên)
     
     // Callback function pointer cho khi nhấn select
     void (*onKeySelected)(String key);

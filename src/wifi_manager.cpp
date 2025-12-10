@@ -42,10 +42,8 @@ void WiFiManager::begin() {
     Serial.print("WiFi Manager: Network count = ");
     Serial.println(wifiList->getNetworkCount());
     
-    // Chọn WiFi đầu tiên nếu có
-    if (wifiList->getNetworkCount() > 0) {
-        wifiList->selectIndex(0);
-    }
+    // Không chọn WiFi ngay, để mặc định chọn item đầu tiên trong lần vẽ đầu tiên
+    // (selectedIndex đã được khởi tạo = 0 trong constructor)
     
     // Vẽ danh sách WiFi
     delay(200);

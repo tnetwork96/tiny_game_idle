@@ -41,6 +41,7 @@ private:
     void drawTitle();
     void drawWiFiItem(uint16_t index, uint16_t yPos);
     void drawSignalStrength(uint16_t x, uint16_t y, int32_t rssi);
+    void updateItem(uint16_t index);  // Chỉ vẽ lại một item cụ thể (để tránh nháy màn hình)
     
 public:
     // Constructor
