@@ -10,6 +10,14 @@
 *.hex
 *.map
 
+# Cache and temporary files
+.cache/
+compile_commands.json
+
+# Backup files
+*_backup*.txt
+cnfig_backup*.txt
+
 # Logs
 logs/
 
