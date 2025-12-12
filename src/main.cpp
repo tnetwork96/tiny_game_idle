@@ -38,24 +38,27 @@ void onKeyboardKeySelected(String key) {
 }
 
 // Hàm di chuyển keyboard và chọn từng ký tự
-// Bảng phím qwertyKeysArray:
+// Bảng phím chữ cái (qwertyKeysArray):
 // row 0: q w e r t y u i o p
 // row 1: 123 a s d f g h j k l
 // row 2: ic z x c v b n m |e <
+// Bảng phím số (numericKeysArray):
+// row 0: 1 2 3 4 5 6 7 8 9 0
+// row 1: ABC / : ; ( ) $ & @ "
+// row 2: ic # . , ? ! ' - |e <
 void typePasswordByMovingKeyboard(String password) {
-    // Đảm bảo đang ở chế độ chữ cái
-    if (!keyboard->getIsAlphabetMode()) {
-        keyboard->moveCursorTo(1, 0);  // Di chuyển đến "ABC"
-        delay(300);
-        keyboard->moveCursorByCommand("select", 0, 0);  // Chuyển sang chế độ chữ cái
-        delay(300);
-    }
-    
     // Bảng phím chữ cái (qwertyKeysArray)
     String qwertyKeys[3][10] = {
         { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
-        { "12", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
+        { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
         { "ic", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
+    };
+    
+    // Bảng phím số và ký tự đặc biệt (numericKeysArray)
+    String numericKeys[3][10] = {
+        { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+        { "ABC", "/", ":", ";", "(", ")", "$", "&", "@", "\"" },
+        { "ic", "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
     };
     
     Serial.println("TEST: Starting to type password by moving keyboard cursor...");
@@ -67,12 +70,46 @@ void typePasswordByMovingKeyboard(String password) {
         Serial.print("' (ASCII: ");
         Serial.print((int)targetChar);
         Serial.println(")");
+        
+        // Xác định ký tự là số, chữ cái hay ký tự đặc biệt
+        bool isDigit = (targetChar >= '0' && targetChar <= '9');
+        bool isLetter = (targetChar >= 'a' && targetChar <= 'z');
+        bool isSpecial = !isDigit && !isLetter;
+        
+        // Chuyển đổi chế độ nếu cần
+        bool needAlphabetMode = isLetter;
+        bool needNumericMode = isDigit || isSpecial;
+        
+        if (needAlphabetMode && !keyboard->getIsAlphabetMode()) {
+            // Chuyển sang chế độ chữ cái
+            Serial.println("TEST: Switching to alphabet mode...");
+            keyboard->moveCursorTo(1, 0);  // Di chuyển đến "ABC"
+            delay(300);
+            keyboard->moveCursorByCommand("select", 0, 0);  // Chuyển sang chế độ chữ cái
+            delay(300);
+        } else if (needNumericMode && keyboard->getIsAlphabetMode()) {
+            // Chuyển sang chế độ số
+            Serial.println("TEST: Switching to numeric mode...");
+            keyboard->moveCursorTo(1, 0);  // Di chuyển đến "123"
+            delay(300);
+            keyboard->moveCursorByCommand("select", 0, 0);  // Chuyển sang chế độ số
+            delay(300);
+        }
+        
+        // Chọn bảng phím phù hợp
+        String (*currentKeys)[10];
+        if (keyboard->getIsAlphabetMode()) {
+            currentKeys = qwertyKeys;
+        } else {
+            currentKeys = numericKeys;
+        }
+        
         bool found = false;
         
-        // Tìm ký tự trong bảng phím
+        // Tìm ký tự trong bảng phím hiện tại
         for (uint16_t row = 0; row < 3; row++) {
             for (uint16_t col = 0; col < 10; col++) {
-                String key = qwertyKeys[row][col];
+                String key = currentKeys[row][col];
                 Serial.print("  Checking key '");
                 Serial.print(key);
                 Serial.print("' at row ");
@@ -122,7 +159,7 @@ void typePasswordByMovingKeyboard(String password) {
     Serial.println("TEST: Finished typing password");
 }
 
-// Hàm test tự động chọn WiFi "Hai Dung" và nhập password
+// Hàm test tự động chọn WiFi "Van Ninh" và nhập password
 void testAutoConnect() {
     if (wifiManager == nullptr || !testMode) return;
     
@@ -132,8 +169,8 @@ void testAutoConnect() {
     WiFiListScreen* wifiList = wifiManager->getListScreen();
     if (wifiList == nullptr) return;
     
-    // Tìm WiFi "Hai Dung" bằng cách di chuyển từng bước từ trên xuống
-    bool foundHaiDung = false;
+    // Tìm WiFi "Van Ninh" bằng cách di chuyển từng bước từ trên xuống
+    bool foundVanNinh = false;
     
     // Đảm bảo bắt đầu từ đầu danh sách (index 0)
     while (wifiList->getSelectedIndex() != 0) {
@@ -141,7 +178,7 @@ void testAutoConnect() {
         delay(100);  // Delay nhỏ để thấy di chuyển
     }
     
-    // Di chuyển từng bước từ trên xuống để tìm "Hai Dung"
+    // Di chuyển từng bước từ trên xuống để tìm "Van Ninh"
     for (uint16_t i = 0; i < wifiList->getNetworkCount(); i++) {
         String ssid = wifiList->getSelectedSSID();
         Serial.print("  Checking [");
@@ -149,10 +186,10 @@ void testAutoConnect() {
         Serial.print("]: ");
         Serial.println(ssid);
         
-        if (ssid == "Hai Dung") {
-            foundHaiDung = true;
+        if (ssid == "Van Ninh") {
+            foundVanNinh = true;
             Serial.println("========================================");
-            Serial.println("TEST: Found 'Hai Dung'! Auto-selecting...");
+            Serial.println("TEST: Found 'Van Ninh'! Auto-selecting...");
             Serial.println("========================================");
             break;
         }
@@ -164,17 +201,17 @@ void testAutoConnect() {
         }
     }
     
-    if (foundHaiDung) {
-        // Chọn WiFi "Hai Dung"
+    if (foundVanNinh) {
+        // Chọn WiFi "Van Ninh"
         delay(1000);
         wifiManager->handleSelect();  // Chuyển sang màn hình password
         
         // Đợi chuyển sang màn hình password và vẽ xong
         delay(1000);
         
-        // Tự động nhập password "hoilamgi" bằng cách di chuyển keyboard
-        Serial.println("TEST: Auto-typing password 'hoilamgi' by moving keyboard...");
-        typePasswordByMovingKeyboard("hoilamgi");
+        // Tự động nhập password "123456a@" bằng cách di chuyển keyboard
+        Serial.println("TEST: Auto-typing password '123456a@' by moving keyboard...");
+        typePasswordByMovingKeyboard("123456a@");
         
         Serial.println("TEST: Password typed, waiting before auto-connecting...");
         delay(2000);  // Tăng delay để đảm bảo ký tự cuối cùng được hiển thị
@@ -185,7 +222,7 @@ void testAutoConnect() {
         
         testStarted = true;
     } else {
-        Serial.println("TEST: 'Hai Dung' not found in WiFi list");
+        Serial.println("TEST: 'Van Ninh' not found in WiFi list");
     }
 }
 
@@ -248,7 +285,7 @@ void setup() {
     wifiManager->begin();
     
     if (testMode) {
-        Serial.println("TEST MODE: Will auto-select 'Hai Dung' and enter password 'hoilamgi'");
+        Serial.println("TEST MODE: Will auto-select 'Van Ninh' and enter password '123456a@'");
     }
 }
 

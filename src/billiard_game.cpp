@@ -100,6 +100,9 @@ void BilliardGame::resetGame() {
 }
 
 void BilliardGame::drawTable() {
+    // Draw black background around table first (to cover any ball parts outside table)
+    tft->fillScreen(0x0000);  // Black background
+    
     // Draw table background (green)
     tft->fillRect(TABLE_X, TABLE_Y, TABLE_WIDTH, TABLE_HEIGHT, COLOR_TABLE);
     
@@ -238,23 +241,34 @@ void BilliardGame::eraseBallAtPosition(float x, float y, int radius) {
     int eraseMinY = (minY > tableMinY) ? minY : tableMinY;
     int eraseMaxY = (maxY < tableMaxY) ? maxY : tableMaxY;
     
-    // Only erase if there's intersection with table
-    if (eraseMinX <= eraseMaxX && eraseMinY <= eraseMaxY) {
-        // Erase only the circular part that intersects with table
-        for (int py = eraseMinY; py <= eraseMaxY; py++) {
-            for (int px = eraseMinX; px <= eraseMaxX; px++) {
-                // Check if pixel is within circle
-                int dx = px - screenX;
-                int dy = py - screenY;
-                int distSq = dx * dx + dy * dy;
+    // Erase the entire ball circle - draw black outside table, green inside table
+    for (int py = minY; py <= maxY; py++) {
+        for (int px = minX; px <= maxX; px++) {
+            // Check if pixel is within circle
+            int dx = px - screenX;
+            int dy = py - screenY;
+            int distSq = dx * dx + dy * dy;
+            
+            if (distSq <= radius * radius) {
+                // This pixel is inside the ball circle
+                // Check if it's inside or outside table
+                bool insideTable = (px >= tableMinX && px <= tableMaxX && 
+                                   py >= tableMinY && py <= tableMaxY);
                 
-                if (distSq <= radius * radius) {
-                    // This pixel is inside the ball circle and inside table
-                    // Erase with table color
+                if (insideTable) {
+                    // Inside table - erase with table color (green)
                     tft->drawPixel(px, py, COLOR_TABLE);
+                } else {
+                    // Outside table - erase with black
+                    tft->drawPixel(px, py, 0x0000);
                 }
             }
         }
+    }
+    
+    // Also erase parts that intersect with table (for border redraw)
+    if (eraseMinX <= eraseMaxX && eraseMinY <= eraseMaxY) {
+        // This section is already handled above, but keep for border redraw logic
     }
     
     // Redraw border and pockets if near table edges
