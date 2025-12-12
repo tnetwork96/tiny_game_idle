@@ -206,22 +206,22 @@ void Keyboard::draw() {
                 if (keyText == KEY_ENTER) {
                     drawEnterSymbol(xPos, yPos, keyWidth, keyHeight, textColor);
                 } else {
-                    // Rút gọn text nếu quá dài (chỉ lấy 1-2 ký tự đầu)
-                    if (keyText.length() > 1) {
-                        keyText = keyText.substring(0, 2);
-                    }
-                    
-                    // Tính toán vị trí để căn giữa text (ước tính text width ~6px * textSize cho 1 ký tự với font size 1)
-                    uint16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
-                    uint16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
-                    uint16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
-                    if (textWidth < keyWidth - (marginX * 2)) {
-                        textX = xPos + (keyWidth - textWidth) / 2;  // Căn giữa nếu đủ chỗ
-                    }
-                    uint16_t textY = yPos + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc (text height ~8px với size 1)
-                    
-                    tft->setCursor(textX, textY);
-                    tft->print(keyText);  // In ký tự
+                // Rút gọn text nếu quá dài (chỉ lấy 1-2 ký tự đầu)
+                if (keyText.length() > 1) {
+                    keyText = keyText.substring(0, 2);
+                }
+                
+                // Tính toán vị trí để căn giữa text (ước tính text width ~6px * textSize cho 1 ký tự với font size 1)
+                uint16_t textWidth = keyText.length() * 6 * currentSkin.textSize;  // Tính theo textSize từ skin
+                uint16_t marginX = 2;  // Margin bên trái/phải để tránh che viền
+                uint16_t textX = xPos + marginX;  // Bắt đầu từ cạnh trái với margin
+                if (textWidth < keyWidth - (marginX * 2)) {
+                    textX = xPos + (keyWidth - textWidth) / 2;  // Căn giữa nếu đủ chỗ
+                }
+                uint16_t textY = yPos + (keyHeight - 8) / 2;  // Căn giữa theo chiều dọc (text height ~8px với size 1)
+                
+                tft->setCursor(textX, textY);
+                tft->print(keyText);  // In ký tự
                 }
             }
         }

@@ -116,16 +116,8 @@ void WiFiManager::update() {
         if (WiFi.status() == WL_CONNECTED) {
             currentState = WIFI_STATE_CONNECTED;
             Serial.println("WiFi Manager: Connected successfully!");
-            
-            // Show connected message
-            tft->fillScreen(ST77XX_BLACK);
-            tft->setTextColor(NEON_GREEN, ST77XX_BLACK);  // Neon green
-            tft->setTextSize(1);
-            tft->setCursor(10, 50);
-            tft->print("Connected!");
-            tft->setCursor(10, 65);
-            tft->setTextColor(NEON_CYAN, ST77XX_BLACK);  // Neon cyan
-            tft->print(selectedSSID);
+            Serial.println("WiFi Manager: Transitioning to game menu...");
+            // Note: Game menu will be drawn by main.cpp after checking isConnected()
         } else if (millis() - connectStartTime > 10000) {
             // Timeout after 10 seconds
             currentState = WIFI_STATE_ERROR;

@@ -74,7 +74,7 @@ void WiFiPasswordScreen::drawPassword() {
         tft->print("Enter pwd...");
     } else {
         // Hiển thị đầy đủ mật khẩu (không cắt bớt ký tự cuối)
-        tft->print(password);
+            tft->print(password);
     }
     
     // Vẽ lại viền dưới để đảm bảo không bị mất
