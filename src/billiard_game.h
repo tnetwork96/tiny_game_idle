@@ -73,6 +73,7 @@ private:
     void redrawPocketsNear(float x, float y, int radius);  // Redraw pockets near ball position
     void redrawAllPockets();  // Redraw all pockets (to ensure they're always on top)
     uint16_t getBackgroundColorAt(int screenX, int screenY);  // Get background color at screen position
+    void drawPowerBar();  // Vẽ thanh lực
     
 public:
     BilliardGame(Adafruit_ST7789* tft);
@@ -85,6 +86,8 @@ public:
     void handleAimRight();
     void handleChargeStart();
     void handleChargeRelease();
+    void handlePowerUp();      // Tăng lực khi đang charge
+    void handlePowerDown();    // Giảm lực khi đang charge
     
     // Getters
     bool getIsAiming() const { return isAiming; }
