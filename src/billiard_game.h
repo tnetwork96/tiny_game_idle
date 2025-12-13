@@ -74,6 +74,8 @@ private:
     int activeBallIndex;  // Index of cue ball (usually 0)
     bool tableDrawn;      // Has table been drawn
     bool collisionThisFrame;  // Flag to force safe redraw when collisions happen
+    int lastPowerFillWidth;  // Cached fill width to update power bar incrementally
+    bool powerBarVisible;    // Track whether power bar UI is currently drawn
     
     void drawTable();
     void eraseBall(int index);
@@ -93,6 +95,8 @@ private:
     uint16_t getBackgroundColorAt(int screenX, int screenY);  // Get background color at screen position
     bool isBallNearPocket(float x, float y);  // Kiểm tra quả bi có gần lỗ không
     void drawPowerBar();  // Vẽ thanh lực
+    void drawPowerBarStatic();  // Vẽ phần tĩnh của thanh lực (background + border)
+    void clearPowerBarArea();   // Khôi phục nền thanh lực một lần khi không dùng
     bool isBallInPocketAttractionZone(const Ball& ball);  // Vùng hút lỗ
     void applyPocketAttraction(Ball& ball);  // Kéo bi về tâm lỗ khi trong vùng hút
     

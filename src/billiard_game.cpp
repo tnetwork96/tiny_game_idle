@@ -12,6 +12,8 @@ BilliardGame::BilliardGame(Adafruit_ST7789* tft) {
     this->activeBallIndex = 0;
     this->tableDrawn = false;
     this->collisionThisFrame = false;
+    this->lastPowerFillWidth = 0;
+    this->powerBarVisible = false;
     
     // Initialize old positions
     for (int i = 0; i < BALL_COUNT; i++) {
@@ -919,101 +921,86 @@ void BilliardGame::draw() {
         }
     }
     
-    // Update power bar only if power changed
-    if (isCharging && cuePower != oldCuePower) {
+    // Update power bar with incremental redraw; clear once when done charging
+    if (isCharging) {
         drawPowerBar();
-        oldCuePower = cuePower;
-    } else if (!isCharging && oldCuePower > 0) {
-        // Clear power bar when not charging - xóa hết và vẽ lại phần bàn bị đè
-        int barX = 10;
-        int barY = SCREEN_HEIGHT - 30;
-        int barWidth = 100;
-        int barHeight = 12;
-        int textWidth = 30;
-        int clearHeight = barHeight + 12;  // Chiều cao vùng cần xóa (bao gồm text)
-        
-        // Tính toán vùng bị đè bởi thanh lực
-        int clearX = barX;
-        int clearY = barY - 2;
-        int clearWidth = barWidth + textWidth;
-        
-        // Xác định vùng nào nằm trên bàn, vùng nào nằm ngoài bàn
-        int tableScreenY = SCREEN_HEIGHT - TABLE_Y;  // Top của bàn (trên màn hình)
-        int tableBottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);  // Bottom của bàn (trên màn hình)
-        int tableMinX = TABLE_X;
-        int tableMaxX = TABLE_X + TABLE_WIDTH;
-        
-        // Xóa và vẽ lại từng phần
-        for (int py = clearY; py < clearY + clearHeight; py++) {
-            for (int px = clearX; px < clearX + clearWidth; px++) {
-                // Kiểm tra xem pixel này có nằm trên bàn không
-                bool insideTable = (px >= tableMinX && px <= tableMaxX && 
-                                   py >= tableBottomScreenY && py <= tableScreenY);
-                
-                if (insideTable) {
-                    // Nằm trên bàn - vẽ lại màu xanh
-                    tft->drawPixel(px, py, COLOR_TABLE);
-                } else {
-                    // Nằm ngoài bàn - vẽ lại màu đen
-                    tft->drawPixel(px, py, 0x0000);
-                }
-            }
-        }
-        
-        // Vẽ lại thành bàn nếu thanh lực che mất thành bàn
-        // Kiểm tra xem thanh lực có che mất thành bàn dưới không
-        if (clearY <= tableBottomScreenY && (clearY + clearHeight) >= tableBottomScreenY) {
-            // Vẽ lại thành bàn dưới
-            int railThickness = 4;
-            for (int i = 0; i < railThickness; i++) {
-                // Chỉ vẽ phần không bị che bởi thanh lực
-                int drawStartX = (clearX < tableMinX) ? tableMinX : clearX + clearWidth;
-                int drawEndX = tableMaxX;
-                if (drawStartX < drawEndX) {
-                    tft->drawLine(drawStartX, tableBottomScreenY - i, drawEndX, tableBottomScreenY - i, COLOR_TABLE_BORDER);
-                }
-            }
-        }
-        
-        // QUAN TRỌNG: Vẽ lại các quả bi bị đè bởi thanh lực
-        for (int i = 0; i < BALL_COUNT; i++) {
-            // Bỏ qua quả bi đã vào lỗ
-            if (balls[i].x < 0) continue;
-            
-            // Kiểm tra xem quả bi có nằm trong vùng thanh lực không
-            int ballScreenX = (int)balls[i].x;
-            int ballScreenY = SCREEN_HEIGHT - (int)balls[i].y;
-            int ballRadius = BALL_RADIUS;
-            
-            // Kiểm tra xem quả bi có giao với vùng thanh lực không
-            bool ballInPowerBarArea = (ballScreenX + ballRadius >= clearX && 
-                                       ballScreenX - ballRadius <= clearX + clearWidth &&
-                                       ballScreenY + ballRadius >= clearY && 
-                                       ballScreenY - ballRadius <= clearY + clearHeight);
-            
-            if (ballInPowerBarArea) {
-                // Vẽ lại quả bi này
-                drawBall(i);
-            }
-        }
-        
-        oldCuePower = 0;
+    } else if (powerBarVisible) {
+        clearPowerBarArea();
     }
 }
 
 void BilliardGame::drawPowerBar() {
-    int barX = 10;
-    int barY = SCREEN_HEIGHT - 30;
-    int barWidth = 100;
-    int barHeight = 12;  // Tăng chiều cao thanh lực để dễ nhìn hơn
+    const int barX = 10;
+    const int barY = SCREEN_HEIGHT - 30;
+    const int barWidth = 100;
+    const int barHeight = 12;
+    const int textWidth = 30;
+    const float redrawThreshold = 1.0f;  // Giảm tần suất vẽ lại
     
-    // Clear old fill (xóa cả vùng text) - khôi phục nền đúng màu
-    int clearX = barX;
-    int clearY = barY - 2;
-    int clearWidth = barWidth + 30;
-    int clearHeight = barHeight + 12;
+    // Vẽ phần tĩnh một lần khi bắt đầu hiển thị
+    if (!powerBarVisible) {
+        drawPowerBarStatic();
+        lastPowerFillWidth = 0;
+        // Buộc lần đầu cập nhật text
+        oldCuePower = -1000.0f;
+        powerBarVisible = true;
+    }
     
-    // Khôi phục nền từng pixel với màu đúng
+    // Tính chiều rộng fill mới (giới hạn trong thanh)
+    int maxFill = barWidth - 2;
+    int newFillWidth = (int)(cuePower * maxFill / 100.0f);
+    if (newFillWidth < 0) newFillWidth = 0;
+    if (newFillWidth > maxFill) newFillWidth = maxFill;
+    
+    bool fillChanged = (newFillWidth != lastPowerFillWidth);
+    bool textChanged = (fabs(cuePower - oldCuePower) >= redrawThreshold);
+    
+    // Nếu không có thay đổi đáng kể, không cần vẽ lại để tránh nhấp nháy
+    if (!fillChanged && !textChanged) {
+        return;
+    }
+    
+    // Cập nhật phần fill theo hướng tăng/giảm mà không xóa toàn bộ
+    if (fillChanged) {
+        if (newFillWidth > lastPowerFillWidth) {
+            int delta = newFillWidth - lastPowerFillWidth;
+            tft->fillRect(barX + 1 + lastPowerFillWidth, barY + 1, delta, barHeight - 2, 0xF800);
+        } else if (newFillWidth < lastPowerFillWidth) {
+            int delta = lastPowerFillWidth - newFillWidth;
+            // Xóa phần thừa bằng màu nền của thanh (xanh bàn)
+            tft->fillRect(barX + 1 + newFillWidth, barY + 1, delta, barHeight - 2, COLOR_TABLE);
+        }
+        lastPowerFillWidth = newFillWidth;
+    }
+    
+    // Chỉ cập nhật text khi thay đổi đủ lớn
+    if (textChanged) {
+        // Xóa vùng text bằng fillRect thay vì pixel-by-pixel
+        int textX = barX + barWidth + 2;
+        tft->fillRect(textX, barY, textWidth - 2, barHeight, COLOR_TABLE);
+        
+        tft->setTextSize(1);
+        tft->setTextColor(0xFFFF, COLOR_TABLE);  // Chữ trắng, nền xanh
+        tft->setCursor(barX + barWidth + 5, barY + 2);
+        tft->print((int)cuePower);
+        tft->print("%");
+        
+        oldCuePower = cuePower;
+    }
+}
+
+void BilliardGame::drawPowerBarStatic() {
+    const int barX = 10;
+    const int barY = SCREEN_HEIGHT - 30;
+    const int barWidth = 100;
+    const int barHeight = 12;
+    const int textWidth = 30;
+    const int clearX = barX;
+    const int clearY = barY - 2;
+    const int clearWidth = barWidth + textWidth;
+    const int clearHeight = barHeight + 12;
+    
+    // Khôi phục nền đúng màu một lần (pixel-by-pixel nhưng chỉ 1 lần mỗi lần hiện thanh)
     for (int py = clearY; py < clearY + clearHeight; py++) {
         for (int px = clearX; px < clearX + clearWidth; px++) {
             uint16_t bgColor = getBackgroundColorAt(px, py);
@@ -1021,21 +1008,52 @@ void BilliardGame::drawPowerBar() {
         }
     }
     
-    // Draw background (viền trắng)
+    // Vẽ phần nền trong thanh (màu bàn) và viền trắng
+    tft->fillRect(barX + 1, barY + 1, barWidth - 2, barHeight - 2, COLOR_TABLE);
     tft->drawRect(barX, barY, barWidth, barHeight, 0xFFFF);
     
-    // Power fill (màu đỏ)
-    int fillWidth = (int)(cuePower * barWidth / 100.0f);
-    if (fillWidth > 0) {
-        tft->fillRect(barX + 1, barY + 1, fillWidth - 2, barHeight - 2, 0xF800);
+    // Vùng text: tô nền trước để tránh nhấp nháy khi cập nhật
+    int textX = barX + barWidth + 2;
+    tft->fillRect(textX, barY, textWidth - 2, barHeight, COLOR_TABLE);
+}
+
+void BilliardGame::clearPowerBarArea() {
+    const int barX = 10;
+    const int barY = SCREEN_HEIGHT - 30;
+    const int barWidth = 100;
+    const int barHeight = 12;
+    const int textWidth = 30;
+    const int clearX = barX;
+    const int clearY = barY - 2;
+    const int clearWidth = barWidth + textWidth;
+    const int clearHeight = barHeight + 12;
+    
+    // Khôi phục nền đúng màu (chỉ khi cần xóa thanh)
+    for (int py = clearY; py < clearY + clearHeight; py++) {
+        for (int px = clearX; px < clearX + clearWidth; px++) {
+            uint16_t bgColor = getBackgroundColorAt(px, py);
+            tft->drawPixel(px, py, bgColor);
+        }
     }
     
-    // Hiển thị số lực bên cạnh thanh (0-100)
-    tft->setTextSize(1);
-    tft->setTextColor(0xFFFF, COLOR_TABLE);  // Chữ trắng, nền xanh
-    tft->setCursor(barX + barWidth + 5, barY + 2);
-    tft->print((int)cuePower);
-    tft->print("%");
+    // Vẽ lại các quả bi nếu nằm trong vùng thanh lực
+    for (int i = 0; i < BALL_COUNT; i++) {
+        if (balls[i].x < 0) continue;
+        int ballScreenX = (int)balls[i].x;
+        int ballScreenY = SCREEN_HEIGHT - (int)balls[i].y;
+        int ballRadius = BALL_RADIUS;
+        bool ballInPowerBarArea = (ballScreenX + ballRadius >= clearX && 
+                                   ballScreenX - ballRadius <= clearX + clearWidth &&
+                                   ballScreenY + ballRadius >= clearY && 
+                                   ballScreenY - ballRadius <= clearY + clearHeight);
+        if (ballInPowerBarArea) {
+            drawBall(i);
+        }
+    }
+    
+    powerBarVisible = false;
+    lastPowerFillWidth = 0;
+    oldCuePower = 0.0f;
 }
 
 void BilliardGame::update() {
@@ -1050,7 +1068,6 @@ void BilliardGame::update() {
         }
         // Vẽ lại thanh lực mỗi frame khi đang charge để hiển thị rõ ràng
         drawPowerBar();
-        oldCuePower = cuePower;
     }
     
     updatePhysics();
@@ -1848,6 +1865,8 @@ void BilliardGame::handleChargeStart() {
         isCharging = true;
         cuePower = 0.0f;
         oldCuePower = 0.0f;
+        powerBarVisible = false;
+        lastPowerFillWidth = 0;
         // Vẽ thanh lực ngay khi bắt đầu charge
         drawPowerBar();
     }
@@ -1859,70 +1878,8 @@ void BilliardGame::handleChargeRelease() {
         // Đảm bảo gậy được xóa sạch, không để lại dấu vết
         eraseCueStick();
         
-        // Khôi phục nền vùng thanh lực - trả lại nền đúng màu
-        int barX = 10;
-        int barY = SCREEN_HEIGHT - 30;
-        int barWidth = 100;
-        int barHeight = 12;
-        int textWidth = 30;
-        int clearHeight = barHeight + 12;  // Chiều cao vùng cần xóa (bao gồm text)
-        
-        // Tính toán vùng bị đè bởi thanh lực
-        int clearX = barX;
-        int clearY = barY - 2;
-        int clearWidth = barWidth + textWidth;
-        
-        // Xác định vùng nào nằm trên bàn, vùng nào nằm ngoài bàn
-        int tableScreenY = SCREEN_HEIGHT - TABLE_Y;  // Top của bàn (trên màn hình)
-        int tableBottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);  // Bottom của bàn (trên màn hình)
-        int tableMinX = TABLE_X;
-        int tableMaxX = TABLE_X + TABLE_WIDTH;
-        
-        // Xóa và vẽ lại từng phần với màu nền đúng
-        for (int py = clearY; py < clearY + clearHeight; py++) {
-            for (int px = clearX; px < clearX + clearWidth; px++) {
-                // Sử dụng hàm getBackgroundColorAt để lấy màu nền chính xác
-                uint16_t bgColor = getBackgroundColorAt(px, py);
-                tft->drawPixel(px, py, bgColor);
-            }
-        }
-        
-        // Vẽ lại thành bàn nếu thanh lực che mất thành bàn
-        // Kiểm tra xem thanh lực có che mất thành bàn dưới không
-        if (clearY <= tableBottomScreenY && (clearY + clearHeight) >= tableBottomScreenY) {
-            // Vẽ lại thành bàn dưới
-            int railThickness = 4;
-            for (int i = 0; i < railThickness; i++) {
-                // Chỉ vẽ phần không bị che bởi thanh lực
-                int drawStartX = (clearX < tableMinX) ? tableMinX : clearX + clearWidth;
-                int drawEndX = tableMaxX;
-                if (drawStartX < drawEndX) {
-                    tft->drawLine(drawStartX, tableBottomScreenY - i, drawEndX, tableBottomScreenY - i, COLOR_TABLE_BORDER);
-                }
-            }
-        }
-        
-        // QUAN TRỌNG: Vẽ lại các quả bi bị đè bởi thanh lực
-        for (int i = 0; i < BALL_COUNT; i++) {
-            // Bỏ qua quả bi đã vào lỗ
-            if (balls[i].x < 0) continue;
-            
-            // Kiểm tra xem quả bi có nằm trong vùng thanh lực không
-            int ballScreenX = (int)balls[i].x;
-            int ballScreenY = SCREEN_HEIGHT - (int)balls[i].y;
-            int ballRadius = BALL_RADIUS;
-            
-            // Kiểm tra xem quả bi có giao với vùng thanh lực không
-            bool ballInPowerBarArea = (ballScreenX + ballRadius >= clearX && 
-                                       ballScreenX - ballRadius <= clearX + clearWidth &&
-                                       ballScreenY + ballRadius >= clearY && 
-                                       ballScreenY - ballRadius <= clearY + clearHeight);
-            
-            if (ballInPowerBarArea) {
-                // Vẽ lại quả bi này
-                drawBall(i);
-            }
-        }
+        // Khôi phục nền thanh lực một lần khi bắn
+        clearPowerBarArea();
         
         // Shoot the cue ball
         // Quả bi chạy về hướng cueAngle (phía trước), gậy nằm phía sau
@@ -1961,7 +1918,6 @@ void BilliardGame::handlePowerUp() {
         }
         // Vẽ lại power bar ngay lập tức
         drawPowerBar();
-        oldCuePower = cuePower;
     }
 }
 
@@ -1974,7 +1930,6 @@ void BilliardGame::handlePowerDown() {
         }
         // Vẽ lại power bar ngay lập tức
         drawPowerBar();
-        oldCuePower = cuePower;
     }
 }
 
