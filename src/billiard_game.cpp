@@ -1654,11 +1654,13 @@ void BilliardGame::checkBallCollisions() {
                 // Minimum distance should be 2 * BALL_RADIUS
                 float minDistance = BALL_RADIUS * 2;
                 
+                // Luôn coi là khung va chạm nếu bi chạm nhẹ (mở rộng margin cho va chậm)
+                if (distance < minDistance * 1.12f) {
+                    collisionThisFrame = true;
+                }
+                
                 // Check if balls are overlapping or very close
                 if (distance < minDistance && distance > 0.01f) {
-                    // Bất cứ khi nào có tiếp xúc, coi khung hình là khung va chạm để vẽ lại toàn bộ
-                    collisionThisFrame = true;
-                    
                     // Normalize collision vector
                     float nx = dx / distance;
                     float ny = dy / distance;
