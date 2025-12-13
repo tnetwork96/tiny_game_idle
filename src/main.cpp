@@ -281,12 +281,17 @@ void setup() {
     // Khởi tạo Billiard Game
     billiardGame = new BilliardGame(&tft);
     
-    // Bắt đầu quy trình scan WiFi
-    wifiManager->begin();
+    // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
+    Serial.println("Auto-starting Billiard Game...");
+    billiardGame->init();
+    inGame = true;
+    currentGame = 3;  // Billiard game
+    menuShown = true;  // Đánh dấu đã qua menu để không hiển thị lại
     
-    if (testMode) {
-        Serial.println("TEST MODE: Will auto-select 'Van Ninh' and enter password '123456a@'");
-    }
+    // Bỏ qua WiFi và menu
+    // wifiManager->begin();
+    
+    Serial.println("Billiard Game started!");
 }
 
 void loop() {
@@ -504,41 +509,55 @@ void loop() {
         
         switch (testStep) {
             case 0:
-                // Tự động ngắm về quả bi gần nhất
+                // Tự động ngắm vào quả bi gần nhất (để đánh các quả bi khác vào lỗ)
                 if (!stepExecuted || currentTime - lastBilliardTime > 500) {
                     billiardGame->aimAtNearestBall();
                     lastBilliardTime = currentTime;
                     stepExecuted = true;
                     if (billiardGame->getIsAiming()) {
-                        // Sau khi ngắm, chuyển sang bước tiếp theo
+                        // Sau khi ngắm, chuyển sang bước charge ngay
                         static int aimCount = 0;
                         aimCount++;
                         if (aimCount > 2) {  // Ngắm 2 lần để đảm bảo góc đúng
-                            testStep = 1;
+                            testStep = 1;  // Chuyển sang bước charge
                             stepExecuted = false;
                             aimCount = 0;
                             lastBilliardTime = currentTime;
-                            Serial.print("Billiard Test: Aimed at target. Active balls: ");
+                            Serial.print("Billiard Test: Aimed at nearest ball. Active balls: ");
                             Serial.println(activeBalls);
                         }
                     }
                 }
                 break;
             case 1:
-                // Bắt đầu charge
+                // Bắt đầu charge đến MAX LỰC (100%)
                 if (!stepExecuted) {
                     billiardGame->handleChargeStart();
                     chargeStartTime = currentTime;
                     stepExecuted = true;
-                    Serial.println("Billiard Test: Started charging...");
+                    Serial.println("Billiard Test: Started charging to MAX POWER (100%)...");
                 }
-                // Charge trong 1.5 giây, sau đó bắn
-                if (currentTime - chargeStartTime > 1500) {
-                    billiardGame->handleChargeRelease();
-                    testStep = 2;
-                    stepExecuted = false;
-                    Serial.println("Billiard Test: Shot fired!");
-                    lastBilliardTime = currentTime;
+                
+                // Tăng lực nhanh bằng handlePowerUp() để đạt max lực nhanh hơn
+                if (currentTime - lastBilliardTime > 50) {  // Mỗi 50ms tăng lực một lần
+                    float currentPower = billiardGame->getCuePower();
+                    if (currentPower < 100.0f) {
+                        // Tăng lực nhanh đến 100%
+                        billiardGame->handlePowerUp();
+                        lastBilliardTime = currentTime;
+                        
+                        Serial.print("Billiard Test: Charging... Power: ");
+                        Serial.print(currentPower);
+                        Serial.println("%");
+                    } else {
+                        // Đã đạt max lực (100%), đánh ngay
+                        Serial.print("Billiard Test: MAX POWER (100%) reached! Firing...");
+                        Serial.println(billiardGame->getCuePower());
+                        billiardGame->handleChargeRelease();
+                        testStep = 2;
+                        stepExecuted = false;
+                        lastBilliardTime = currentTime;
+                    }
                 }
                 break;
             case 2:

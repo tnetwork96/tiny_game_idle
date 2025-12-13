@@ -27,10 +27,13 @@ void BilliardGame::init() {
     tableDrawn = true;
     
     // Draw all balls at initial positions
+    // CHỈ vẽ các quả bi còn trên bàn (x >= 0), các quả bi đã rơi vào lỗ (x < 0) không vẽ
     for (int i = 0; i < BALL_COUNT; i++) {
-        oldBallX[i] = balls[i].x;
-        oldBallY[i] = balls[i].y;
-        drawBall(i);
+        if (balls[i].x >= 0) {  // Chỉ vẽ quả bi còn trên bàn
+            oldBallX[i] = balls[i].x;
+            oldBallY[i] = balls[i].y;
+            drawBall(i);
+        }
     }
     
     // Draw cue stick
@@ -49,41 +52,84 @@ void BilliardGame::resetGame() {
     balls[0].color = COLOR_CUE_BALL;
     balls[0].isActive = false;
     
-    // Initialize target balls in triangle formation
+    // Initialize target balls in triangle formation (1 cue ball + 19 target balls)
+    // Xếp thành hình tam giác: 1, 2, 3, 4, 5, 4 (tổng 19 quả)
     float startX = TABLE_X + TABLE_WIDTH - 100;
     float startY = TABLE_Y + TABLE_HEIGHT / 2;
+    float ballSpacing = 13.0f;  // Khoảng cách giữa các quả bi
     
-    // Ball 1 (Red)
-    balls[1].x = startX;
-    balls[1].y = startY;
-    balls[1].vx = 0.0f;
-    balls[1].vy = 0.0f;
-    balls[1].color = COLOR_BALL1;
-    balls[1].isActive = false;
+    uint16_t ballColors[19] = {
+        COLOR_BALL1, COLOR_BALL2, COLOR_BALL3, COLOR_BALL4, COLOR_BALL5,
+        COLOR_BALL6, COLOR_BALL7, COLOR_BALL8, COLOR_BALL9, COLOR_BALL10,
+        COLOR_BALL11, COLOR_BALL12, COLOR_BALL13, COLOR_BALL14, COLOR_BALL15,
+        COLOR_BALL16, COLOR_BALL17, COLOR_BALL18, COLOR_BALL19
+    };
     
-    // Ball 2 (Yellow)
-    balls[2].x = startX - 20;
-    balls[2].y = startY - 12;
-    balls[2].vx = 0.0f;
-    balls[2].vy = 0.0f;
-    balls[2].color = COLOR_BALL2;
-    balls[2].isActive = false;
+    int ballIndex = 1;  // Bắt đầu từ quả bi 1 (quả bi 0 là cue ball)
     
-    // Ball 3 (Green)
-    balls[3].x = startX - 20;
-    balls[3].y = startY + 12;
-    balls[3].vx = 0.0f;
-    balls[3].vy = 0.0f;
-    balls[3].color = COLOR_BALL3;
-    balls[3].isActive = false;
+    // Row 1: 1 ball (center)
+    balls[ballIndex].x = startX;
+    balls[ballIndex].y = startY;
+    balls[ballIndex].vx = 0.0f;
+    balls[ballIndex].vy = 0.0f;
+    balls[ballIndex].color = ballColors[ballIndex - 1];
+    balls[ballIndex].isActive = false;
+    ballIndex++;
     
-    // Ball 4 (Blue)
-    balls[4].x = startX - 40;
-    balls[4].y = startY;
-    balls[4].vx = 0.0f;
-    balls[4].vy = 0.0f;
-    balls[4].color = COLOR_BALL4;
-    balls[4].isActive = false;
+    // Row 2: 2 balls
+    for (int i = 0; i < 2; i++) {
+        balls[ballIndex].x = startX - ballSpacing;
+        balls[ballIndex].y = startY - ballSpacing * 0.5f + ballSpacing * i;
+        balls[ballIndex].vx = 0.0f;
+        balls[ballIndex].vy = 0.0f;
+        balls[ballIndex].color = ballColors[ballIndex - 1];
+        balls[ballIndex].isActive = false;
+        ballIndex++;
+    }
+    
+    // Row 3: 3 balls
+    for (int i = 0; i < 3; i++) {
+        balls[ballIndex].x = startX - ballSpacing * 2;
+        balls[ballIndex].y = startY - ballSpacing + ballSpacing * i;
+        balls[ballIndex].vx = 0.0f;
+        balls[ballIndex].vy = 0.0f;
+        balls[ballIndex].color = ballColors[ballIndex - 1];
+        balls[ballIndex].isActive = false;
+        ballIndex++;
+    }
+    
+    // Row 4: 4 balls
+    for (int i = 0; i < 4; i++) {
+        balls[ballIndex].x = startX - ballSpacing * 3;
+        balls[ballIndex].y = startY - ballSpacing * 1.5f + ballSpacing * i;
+        balls[ballIndex].vx = 0.0f;
+        balls[ballIndex].vy = 0.0f;
+        balls[ballIndex].color = ballColors[ballIndex - 1];
+        balls[ballIndex].isActive = false;
+        ballIndex++;
+    }
+    
+    // Row 5: 5 balls
+    for (int i = 0; i < 5; i++) {
+        balls[ballIndex].x = startX - ballSpacing * 4;
+        balls[ballIndex].y = startY - ballSpacing * 2 + ballSpacing * i;
+        balls[ballIndex].vx = 0.0f;
+        balls[ballIndex].vy = 0.0f;
+        balls[ballIndex].color = ballColors[ballIndex - 1];
+        balls[ballIndex].isActive = false;
+        ballIndex++;
+    }
+    
+    // Row 6: 4 balls (last row)
+    for (int i = 0; i < 4; i++) {
+        balls[ballIndex].x = startX - ballSpacing * 5;
+        balls[ballIndex].y = startY - ballSpacing * 1.5f + ballSpacing * i;
+        balls[ballIndex].vx = 0.0f;
+        balls[ballIndex].vy = 0.0f;
+        balls[ballIndex].color = ballColors[ballIndex - 1];
+        balls[ballIndex].isActive = false;
+        ballIndex++;
+    }
     
     cueAngle = 0.0f;
     oldCueAngle = 0.0f;
@@ -168,7 +214,7 @@ void BilliardGame::drawTable() {
 
 void BilliardGame::eraseBall(int index) {
     // Erase old ball position by redrawing table background and border
-    // Use pixel-by-pixel drawing to properly handle ball crossing table border
+    // Tối ưu: chỉ xóa vị trí cũ, không xóa toàn bộ đường đi để giảm nháy
     float oldX = oldBallX[index];
     float oldY = oldBallY[index];
     float newX = balls[index].x;
@@ -182,22 +228,19 @@ void BilliardGame::eraseBall(int index) {
     // Erase radius (slightly larger than ball to ensure clean erase)
     int eraseRadius = BALL_RADIUS + 2;
     
-    // Background color (black for outside table, green for inside)
-    uint16_t bgColor = 0x0000;  // Black background
-    
-    // If ball moved significantly, erase the path
-    if (distance > BALL_RADIUS * 2) {
-        // Erase multiple points along the path to prevent trails
-        int steps = (int)(distance / (BALL_RADIUS * 0.5f)) + 1;
+    // Tối ưu: chỉ xóa vị trí cũ và vị trí mới, không xóa toàn bộ đường đi
+    // Điều này giảm nháy đáng kể khi quả bi di chuyển nhanh
+    if (distance > BALL_RADIUS * 3) {
+        // Quả bi di chuyển nhanh - xóa vị trí cũ và một vài điểm giữa
+        int steps = 3;  // Giảm số bước để tăng tốc độ
         for (int i = 0; i <= steps; i++) {
             float t = (float)i / steps;
             float x = oldX + dx * t;
             float y = oldY + dy * t;
-            
             eraseBallAtPosition(x, y, eraseRadius);
         }
     } else {
-        // Just erase the old position
+        // Quả bi di chuyển chậm - chỉ xóa vị trí cũ
         eraseBallAtPosition(oldX, oldY, eraseRadius);
     }
 }
@@ -242,6 +285,11 @@ void BilliardGame::eraseBallAtPosition(float x, float y, int radius) {
     int eraseMaxY = (maxY < tableMaxY) ? maxY : tableMaxY;
     
     // Erase the entire ball circle - draw black outside table, green inside table
+    // Tối ưu: chỉ vẽ lại border/pockets khi thực sự cần (gần edge)
+    bool nearEdge = (x < TABLE_X + radius * 2 || x > TABLE_X + TABLE_WIDTH - radius * 2 ||
+                     y < TABLE_Y + radius * 2 || y > TABLE_Y + TABLE_HEIGHT - radius * 2);
+    
+    // Erase ball area
     for (int py = minY; py <= maxY; py++) {
         for (int px = minX; px <= maxX; px++) {
             // Check if pixel is within circle
@@ -266,14 +314,8 @@ void BilliardGame::eraseBallAtPosition(float x, float y, int radius) {
         }
     }
     
-    // Also erase parts that intersect with table (for border redraw)
-    if (eraseMinX <= eraseMaxX && eraseMinY <= eraseMaxY) {
-        // This section is already handled above, but keep for border redraw logic
-    }
-    
-    // Redraw border and pockets if near table edges
-    if (x >= TABLE_X - radius && x <= TABLE_X + TABLE_WIDTH + radius &&
-        y >= TABLE_Y - radius && y <= TABLE_Y + TABLE_HEIGHT + radius) {
+    // Chỉ vẽ lại border và pockets khi quả bi gần edge (giảm nháy)
+    if (nearEdge) {
         redrawBorderNear(screenX, screenY, radius);
         redrawPocketsNear(x, y, radius);
     }
@@ -406,6 +448,11 @@ void BilliardGame::redrawBorderNear(int screenX, int screenY, int radius) {
 void BilliardGame::drawBall(int index) {
     Ball& ball = balls[index];
     
+    // Kiểm tra NGAY LẬP TỨC nếu quả bi đã rơi vào lỗ (x < 0) - KHÔNG BAO GIỜ vẽ lại
+    if (ball.x < 0) {
+        return;  // Quả bi đã rơi vào lỗ, không vẽ
+    }
+    
     if (ball.x < TABLE_X - BALL_RADIUS || ball.x > TABLE_X + TABLE_WIDTH + BALL_RADIUS ||
         ball.y < TABLE_Y - BALL_RADIUS || ball.y > TABLE_Y + TABLE_HEIGHT + BALL_RADIUS) {
         return;  // Ball is out of bounds (in pocket)
@@ -453,45 +500,240 @@ void BilliardGame::eraseCueStick() {
     int oldStickEndScreenX = (int)oldStickEndX;
     int oldStickEndScreenY = SCREEN_HEIGHT - (int)oldStickEndY;
     
-    // Erase cue stick by drawing correct background color pixel-by-pixel
-    // Sử dụng Bresenham line algorithm để vẽ lại từng pixel với màu nền đúng
-    int x0 = screenX;
-    int y0 = screenY;
-    int x1 = oldStickEndScreenX;
-    int y1 = oldStickEndScreenY;
+    // Xóa gậy - tương tự như vẽ, nhưng vẽ lại màu nền
+    int stickThickness = 4;  // Độ dày phần thân gậy (phải khớp với drawCueStick)
+    int halfThickness = stickThickness / 2;
+    int tipSize = 2;  // Kích thước đầu gậy (phải khớp với drawCueStick)
     
-    // Vẽ lại 3 đường (thick line) với màu nền đúng
-    for (int offset = -1; offset <= 1; offset++) {
-        int x0_offset = x0 + offset;
-        int y0_offset = y0;
-        int x1_offset = x1 + offset;
-        int y1_offset = y1;
+    // Tính toán vector vuông góc với hướng gậy để xóa độ dày
+    int dx = oldStickEndScreenX - screenX;
+    int dy = oldStickEndScreenY - screenY;
+    float length = sqrt((float)(dx * dx + dy * dy));
+    
+    if (length > 0) {
+        // Vector đơn vị vuông góc (perpendicular vector)
+        float perpX = -dy / length;
+        float perpY = dx / length;
         
-        // Bresenham line algorithm
-        int dx = abs(x1_offset - x0_offset);
-        int dy = abs(y1_offset - y0_offset);
-        int sx = (x0_offset < x1_offset) ? 1 : -1;
-        int sy = (y0_offset < y1_offset) ? 1 : -1;
-        int err = dx - dy;
+        // Xóa phần thân gậy - tính điểm bắt đầu phần thân (cách quả bi một chút)
+        int shaftStartOffset = 6;  // Khoảng cách từ quả bi đến điểm bắt đầu thân gậy
+        int oldShaftStartX = screenX + (int)(dx * shaftStartOffset / length);
+        int oldShaftStartY = screenY + (int)(dy * shaftStartOffset / length);
         
-        int x = x0_offset;
-        int y = y0_offset;
-        
-        while (true) {
-            // Xác định màu nền tại vị trí (x, y)
-            uint16_t bgColor = getBackgroundColorAt(x, y);
-            tft->drawPixel(x, y, bgColor);
+        // Xóa thân gậy - vẽ lại nhiều đường line song song với màu nền
+        for (int i = -halfThickness; i <= halfThickness; i++) {
+            int offsetX = (int)(perpX * i);
+            int offsetY = (int)(perpY * i);
             
-            if (x == x1_offset && y == y1_offset) break;
+            // Sử dụng Bresenham line algorithm để vẽ lại từng pixel với màu nền đúng
+            int x0 = oldShaftStartX + offsetX;
+            int y0 = oldShaftStartY + offsetY;
+            int x1 = oldStickEndScreenX + offsetX;
+            int y1 = oldStickEndScreenY + offsetY;
             
-            int e2 = 2 * err;
-            if (e2 > -dy) {
-                err -= dy;
-                x += sx;
+            int dx_line = abs(x1 - x0);
+            int dy_line = abs(y1 - y0);
+            int sx = (x0 < x1) ? 1 : -1;
+            int sy = (y0 < y1) ? 1 : -1;
+            int err = dx_line - dy_line;
+            
+            int x = x0;
+            int y = y0;
+            
+            while (true) {
+                // Xác định màu nền tại vị trí (x, y)
+                uint16_t bgColor = getBackgroundColorAt(x, y);
+                tft->drawPixel(x, y, bgColor);
+                
+                if (x == x1 && y == y1) break;
+                
+                int e2 = 2 * err;
+                if (e2 > -dy_line) {
+                    err -= dy_line;
+                    x += sx;
+                }
+                if (e2 < dx_line) {
+                    err += dx_line;
+                    y += sy;
+                }
             }
-            if (e2 < dx) {
-                err += dx;
-                y += sy;
+        }
+        
+        // Xóa phần đầu gậy (tip) - phần tiếp xúc với bi
+        int tipLength = 6;  // Chiều dài phần đầu gậy (phải khớp với drawCueStick)
+        for (int i = -tipSize/2; i <= tipSize/2; i++) {
+            int tipOffsetX = (int)(perpX * i);
+            int tipOffsetY = (int)(perpY * i);
+            int tipStartX = screenX + tipOffsetX;
+            int tipStartY = screenY + tipOffsetY;
+            int tipEndX = screenX + (int)(dx * tipLength / length) + tipOffsetX;
+            int tipEndY = screenY + (int)(dy * tipLength / length) + tipOffsetY;
+            
+            int dx_tip = abs(tipEndX - tipStartX);
+            int dy_tip = abs(tipEndY - tipStartY);
+            int sx_tip = (tipStartX < tipEndX) ? 1 : -1;
+            int sy_tip = (tipStartY < tipEndY) ? 1 : -1;
+            int err_tip = dx_tip - dy_tip;
+            
+            int x = tipStartX;
+            int y = tipStartY;
+            
+            while (true) {
+                uint16_t bgColor = getBackgroundColorAt(x, y);
+                tft->drawPixel(x, y, bgColor);
+                
+                if (x == tipEndX && y == tipEndY) break;
+                
+                int e2 = 2 * err_tip;
+                if (e2 > -dy_tip) {
+                    err_tip -= dy_tip;
+                    x += sx_tip;
+                }
+                if (e2 < dx_tip) {
+                    err_tip += dx_tip;
+                    y += sy_tip;
+                }
+            }
+        }
+    } else {
+        // Fallback: xóa đường line đơn giản nếu không tính được vector
+        for (int i = -halfThickness; i <= halfThickness; i++) {
+            int x0 = screenX;
+            int y0 = screenY + i;
+            int x1 = oldStickEndScreenX;
+            int y1 = oldStickEndScreenY + i;
+            
+            int dx_line = abs(x1 - x0);
+            int dy_line = abs(y1 - y0);
+            int sx = (x0 < x1) ? 1 : -1;
+            int sy = (y0 < y1) ? 1 : -1;
+            int err = dx_line - dy_line;
+            
+            int x = x0;
+            int y = y0;
+            
+            while (true) {
+                uint16_t bgColor = getBackgroundColorAt(x, y);
+                tft->drawPixel(x, y, bgColor);
+                
+                if (x == x1 && y == y1) break;
+                
+                int e2 = 2 * err;
+                if (e2 > -dy_line) {
+                    err -= dy_line;
+                    x += sx;
+                }
+                if (e2 < dx_line) {
+                    err += dx_line;
+                    y += sy;
+                }
+            }
+        }
+    }
+}
+
+void BilliardGame::eraseCueStickAtPosition(float angle, float power) {
+    // Hàm xóa gậy dựa trên góc và lực cụ thể, không phụ thuộc vào isAiming
+    Ball& cueBall = balls[activeBallIndex];
+    int screenX = (int)cueBall.x;
+    int screenY = SCREEN_HEIGHT - (int)cueBall.y;
+    
+    // Calculate cue stick position
+    float stickLength = 40.0f + power * 0.3f;
+    float stickEndX = cueBall.x - cos(angle) * (BALL_RADIUS + stickLength);
+    float stickEndY = cueBall.y - sin(angle) * (BALL_RADIUS + stickLength);
+    
+    int oldStickEndScreenX = (int)stickEndX;
+    int oldStickEndScreenY = SCREEN_HEIGHT - (int)stickEndY;
+    
+    // Xóa gậy - tương tự như eraseCueStick() nhưng không kiểm tra isAiming
+    int stickThickness = 4;
+    int halfThickness = stickThickness / 2;
+    int tipSize = 2;
+    
+    int dx = oldStickEndScreenX - screenX;
+    int dy = oldStickEndScreenY - screenY;
+    float length = sqrt((float)(dx * dx + dy * dy));
+    
+    if (length > 0) {
+        float perpX = -dy / length;
+        float perpY = dx / length;
+        
+        // Xóa phần thân gậy
+        int shaftStartOffset = 6;
+        int oldShaftStartX = screenX + (int)(dx * shaftStartOffset / length);
+        int oldShaftStartY = screenY + (int)(dy * shaftStartOffset / length);
+        
+        for (int i = -halfThickness; i <= halfThickness; i++) {
+            int offsetX = (int)(perpX * i);
+            int offsetY = (int)(perpY * i);
+            
+            int x0 = oldShaftStartX + offsetX;
+            int y0 = oldShaftStartY + offsetY;
+            int x1 = oldStickEndScreenX + offsetX;
+            int y1 = oldStickEndScreenY + offsetY;
+            
+            int dx_line = abs(x1 - x0);
+            int dy_line = abs(y1 - y0);
+            int sx = (x0 < x1) ? 1 : -1;
+            int sy = (y0 < y1) ? 1 : -1;
+            int err = dx_line - dy_line;
+            
+            int x = x0;
+            int y = y0;
+            
+            while (true) {
+                uint16_t bgColor = getBackgroundColorAt(x, y);
+                tft->drawPixel(x, y, bgColor);
+                
+                if (x == x1 && y == y1) break;
+                
+                int e2 = 2 * err;
+                if (e2 > -dy_line) {
+                    err -= dy_line;
+                    x += sx;
+                }
+                if (e2 < dx_line) {
+                    err += dx_line;
+                    y += sy;
+                }
+            }
+        }
+        
+        // Xóa phần đầu gậy
+        int tipLength = 6;
+        for (int i = -tipSize/2; i <= tipSize/2; i++) {
+            int tipOffsetX = (int)(perpX * i);
+            int tipOffsetY = (int)(perpY * i);
+            int tipStartX = screenX + tipOffsetX;
+            int tipStartY = screenY + tipOffsetY;
+            int tipEndX = screenX + (int)(dx * tipLength / length) + tipOffsetX;
+            int tipEndY = screenY + (int)(dy * tipLength / length) + tipOffsetY;
+            
+            int dx_tip = abs(tipEndX - tipStartX);
+            int dy_tip = abs(tipEndY - tipStartY);
+            int sx_tip = (tipStartX < tipEndX) ? 1 : -1;
+            int sy_tip = (tipStartY < tipEndY) ? 1 : -1;
+            int err_tip = dx_tip - dy_tip;
+            
+            int x = tipStartX;
+            int y = tipStartY;
+            
+            while (true) {
+                uint16_t bgColor = getBackgroundColorAt(x, y);
+                tft->drawPixel(x, y, bgColor);
+                
+                if (x == tipEndX && y == tipEndY) break;
+                
+                int e2 = 2 * err_tip;
+                if (e2 > -dy_tip) {
+                    err_tip -= dy_tip;
+                    x += sx_tip;
+                }
+                if (e2 < dx_tip) {
+                    err_tip += dx_tip;
+                    y += sy_tip;
+                }
             }
         }
     }
@@ -554,10 +796,62 @@ void BilliardGame::drawCueStick() {
     int stickEndScreenX = (int)stickEndX;
     int stickEndScreenY = SCREEN_HEIGHT - (int)stickEndY;
     
-    // Draw cue stick (thick line)
-    tft->drawLine(stickStartX, stickStartY, stickEndScreenX, stickEndScreenY, COLOR_CUE_STICK);
-    tft->drawLine(stickStartX - 1, stickStartY, stickEndScreenX - 1, stickEndScreenY, COLOR_CUE_STICK);
-    tft->drawLine(stickStartX + 1, stickStartY, stickEndScreenX + 1, stickEndScreenY, COLOR_CUE_STICK);
+    // Vẽ gậy bida giống thật - phần thân và đầu gậy màu trắng
+    int stickThickness = 4;  // Độ dày phần thân gậy (4 pixel - mỏng hơn để giống thật)
+    int halfThickness = stickThickness / 2;
+    uint16_t shaftColor = 0xFFFF;  // Màu trắng cho phần thân gậy
+    
+    // Tính toán vector vuông góc với hướng gậy để vẽ độ dày
+    float dx = stickEndScreenX - stickStartX;
+    float dy = stickEndScreenY - stickStartY;
+    float length = sqrt(dx * dx + dy * dy);
+    
+    if (length > 0) {
+        // Vector đơn vị vuông góc (perpendicular vector)
+        float perpX = -dy / length;
+        float perpY = dx / length;
+        
+        // Vẽ phần thân gậy (shaft) - màu trắng, mỏng và dài
+        // Tính điểm bắt đầu phần thân (cách quả bi một chút)
+        int shaftStartOffset = 6;  // Khoảng cách từ quả bi đến điểm bắt đầu thân gậy
+        int shaftStartX = stickStartX + (int)(dx * shaftStartOffset / length);
+        int shaftStartY = stickStartY + (int)(dy * shaftStartOffset / length);
+        
+        // Vẽ thân gậy bằng cách vẽ nhiều đường line song song màu trắng
+        for (int i = -halfThickness; i <= halfThickness; i++) {
+            int offsetX = (int)(perpX * i);
+            int offsetY = (int)(perpY * i);
+            
+            tft->drawLine(
+                shaftStartX + offsetX, 
+                shaftStartY + offsetY, 
+                stickEndScreenX + offsetX, 
+                stickEndScreenY + offsetY, 
+                shaftColor  // Màu trắng
+            );
+        }
+        
+        // Vẽ đầu gậy (tip) - phần tiếp xúc với bi, màu trắng, nhỏ hơn
+        uint16_t tipColor = 0xFFFF;  // Màu trắng cho đầu gậy
+        int tipSize = 2;  // Kích thước đầu gậy nhỏ hơn (2 pixel)
+        int tipLength = 6;  // Chiều dài phần đầu gậy
+        
+        for (int i = -tipSize/2; i <= tipSize/2; i++) {
+            int tipOffsetX = (int)(perpX * i);
+            int tipOffsetY = (int)(perpY * i);
+            // Vẽ phần đầu gậy (gần quả bi)
+            int tipStartX = stickStartX + tipOffsetX;
+            int tipStartY = stickStartY + tipOffsetY;
+            int tipEndX = stickStartX + (int)(dx * tipLength / length) + tipOffsetX;
+            int tipEndY = stickStartY + (int)(dy * tipLength / length) + tipOffsetY;
+            tft->drawLine(tipStartX, tipStartY, tipEndX, tipEndY, tipColor);
+        }
+    } else {
+        // Fallback: vẽ đường line đơn giản nếu không tính được vector
+        for (int i = -halfThickness; i <= halfThickness; i++) {
+            tft->drawLine(stickStartX, stickStartY + i, stickEndScreenX, stickEndScreenY + i, shaftColor);
+        }
+    }
     
     // Update old values
     oldCueAngle = cueAngle;
@@ -572,17 +866,18 @@ void BilliardGame::draw() {
     }
     
     // Update balls (erase old, draw new)
+    // Tối ưu: chỉ vẽ quả bi đang di chuyển để giảm nháy
     for (int i = 0; i < BALL_COUNT; i++) {
         // Skip if ball is pocketed
         if (balls[i].x < 0) continue;
         
-        // Always erase and redraw if ball is active (moving)
-        // This ensures no trails are left
+        // Chỉ vẽ lại quả bi nếu đang di chuyển hoặc vị trí thay đổi
         if (balls[i].isActive) {
+            // Quả bi đang di chuyển - xóa và vẽ lại
             eraseBall(i);
             drawBall(i);
         } else {
-            // For stationary balls, only update if position changed
+            // Quả bi đứng yên - chỉ vẽ lại nếu vị trí thay đổi (ví dụ khi reset)
             if (balls[i].x != oldBallX[i] || balls[i].y != oldBallY[i]) {
                 eraseBall(i);
                 drawBall(i);
@@ -651,6 +946,28 @@ void BilliardGame::draw() {
                 if (drawStartX < drawEndX) {
                     tft->drawLine(drawStartX, tableBottomScreenY - i, drawEndX, tableBottomScreenY - i, COLOR_TABLE_BORDER);
                 }
+            }
+        }
+        
+        // QUAN TRỌNG: Vẽ lại các quả bi bị đè bởi thanh lực
+        for (int i = 0; i < BALL_COUNT; i++) {
+            // Bỏ qua quả bi đã vào lỗ
+            if (balls[i].x < 0) continue;
+            
+            // Kiểm tra xem quả bi có nằm trong vùng thanh lực không
+            int ballScreenX = (int)balls[i].x;
+            int ballScreenY = SCREEN_HEIGHT - (int)balls[i].y;
+            int ballRadius = BALL_RADIUS;
+            
+            // Kiểm tra xem quả bi có giao với vùng thanh lực không
+            bool ballInPowerBarArea = (ballScreenX + ballRadius >= clearX && 
+                                       ballScreenX - ballRadius <= clearX + clearWidth &&
+                                       ballScreenY + ballRadius >= clearY && 
+                                       ballScreenY - ballRadius <= clearY + clearHeight);
+            
+            if (ballInPowerBarArea) {
+                // Vẽ lại quả bi này
+                drawBall(i);
             }
         }
         
@@ -731,6 +1048,9 @@ void BilliardGame::updatePhysics() {
             anyBallMoving = true;
         }
         
+        // Check if ball is near pocket BEFORE moving - để tránh bounce khi đang rơi vào lỗ
+        bool nearPocket = (balls[i].x >= 0) ? isBallNearPocket(balls[i].x, balls[i].y) : false;
+        
         // Update position (use smaller steps to prevent tunneling)
         float timeStep = 0.5f;
         balls[i].x += balls[i].vx * timeStep;
@@ -739,31 +1059,83 @@ void BilliardGame::updatePhysics() {
         // Check if ball fell into pocket FIRST (before wall collision check)
         // This prevents ball from going too far outside before being detected
         if (balls[i].x >= 0 && isBallInPocket(balls[i])) {
-            // Erase ball from screen before moving it
+            bool isCueBall = (i == activeBallIndex);
+            
+            // QUAN TRỌNG: Xóa quả bi khỏi màn hình TRƯỚC KHI đặt x = -100
+            // Điều này đảm bảo quả bi được xóa ở đúng vị trí cũ
             eraseBall(i);
             
+            // SAU KHI xóa xong, mới đánh dấu quả bi đã rơi vào lỗ (x = -100)
+            // Điều này đảm bảo quả bi không bao giờ được vẽ lại hoặc xử lý tiếp
+            if (!isCueBall) {
+                // Quả bi khác rơi vào lỗ - đánh dấu NGAY LẬP TỨC
+                balls[i].x = -100;
+                balls[i].y = -100;
+                oldBallX[i] = -100;
+                oldBallY[i] = -100;
+            }
+            
+            // Dừng quả bi
             balls[i].isActive = false;
             balls[i].vx = 0.0f;
             balls[i].vy = 0.0f;
-            // Move ball off screen
-            balls[i].x = -100;
-            balls[i].y = -100;
-            oldBallX[i] = -100;
-            oldBallY[i] = -100;
             
-            Serial.print("Ball ");
-            Serial.print(i);
-            Serial.println(" pocketed!");
+            if (isCueBall) {
+                // Cập nhật oldBallX/Y cho cue ball (sẽ được set lại ở dưới)
+                oldBallX[i] = balls[i].x;
+                oldBallY[i] = balls[i].y;
+            }
+            
+            // Xử lý đặc biệt cho quả bi trắng (cue ball) - index 0
+            if (isCueBall) {
+                // Quả bi trắng rơi vào lỗ - đặt lại ở vị trí ban đầu
+                Serial.println("Cue ball pocketed! Resetting cue ball position...");
+                
+                // Đặt lại quả bi trắng ở vị trí ban đầu (góc dưới trái)
+                balls[i].x = TABLE_X + 80;
+                balls[i].y = TABLE_Y + TABLE_HEIGHT - 40;
+                oldBallX[i] = balls[i].x;
+                oldBallY[i] = balls[i].y;
+                
+                // Vẽ lại quả bi trắng ở vị trí mới
+                drawBall(i);
+                
+                // Cho phép ngắm lại
+                isAiming = true;
+                isCharging = false;
+                cuePower = 0.0f;
+                oldCuePower = 0.0f;
+                
+                Serial.println("Cue ball reset to starting position.");
+            } else {
+                // Quả bi khác rơi vào lỗ - MẤT VĨNH VIỄN, không bao giờ lên lại
+                // Đảm bảo x = -100 để đánh dấu đã rơi vào lỗ
+                balls[i].x = -100;
+                balls[i].y = -100;
+                oldBallX[i] = -100;
+                oldBallY[i] = -100;
+                
+                Serial.print("Ball ");
+                Serial.print(i);
+                Serial.println(" pocketed! (permanently removed)");
+            }
             continue;  // Skip wall collision check for pocketed ball
         }
         
-        // Check wall collisions ONLY if ball hasn't been pocketed
-        if (balls[i].x >= 0) {
+        // Check wall collisions ONLY if ball hasn't been pocketed AND not near pocket
+        // Tránh bounce khi quả bi đang rơi vào lỗ
+        if (balls[i].x >= 0 && !nearPocket) {
             checkWallCollisions(balls[i]);
+        } else if (nearPocket) {
+            // Nếu gần lỗ, chỉ kiểm tra xem có rơi vào lỗ chưa, không bounce
+            // Giảm vận tốc để quả bi rơi vào lỗ tự nhiên hơn
+            balls[i].vx *= 0.95f;
+            balls[i].vy *= 0.95f;
         }
     }
     
     // Check ball-to-ball collisions (multiple times to handle fast collisions)
+    // Nhưng bỏ qua các quả bi đã rơi vào lỗ hoặc đang gần lỗ
     checkBallCollisions();
     
     // Apply remaining movement
@@ -775,22 +1147,73 @@ void BilliardGame::updatePhysics() {
         
         // Check pocket again after second movement
         if (isBallInPocket(balls[i])) {
+            bool isCueBall = (i == activeBallIndex);
+            
+            // QUAN TRỌNG: Xóa quả bi khỏi màn hình TRƯỚC KHI đặt x = -100
+            // Điều này đảm bảo quả bi được xóa ở đúng vị trí cũ
             eraseBall(i);
+            
+            // SAU KHI xóa xong, mới đánh dấu quả bi đã rơi vào lỗ (x = -100)
+            // Điều này đảm bảo quả bi không bao giờ được vẽ lại hoặc xử lý tiếp
+            if (!isCueBall) {
+                // Quả bi khác rơi vào lỗ - đánh dấu NGAY LẬP TỨC
+                balls[i].x = -100;
+                balls[i].y = -100;
+                oldBallX[i] = -100;
+                oldBallY[i] = -100;
+            }
+            
+            // Dừng quả bi
             balls[i].isActive = false;
             balls[i].vx = 0.0f;
             balls[i].vy = 0.0f;
-            balls[i].x = -100;
-            balls[i].y = -100;
-            oldBallX[i] = -100;
-            oldBallY[i] = -100;
-            Serial.print("Ball ");
-            Serial.print(i);
-            Serial.println(" pocketed!");
-            continue;
+            
+            if (isCueBall) {
+                // Cập nhật oldBallX/Y cho cue ball (sẽ được set lại ở dưới)
+                oldBallX[i] = balls[i].x;
+                oldBallY[i] = balls[i].y;
+            }
+            
+            // Xử lý đặc biệt cho quả bi trắng (cue ball) - index 0
+            if (isCueBall) {
+                // Quả bi trắng rơi vào lỗ - đặt lại ở vị trí ban đầu
+                Serial.println("Cue ball pocketed! Resetting cue ball position...");
+                
+                // Đặt lại quả bi trắng ở vị trí ban đầu (góc dưới trái)
+                balls[i].x = TABLE_X + 80;
+                balls[i].y = TABLE_Y + TABLE_HEIGHT - 40;
+                oldBallX[i] = balls[i].x;
+                oldBallY[i] = balls[i].y;
+                
+                // Vẽ lại quả bi trắng ở vị trí mới
+                drawBall(i);
+                
+                // Cho phép ngắm lại
+                isAiming = true;
+                isCharging = false;
+                cuePower = 0.0f;
+                oldCuePower = 0.0f;
+                
+                Serial.println("Cue ball reset to starting position.");
+            } else {
+                // Quả bi khác rơi vào lỗ - MẤT VĨNH VIỄN, không bao giờ lên lại
+                // Đảm bảo x = -100 để đánh dấu đã rơi vào lỗ
+                balls[i].x = -100;
+                balls[i].y = -100;
+                oldBallX[i] = -100;
+                oldBallY[i] = -100;
+                
+                Serial.print("Ball ");
+                Serial.print(i);
+                Serial.println(" pocketed! (permanently removed)");
+            }
+            continue;  // Bỏ qua wall collision check
         }
         
-        // Check wall collisions after second movement
-        checkWallCollisions(balls[i]);
+        // Check wall collisions after second movement - CHỈ nếu quả bi chưa rơi vào lỗ
+        if (balls[i].x >= 0 && !isBallInPocket(balls[i])) {
+            checkWallCollisions(balls[i]);
+        }
     }
     
     // Check collisions again after second movement
@@ -805,10 +1228,108 @@ void BilliardGame::updatePhysics() {
 }
 
 void BilliardGame::checkWallCollisions(Ball& ball) {
+    // Kiểm tra NGAY LẬP TỨC nếu quả bi đã rơi vào lỗ (x < 0) - KHÔNG BAO GIỜ xử lý
+    if (ball.x < 0) {
+        return;  // Quả bi đã rơi vào lỗ, không xử lý wall collision
+    }
+    
     // First, check if ball is actually in a pocket - if so, don't apply wall collision
     // This prevents ball from bouncing when it should fall into pocket
     if (isBallInPocket(ball)) {
         return;  // Ball is in pocket, don't apply wall collision
+    }
+    
+    // XỬ LÝ ĐẶC BIỆT CHO GÓC: Kiểm tra xem quả bi có đang ở góc giao thành bàn và viền lỗ không
+    // Đảm bảo quả bi không bị biến dạng khi kẹt ở góc
+    int cornerPockets[4][2] = {
+        {TABLE_X, TABLE_Y},  // Top-left corner
+        {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right corner
+        {TABLE_X, TABLE_Y + TABLE_HEIGHT},  // Bottom-left corner
+        {TABLE_X + TABLE_WIDTH, TABLE_Y + TABLE_HEIGHT}  // Bottom-right corner
+    };
+    
+    bool isInCornerArea = false;
+    float cornerPocketDistance = 0;
+    int cornerPocketIndex = -1;
+    
+    // Kiểm tra xem quả bi có đang ở trong vùng góc không (vùng có thể bị kẹt)
+    for (int c = 0; c < 4; c++) {
+        float dx = ball.x - cornerPockets[c][0];
+        float dy = ball.y - cornerPockets[c][1];
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        // Vùng góc: từ POCKET_RADIUS - 2 đến POCKET_RADIUS + BALL_RADIUS + 5
+        // Đây là vùng quả bi có thể bị kẹt giữa thành bàn và viền lỗ
+        if (distance >= POCKET_RADIUS - 2.0f && distance <= POCKET_RADIUS + BALL_RADIUS + 5.0f) {
+            isInCornerArea = true;
+            cornerPocketDistance = distance;
+            cornerPocketIndex = c;
+            break;
+        }
+    }
+    
+    // Nếu quả bi đang ở trong vùng góc, xử lý đặc biệt
+    if (isInCornerArea) {
+        float currentSpeed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+        float minDistanceFromEdge = BALL_RADIUS + 1.0f;  // Đảm bảo quả bi không bị "ăn" vào thành bàn
+        
+        // QUAN TRỌNG: LUÔN đảm bảo quả bi cách thành bàn đủ xa khi ở góc (bất kể vận tốc)
+        // Điều này ngăn quả bi bị "ăn" vào thành bàn ở góc
+        if (cornerPocketIndex == 0) {  // Top-left
+            if (ball.x < TABLE_X + minDistanceFromEdge) {
+                ball.x = TABLE_X + minDistanceFromEdge;
+            }
+            if (ball.y < TABLE_Y + minDistanceFromEdge) {
+                ball.y = TABLE_Y + minDistanceFromEdge;
+            }
+        } else if (cornerPocketIndex == 1) {  // Top-right
+            if (ball.x > TABLE_X + TABLE_WIDTH - minDistanceFromEdge) {
+                ball.x = TABLE_X + TABLE_WIDTH - minDistanceFromEdge;
+            }
+            if (ball.y < TABLE_Y + minDistanceFromEdge) {
+                ball.y = TABLE_Y + minDistanceFromEdge;
+            }
+        } else if (cornerPocketIndex == 2) {  // Bottom-left
+            if (ball.x < TABLE_X + minDistanceFromEdge) {
+                ball.x = TABLE_X + minDistanceFromEdge;
+            }
+            if (ball.y > TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge) {
+                ball.y = TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge;
+            }
+        } else if (cornerPocketIndex == 3) {  // Bottom-right
+            if (ball.x > TABLE_X + TABLE_WIDTH - minDistanceFromEdge) {
+                ball.x = TABLE_X + TABLE_WIDTH - minDistanceFromEdge;
+            }
+            if (ball.y > TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge) {
+                ball.y = TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge;
+            }
+        }
+        
+        // Tính vector từ tâm lỗ đến tâm quả bi
+        float dx = ball.x - cornerPockets[cornerPocketIndex][0];
+        float dy = ball.y - cornerPockets[cornerPocketIndex][1];
+        float distToCorner = sqrt(dx * dx + dy * dy);
+        if (distToCorner > 0.01f) {
+            // Tính vector vận tốc hướng vào lỗ hay ra ngoài
+            float dotProduct = (ball.vx * dx + ball.vy * dy) / distToCorner;
+            bool movingTowardPocket = dotProduct < 0;  // Vận tốc hướng vào lỗ nếu dotProduct < 0
+            
+            // Nếu quả bi đi chậm và ở góc
+            if (currentSpeed < MIN_VELOCITY * 3.0f) {
+                // Dừng quả bi để tránh bị kẹt và biến dạng
+                ball.vx = 0.0f;
+                ball.vy = 0.0f;
+                return;  // Không xử lý wall collision khi ở góc và đi chậm
+            } else if (movingTowardPocket) {
+                // Quả bi đi đủ nhanh và hướng vào lỗ - để rơi vào lỗ tự nhiên
+                // Không bounce, chỉ giảm vận tốc một chút
+                ball.vx *= 0.95f;
+                ball.vy *= 0.95f;
+                return;  // Không xử lý wall collision
+            }
+            // Nếu quả bi đi đủ nhanh và hướng ra ngoài, tiếp tục xử lý wall collision bình thường
+            // Nhưng vị trí đã được đảm bảo cách thành bàn đủ xa ở trên
+        }
     }
     
     // Check if ball is near pocket areas - don't bounce if too close to pocket
@@ -822,26 +1343,59 @@ void BilliardGame::checkWallCollisions(Ball& ball) {
     bool nearTopMiddlePocket = (ball.x - (TABLE_X + TABLE_WIDTH / 2)) * (ball.x - (TABLE_X + TABLE_WIDTH / 2)) + (ball.y - TABLE_Y) * (ball.y - TABLE_Y) < pocketDetectionRadius * pocketDetectionRadius;
     bool nearBottomMiddlePocket = (ball.x - (TABLE_X + TABLE_WIDTH / 2)) * (ball.x - (TABLE_X + TABLE_WIDTH / 2)) + (ball.y - (TABLE_Y + TABLE_HEIGHT)) * (ball.y - (TABLE_Y + TABLE_HEIGHT)) < pocketDetectionRadius * pocketDetectionRadius;
     
+    // Đảm bảo quả bi không bị "ăn" vào thành bàn - phải cách mép bàn đủ xa
+    // Thành bàn có độ dày, nên cần thêm margin để quả bi hoàn toàn nằm trên bàn
+    int railThickness = 4;  // Độ dày thành bàn
+    float minDistanceFromEdge = BALL_RADIUS + 1.0f;  // Khoảng cách tối thiểu từ mép bàn (BALL_RADIUS + 1 để đảm bảo không bị ăn vào)
+    
+    // Tính vận tốc hiện tại để quyết định có nên bounce hay dừng lại
+    float currentSpeed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+    float bounceThreshold = MIN_VELOCITY * 2.0f;  // Nếu vận tốc < threshold * 2, dừng lại thay vì bounce
+    
     // Left wall (but not near top-left or bottom-left pockets)
-    // Đặt quả bi sát mép bàn, không đi sâu vào
+    // Đặt quả bi cách mép bàn đủ xa để toàn bộ quả bi nằm trên bàn
     if (ball.x - BALL_RADIUS < TABLE_X && !nearTopLeftPocket && !nearBottomLeftPocket) {
-        ball.x = TABLE_X + BALL_RADIUS;  // Sát mép bàn
-        ball.vx = -ball.vx * 0.8f;  // Bounce with some energy loss
+        ball.x = TABLE_X + minDistanceFromEdge;  // Cách mép bàn đủ xa
+        // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+        if (currentSpeed < bounceThreshold) {
+            ball.vx = 0.0f;
+            ball.vy = 0.0f;
+        } else {
+            ball.vx = -ball.vx * 0.8f;  // Bounce with some energy loss
+        }
     }
     // Right wall (but not near top-right or bottom-right pockets)
     if (ball.x + BALL_RADIUS > TABLE_X + TABLE_WIDTH && !nearTopRightPocket && !nearBottomRightPocket) {
-        ball.x = TABLE_X + TABLE_WIDTH - BALL_RADIUS;  // Sát mép bàn
-        ball.vx = -ball.vx * 0.8f;
+        ball.x = TABLE_X + TABLE_WIDTH - minDistanceFromEdge;  // Cách mép bàn đủ xa
+        // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+        if (currentSpeed < bounceThreshold) {
+            ball.vx = 0.0f;
+            ball.vy = 0.0f;
+        } else {
+            ball.vx = -ball.vx * 0.8f;
+        }
     }
     // Top wall (but not near top pockets)
     if (ball.y - BALL_RADIUS < TABLE_Y && !nearTopLeftPocket && !nearTopRightPocket && !nearTopMiddlePocket) {
-        ball.y = TABLE_Y + BALL_RADIUS;  // Sát mép bàn
-        ball.vy = -ball.vy * 0.8f;
+        ball.y = TABLE_Y + minDistanceFromEdge;  // Cách mép bàn đủ xa
+        // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+        if (currentSpeed < bounceThreshold) {
+            ball.vx = 0.0f;
+            ball.vy = 0.0f;
+        } else {
+            ball.vy = -ball.vy * 0.8f;
+        }
     }
     // Bottom wall (but not near bottom pockets)
     if (ball.y + BALL_RADIUS > TABLE_Y + TABLE_HEIGHT && !nearBottomLeftPocket && !nearBottomRightPocket && !nearBottomMiddlePocket) {
-        ball.y = TABLE_Y + TABLE_HEIGHT - BALL_RADIUS;  // Sát mép bàn
-        ball.vy = -ball.vy * 0.8f;
+        ball.y = TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge;  // Cách mép bàn đủ xa
+        // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+        if (currentSpeed < bounceThreshold) {
+            ball.vx = 0.0f;
+            ball.vy = 0.0f;
+        } else {
+            ball.vy = -ball.vy * 0.8f;
+        }
     }
     
     // Đảm bảo quả bi không đi sâu vào cạnh bàn (thêm kiểm tra an toàn)
@@ -851,22 +1405,50 @@ void BilliardGame::checkWallCollisions(Ball& ball) {
     
     if (!nearAnyPocket) {
         // Chỉ đẩy quả bi ra nếu không gần lỗ
-        // Đảm bảo bi không đi ra ngoài bàn quá xa
-        if (ball.x < TABLE_X + BALL_RADIUS) {
-            ball.x = TABLE_X + BALL_RADIUS;
-            ball.vx = -ball.vx * 0.8f;  // Bounce if not near pocket
+        // Đảm bảo bi không đi ra ngoài bàn quá xa và không bị "ăn" vào thành bàn
+        float minDistanceFromEdge = BALL_RADIUS + 1.0f;  // Khoảng cách tối thiểu từ mép bàn
+        float currentSpeed = sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+        float bounceThreshold = MIN_VELOCITY * 2.0f;  // Nếu vận tốc < threshold * 2, dừng lại
+        
+        if (ball.x < TABLE_X + minDistanceFromEdge) {
+            ball.x = TABLE_X + minDistanceFromEdge;
+            // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+            if (currentSpeed < bounceThreshold) {
+                ball.vx = 0.0f;
+                ball.vy = 0.0f;
+            } else {
+                ball.vx = -ball.vx * 0.8f;  // Bounce if not near pocket
+            }
         }
-        if (ball.x > TABLE_X + TABLE_WIDTH - BALL_RADIUS) {
-            ball.x = TABLE_X + TABLE_WIDTH - BALL_RADIUS;
-            ball.vx = -ball.vx * 0.8f;
+        if (ball.x > TABLE_X + TABLE_WIDTH - minDistanceFromEdge) {
+            ball.x = TABLE_X + TABLE_WIDTH - minDistanceFromEdge;
+            // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+            if (currentSpeed < bounceThreshold) {
+                ball.vx = 0.0f;
+                ball.vy = 0.0f;
+            } else {
+                ball.vx = -ball.vx * 0.8f;
+            }
         }
-        if (ball.y < TABLE_Y + BALL_RADIUS) {
-            ball.y = TABLE_Y + BALL_RADIUS;
-            ball.vy = -ball.vy * 0.8f;
+        if (ball.y < TABLE_Y + minDistanceFromEdge) {
+            ball.y = TABLE_Y + minDistanceFromEdge;
+            // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+            if (currentSpeed < bounceThreshold) {
+                ball.vx = 0.0f;
+                ball.vy = 0.0f;
+            } else {
+                ball.vy = -ball.vy * 0.8f;
+            }
         }
-        if (ball.y > TABLE_Y + TABLE_HEIGHT - BALL_RADIUS) {
-            ball.y = TABLE_Y + TABLE_HEIGHT - BALL_RADIUS;
-            ball.vy = -ball.vy * 0.8f;
+        if (ball.y > TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge) {
+            ball.y = TABLE_Y + TABLE_HEIGHT - minDistanceFromEdge;
+            // Nếu vận tốc quá thấp, dừng lại thay vì bounce
+            if (currentSpeed < bounceThreshold) {
+                ball.vx = 0.0f;
+                ball.vy = 0.0f;
+            } else {
+                ball.vy = -ball.vy * 0.8f;
+            }
         }
     } else {
         // Nếu gần lỗ, vẫn cần giới hạn bi không đi quá xa ngoài bàn
@@ -893,20 +1475,49 @@ void BilliardGame::checkWallCollisions(Ball& ball) {
     }
 }
 
+bool BilliardGame::isBallNearPocket(float x, float y) {
+    float pocketCheckRadius = POCKET_RADIUS + BALL_RADIUS + 2.0f;
+    int pockets[6][2] = {
+        {TABLE_X, TABLE_Y},  // Top-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right
+        {TABLE_X, TABLE_Y + TABLE_HEIGHT},  // Bottom-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y + TABLE_HEIGHT},  // Bottom-right
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y},  // Top middle
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y + TABLE_HEIGHT}  // Bottom middle
+    };
+    for (int p = 0; p < 6; p++) {
+        float dx = x - pockets[p][0];
+        float dy = y - pockets[p][1];
+        float dist = sqrt(dx * dx + dy * dy);
+        if (dist < pocketCheckRadius) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void BilliardGame::checkBallCollisions() {
     // Check multiple times per frame to prevent fast balls from passing through
     const int iterations = 3;
     
     for (int iter = 0; iter < iterations; iter++) {
         for (int i = 0; i < BALL_COUNT; i++) {
-            // Skip if ball is already pocketed
+            // Skip if ball is already pocketed (x < 0)
             if (balls[i].x < 0) continue;
+            // Skip if ball is already in pocket (kiểm tra lại để chắc chắn)
+            if (isBallInPocket(balls[i])) continue;
             if (!balls[i].isActive && iter == 0) continue;  // Only check active balls on first iteration
+            // Skip if ball is near pocket (đang rơi vào lỗ) - tránh bounce khi rơi vào lỗ
+            if (isBallNearPocket(balls[i].x, balls[i].y)) continue;
             
             for (int j = i + 1; j < BALL_COUNT; j++) {
-                // Skip if ball is already pocketed
+                // Skip if ball is already pocketed (x < 0)
                 if (balls[j].x < 0) continue;
+                // Skip if ball is already in pocket (kiểm tra lại để chắc chắn)
+                if (isBallInPocket(balls[j])) continue;
                 if (!balls[j].isActive && iter == 0) continue;  // Only check active balls on first iteration
+                // Skip if ball is near pocket (đang rơi vào lỗ) - tránh bounce khi rơi vào lỗ
+                if (isBallNearPocket(balls[j].x, balls[j].y)) continue;
                 
                 // Calculate distance between balls
                 float dx = balls[j].x - balls[i].x;
@@ -944,7 +1555,8 @@ void BilliardGame::checkBallCollisions() {
                     if (dot < 0 || distance < minDistance * 0.9f) {
                         // Elastic collision: exchange momentum along collision normal
                         // Assuming equal mass (all balls have same mass)
-                        float impulse = 2.0f * dot;
+                        // Giảm hệ số va chạm để cân bằng - quả bi đánh đi không quá yếu, quả bi bị đánh không quá mạnh
+                        float impulse = 0.6f * dot;  // Giảm từ 0.8f xuống 0.6f để cân bằng hơn
                         
                         balls[i].vx += impulse * nx;
                         balls[i].vy += impulse * ny;
@@ -990,15 +1602,12 @@ bool BilliardGame::isBallInPocket(Ball& ball) {
         float dy = ball.y - pockets[i][1];
         float distance = sqrt(dx * dx + dy * dy);
         
-        // Bi rơi vào lỗ CHỈ KHI tâm bi nằm SÂU TRONG lỗ
-        // Để tránh bi rơi khi chỉ đi kế bên lỗ, yêu cầu tâm bi phải nằm trong
-        // vòng tròn bán kính nhỏ hơn nhiều so với POCKET_RADIUS
-        // Với POCKET_RADIUS = 12, để bi thực sự rơi vào lỗ, tâm bi phải nằm trong
-        // vòng tròn bán kính khoảng 3-4 pixel từ tâm lỗ
-        float maxDistance = 3.5f;  // Tâm bi phải nằm trong vòng tròn bán kính 3.5 từ tâm lỗ
+        // Bi rơi vào lỗ khi tâm bi nằm trong bán kính lỗ
+        // Sử dụng POCKET_RADIUS để cho phép bi rơi vào lỗ dễ hơn
+        // Nếu tâm bi cách tâm lỗ < POCKET_RADIUS thì coi là rơi vào lỗ
+        float maxDistance = POCKET_RADIUS;  // 12 pixel - cho phép bi rơi vào lỗ dễ hơn
         
-        // Chỉ coi là rơi vào lỗ nếu tâm bi nằm trong phạm vi này
-        // Điều này đảm bảo bi thực sự đi vào lỗ, không chỉ đi kế bên
+        // Coi là rơi vào lỗ nếu tâm bi nằm trong phạm vi này
         if (distance < maxDistance) {
             return true;
         }
@@ -1025,6 +1634,84 @@ void BilliardGame::handleAimRight() {
     }
 }
 
+void BilliardGame::handleAimUp() {
+    if (isAiming && !balls[activeBallIndex].isActive) {
+        eraseCueStick();
+        // Xoay lên (góc -90 độ hoặc 270 độ, tức là -π/2)
+        // Trong hệ tọa độ màn hình, lên là -y, nên góc là -π/2
+        cueAngle = -M_PI / 2.0f;
+        if (cueAngle < 0) cueAngle += 2 * M_PI;
+        drawCueStick();
+    }
+}
+
+void BilliardGame::handleAimDown() {
+    if (isAiming && !balls[activeBallIndex].isActive) {
+        eraseCueStick();
+        // Xoay xuống (góc 90 độ, tức là π/2)
+        // Trong hệ tọa độ màn hình, xuống là +y, nên góc là π/2
+        cueAngle = M_PI / 2.0f;
+        drawCueStick();
+    }
+}
+
+void BilliardGame::handleAimAngle(float angle) {
+    if (isAiming && !balls[activeBallIndex].isActive) {
+        eraseCueStick();
+        // Xoay theo góc cụ thể (radians)
+        cueAngle = angle;
+        // Đảm bảo góc nằm trong khoảng [0, 2π)
+        while (cueAngle < 0) cueAngle += 2 * M_PI;
+        while (cueAngle >= 2 * M_PI) cueAngle -= 2 * M_PI;
+        drawCueStick();
+    }
+}
+
+void BilliardGame::handleAimRotate(float deltaAngle) {
+    if (isAiming && !balls[activeBallIndex].isActive) {
+        eraseCueStick();
+        // Xoay thêm một góc từ góc hiện tại
+        cueAngle += deltaAngle;
+        // Đảm bảo góc nằm trong khoảng [0, 2π)
+        while (cueAngle < 0) cueAngle += 2 * M_PI;
+        while (cueAngle >= 2 * M_PI) cueAngle -= 2 * M_PI;
+        drawCueStick();
+    }
+}
+
+// Xoay theo 8 hướng chính
+void BilliardGame::handleAimNorth() {
+    handleAimAngle(-M_PI / 2.0f);  // Lên (Bắc)
+}
+
+void BilliardGame::handleAimNorthEast() {
+    handleAimAngle(-M_PI / 4.0f);  // Đông Bắc (45 độ)
+}
+
+void BilliardGame::handleAimEast() {
+    handleAimAngle(0.0f);  // Phải (Đông, 0 độ)
+}
+
+void BilliardGame::handleAimSouthEast() {
+    handleAimAngle(M_PI / 4.0f);  // Đông Nam (45 độ)
+}
+
+void BilliardGame::handleAimSouth() {
+    handleAimAngle(M_PI / 2.0f);  // Xuống (Nam, 90 độ)
+}
+
+void BilliardGame::handleAimSouthWest() {
+    handleAimAngle(3.0f * M_PI / 4.0f);  // Tây Nam (135 độ)
+}
+
+void BilliardGame::handleAimWest() {
+    handleAimAngle(M_PI);  // Trái (Tây, 180 độ)
+}
+
+void BilliardGame::handleAimNorthWest() {
+    handleAimAngle(-3.0f * M_PI / 4.0f);  // Tây Bắc (225 độ)
+}
+
 void BilliardGame::handleChargeStart() {
     if (isAiming && !balls[activeBallIndex].isActive) {
         isCharging = true;
@@ -1037,7 +1724,8 @@ void BilliardGame::handleChargeStart() {
 
 void BilliardGame::handleChargeRelease() {
     if (isCharging && isAiming) {
-        // Erase cue stick and power bar
+        // QUAN TRỌNG: Xóa gậy TRƯỚC KHI set isAiming = false
+        // Đảm bảo gậy được xóa sạch, không để lại dấu vết
         eraseCueStick();
         
         // Khôi phục nền vùng thanh lực - trả lại nền đúng màu
@@ -1083,6 +1771,28 @@ void BilliardGame::handleChargeRelease() {
             }
         }
         
+        // QUAN TRỌNG: Vẽ lại các quả bi bị đè bởi thanh lực
+        for (int i = 0; i < BALL_COUNT; i++) {
+            // Bỏ qua quả bi đã vào lỗ
+            if (balls[i].x < 0) continue;
+            
+            // Kiểm tra xem quả bi có nằm trong vùng thanh lực không
+            int ballScreenX = (int)balls[i].x;
+            int ballScreenY = SCREEN_HEIGHT - (int)balls[i].y;
+            int ballRadius = BALL_RADIUS;
+            
+            // Kiểm tra xem quả bi có giao với vùng thanh lực không
+            bool ballInPowerBarArea = (ballScreenX + ballRadius >= clearX && 
+                                       ballScreenX - ballRadius <= clearX + clearWidth &&
+                                       ballScreenY + ballRadius >= clearY && 
+                                       ballScreenY - ballRadius <= clearY + clearHeight);
+            
+            if (ballInPowerBarArea) {
+                // Vẽ lại quả bi này
+                drawBall(i);
+            }
+        }
+        
         // Shoot the cue ball
         // Quả bi chạy về hướng cueAngle (phía trước), gậy nằm phía sau
         Ball& cueBall = balls[activeBallIndex];
@@ -1093,16 +1803,21 @@ void BilliardGame::handleChargeRelease() {
             finalPower = 5.0f;  // Lực tối thiểu
         }
         
-        // Scale power to velocity (cải thiện để có lực mạnh hơn)
-        float speed = finalPower * 0.4f;  // Tăng từ 0.3f lên 0.4f để lực mạnh hơn
+        // Scale power to velocity - điều chỉnh để cân bằng hơn
+        float speed = finalPower * 0.3f;  // Giảm từ 0.4f xuống 0.3f để cân bằng với va chạm
         cueBall.vx = cos(cueAngle) * speed;  // Chạy về hướng góc (phía trước)
         cueBall.vy = sin(cueAngle) * speed;  // Chạy về hướng góc (phía trước)
         cueBall.isActive = true;
         
+        // Tắt aiming và charging SAU KHI đã xóa gậy và đánh quả bi
         isAiming = false;
         isCharging = false;
         cuePower = 0.0f;
         oldCuePower = 0.0f;
+        
+        // XÓA GẬY LẦN NỮA để đảm bảo không còn dấu vết
+        // Gọi hàm xóa gậy trực tiếp dựa trên oldCueAngle và oldCuePower
+        eraseCueStickAtPosition(oldCueAngle, oldCuePower);
     }
 }
 
@@ -1184,6 +1899,62 @@ void BilliardGame::aimAtNearestBall() {
         
         // Vẽ gậy mới
         drawCueStick();
+    }
+}
+
+void BilliardGame::aimAtNearestPocket() {
+    if (!isAiming || balls[activeBallIndex].isActive) {
+        return;  // Không thể ngắm nếu đang không ở chế độ ngắm hoặc quả bi đang di chuyển
+    }
+    
+    Ball& cueBall = balls[activeBallIndex];
+    
+    // Danh sách 6 lỗ trên bàn
+    float pockets[6][2] = {
+        {TABLE_X, TABLE_Y},  // Top-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right
+        {TABLE_X, TABLE_Y + TABLE_HEIGHT},  // Bottom-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y + TABLE_HEIGHT},  // Bottom-right
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y},  // Top middle
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y + TABLE_HEIGHT}  // Bottom middle
+    };
+    
+    // Tìm lỗ gần nhất
+    float minDistance = 10000.0f;
+    int nearestPocketIndex = -1;
+    
+    for (int i = 0; i < 6; i++) {
+        float dx = pockets[i][0] - cueBall.x;
+        float dy = pockets[i][1] - cueBall.y;
+        float distance = sqrt(dx * dx + dy * dy);
+        
+        if (distance < minDistance) {
+            minDistance = distance;
+            nearestPocketIndex = i;
+        }
+    }
+    
+    // Nếu tìm thấy lỗ gần nhất, ngắm thẳng vào nó
+    if (nearestPocketIndex >= 0) {
+        float dx = pockets[nearestPocketIndex][0] - cueBall.x;
+        float dy = pockets[nearestPocketIndex][1] - cueBall.y;
+        
+        // Tính góc để ngắm thẳng vào lỗ
+        float targetAngle = atan2(dy, dx);
+        
+        // Xóa gậy cũ trước khi cập nhật góc
+        eraseCueStick();
+        
+        // Cập nhật góc
+        cueAngle = targetAngle;
+        
+        // Vẽ gậy mới
+        drawCueStick();
+        
+        Serial.print("Aiming at pocket ");
+        Serial.print(nearestPocketIndex);
+        Serial.print(" at angle: ");
+        Serial.println(targetAngle * 180.0f / M_PI);
     }
 }
 
