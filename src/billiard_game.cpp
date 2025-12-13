@@ -55,17 +55,15 @@ void BilliardGame::resetGame() {
     balls[0].color = COLOR_CUE_BALL;
     balls[0].isActive = false;
     
-    // Initialize target balls in triangle formation (1 cue ball + 19 target balls)
-    // Xếp thành hình tam giác: 1, 2, 3, 4, 5, 4 (tổng 19 quả)
-    float startX = TABLE_X + TABLE_WIDTH - 100;
+    // Initialize target balls in triangle formation (1 cue ball + 8 target balls)
+    // Xếp thành hình tam giác: 1, 2, 3, 2 (tổng 8 quả)
+    float startX = TABLE_X + TABLE_WIDTH - 80;
     float startY = TABLE_Y + TABLE_HEIGHT / 2;
     float ballSpacing = 13.0f;  // Khoảng cách giữa các quả bi
     
-    uint16_t ballColors[19] = {
-        COLOR_BALL1, COLOR_BALL2, COLOR_BALL3, COLOR_BALL4, COLOR_BALL5,
-        COLOR_BALL6, COLOR_BALL7, COLOR_BALL8, COLOR_BALL9, COLOR_BALL10,
-        COLOR_BALL11, COLOR_BALL12, COLOR_BALL13, COLOR_BALL14, COLOR_BALL15,
-        COLOR_BALL16, COLOR_BALL17, COLOR_BALL18, COLOR_BALL19
+    uint16_t ballColors[8] = {
+        COLOR_BALL1, COLOR_BALL2, COLOR_BALL3, COLOR_BALL4,
+        COLOR_BALL5, COLOR_BALL6, COLOR_BALL7, COLOR_BALL8
     };
     
     int ballIndex = 1;  // Bắt đầu từ quả bi 1 (quả bi 0 là cue ball)
@@ -101,32 +99,10 @@ void BilliardGame::resetGame() {
         ballIndex++;
     }
     
-    // Row 4: 4 balls
-    for (int i = 0; i < 4; i++) {
+    // Row 4: 2 balls (last row)
+    for (int i = 0; i < 2; i++) {
         balls[ballIndex].x = startX - ballSpacing * 3;
-        balls[ballIndex].y = startY - ballSpacing * 1.5f + ballSpacing * i;
-        balls[ballIndex].vx = 0.0f;
-        balls[ballIndex].vy = 0.0f;
-        balls[ballIndex].color = ballColors[ballIndex - 1];
-        balls[ballIndex].isActive = false;
-        ballIndex++;
-    }
-    
-    // Row 5: 5 balls
-    for (int i = 0; i < 5; i++) {
-        balls[ballIndex].x = startX - ballSpacing * 4;
-        balls[ballIndex].y = startY - ballSpacing * 2 + ballSpacing * i;
-        balls[ballIndex].vx = 0.0f;
-        balls[ballIndex].vy = 0.0f;
-        balls[ballIndex].color = ballColors[ballIndex - 1];
-        balls[ballIndex].isActive = false;
-        ballIndex++;
-    }
-    
-    // Row 6: 4 balls (last row)
-    for (int i = 0; i < 4; i++) {
-        balls[ballIndex].x = startX - ballSpacing * 5;
-        balls[ballIndex].y = startY - ballSpacing * 1.5f + ballSpacing * i;
+        balls[ballIndex].y = startY - ballSpacing * 0.5f + ballSpacing * i;
         balls[ballIndex].vx = 0.0f;
         balls[ballIndex].vy = 0.0f;
         balls[ballIndex].color = ballColors[ballIndex - 1];
@@ -233,18 +209,13 @@ void BilliardGame::eraseBall(int index) {
     
     // Tối ưu: chỉ xóa vị trí cũ và vị trí mới, không xóa toàn bộ đường đi
     // Điều này giảm nháy đáng kể khi quả bi di chuyển nhanh
-    if (distance > BALL_RADIUS * 3) {
-        // Quả bi di chuyển nhanh - xóa vị trí cũ và một vài điểm giữa
-        int steps = 3;  // Giảm số bước để tăng tốc độ
-        for (int i = 0; i <= steps; i++) {
-            float t = (float)i / steps;
-            float x = oldX + dx * t;
-            float y = oldY + dy * t;
-            eraseBallAtPosition(x, y, eraseRadius);
-        }
-    } else {
-        // Quả bi di chuyển chậm - chỉ xóa vị trí cũ
-        eraseBallAtPosition(oldX, oldY, eraseRadius);
+    // Chỉ xóa vài vị trí dọc đường đi để giảm nhấp nháy khi bi di chuyển nhanh
+    int steps = (distance > BALL_RADIUS * 3) ? 2 : 1;  // 0: vị trí cũ, 1: vị trí mới, 2: điểm giữa
+    for (int i = 0; i <= steps; i++) {
+        float t = (float)i / steps;
+        float x = oldX + dx * t;
+        float y = oldY + dy * t;
+        eraseBallAtPosition(x, y, eraseRadius);
     }
 }
 
@@ -258,68 +229,49 @@ void BilliardGame::eraseBallAtPosition(float x, float y, int radius) {
         return;
     }
     
-    // Calculate bounding box
+    // Calculate bounding box and clip to screen
     int minX = screenX - radius;
     int maxX = screenX + radius;
     int minY = screenY - radius;
     int maxY = screenY + radius;
     
-    // Clip to screen bounds
-    minX = (minX < 0) ? 0 : minX;
-    maxX = (maxX >= SCREEN_WIDTH) ? SCREEN_WIDTH - 1 : maxX;
-    minY = (minY < 0) ? 0 : minY;
-    maxY = (maxY >= SCREEN_HEIGHT) ? SCREEN_HEIGHT - 1 : maxY;
+    if (minX < 0) minX = 0;
+    if (maxX >= SCREEN_WIDTH) maxX = SCREEN_WIDTH - 1;
+    if (minY < 0) minY = 0;
+    if (maxY >= SCREEN_HEIGHT) maxY = SCREEN_HEIGHT - 1;
     
-    // Only erase the part inside the table (green area)
-    // The part outside will remain black (background)
-    int tableScreenY = SCREEN_HEIGHT - TABLE_Y;
-    int tableBottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);
+    bool touchedRail = false;
+    bool touchedPocket = false;
     
-    // Clip to table bounds
-    int tableMinX = TABLE_X;
-    int tableMaxX = TABLE_X + TABLE_WIDTH;
-    int tableMinY = tableBottomScreenY;
-    int tableMaxY = tableScreenY;
-    
-    // Find intersection of ball area and table area
-    int eraseMinX = (minX > tableMinX) ? minX : tableMinX;
-    int eraseMaxX = (maxX < tableMaxX) ? maxX : tableMaxX;
-    int eraseMinY = (minY > tableMinY) ? minY : tableMinY;
-    int eraseMaxY = (maxY < tableMaxY) ? maxY : tableMaxY;
-    
-    // Erase the entire ball circle - draw black outside table, green inside table
-    // Tối ưu: chỉ vẽ lại border/pockets khi thực sự cần (gần edge)
-    bool nearEdge = (x < TABLE_X + radius * 2 || x > TABLE_X + TABLE_WIDTH - radius * 2 ||
-                     y < TABLE_Y + radius * 2 || y > TABLE_Y + TABLE_HEIGHT - radius * 2);
-    
-    // Erase ball area
+    // Erase only pixels inside the ball circle using the exact background color
     for (int py = minY; py <= maxY; py++) {
         for (int px = minX; px <= maxX; px++) {
-            // Check if pixel is within circle
             int dx = px - screenX;
             int dy = py - screenY;
             int distSq = dx * dx + dy * dy;
             
             if (distSq <= radius * radius) {
-                // This pixel is inside the ball circle
-                // Check if it's inside or outside table
-                bool insideTable = (px >= tableMinX && px <= tableMaxX && 
-                                   py >= tableMinY && py <= tableMaxY);
-                
-                if (insideTable) {
-                    // Inside table - erase with table color (green)
-                    tft->drawPixel(px, py, COLOR_TABLE);
-                } else {
-                    // Outside table - erase with black
-                    tft->drawPixel(px, py, 0x0000);
-                }
+                uint16_t bgColor = getBackgroundColorAt(px, py);
+                if (bgColor == COLOR_TABLE_BORDER) touchedRail = true;
+                if (bgColor == COLOR_POCKET) touchedPocket = true;
+                tft->drawPixel(px, py, bgColor);
             }
         }
     }
     
-    // Chỉ vẽ lại border và pockets khi quả bi gần edge (giảm nháy)
-    if (nearEdge) {
+    // Chỉ vẽ lại phần thành bàn/pockets khi thực sự ảnh hưởng
+    int railThickness = 4;
+    bool nearRail = (screenX - radius <= TABLE_X + railThickness &&
+                     screenX + radius >= TABLE_X - railThickness) ||
+                    (screenX >= TABLE_X - railThickness && screenX <= TABLE_X + TABLE_WIDTH + railThickness &&
+                     (screenY + radius >= SCREEN_HEIGHT - TABLE_Y - railThickness ||
+                      screenY - radius <= SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT) + railThickness));
+    bool nearPocket = isBallNearPocket(x, y);
+    
+    if (touchedRail || nearRail) {
         redrawBorderNear(screenX, screenY, radius);
+    }
+    if (touchedPocket || nearPocket) {
         redrawPocketsNear(x, y, radius);
     }
 }
@@ -389,63 +341,66 @@ void BilliardGame::redrawPocketsNear(float x, float y, int radius) {
 }
 
 void BilliardGame::redrawBorderNear(int screenX, int screenY, int radius) {
-    // Always redraw all rails (thành bàn) when ball is near any edge
-    // NHƯNG không vẽ lại các đoạn gần lỗ để tránh nháy
-    
     int railThickness = 4;  // Độ dày thành bàn
     int topScreenY = SCREEN_HEIGHT - TABLE_Y;
     int bottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);
-    int pocketSkipRadius = POCKET_RADIUS + 2;  // Bỏ qua đoạn này quanh mỗi lỗ
+    int minX = screenX - radius - railThickness;
+    int maxX = screenX + radius + railThickness;
+    int minY = screenY - radius - railThickness;
+    int maxY = screenY + radius + railThickness;
     
-    // Top rail (thành trên) - vẽ dày, nhưng bỏ qua các đoạn gần lỗ
-    for (int i = 0; i < railThickness; i++) {
-        // Đoạn 1: từ TABLE_X + pocketSkipRadius đến TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius (tránh góc trái và lỗ giữa)
-        if (TABLE_X + pocketSkipRadius < TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius) {
-            tft->drawLine(TABLE_X + pocketSkipRadius, topScreenY + i, 
-                         TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius, topScreenY + i, COLOR_TABLE_BORDER);
-        }
-        // Đoạn 2: từ TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius đến TABLE_X + TABLE_WIDTH - pocketSkipRadius (tránh lỗ giữa và góc phải)
-        if (TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius < TABLE_X + TABLE_WIDTH - pocketSkipRadius) {
-            tft->drawLine(TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius, topScreenY + i, 
-                         TABLE_X + TABLE_WIDTH - pocketSkipRadius, topScreenY + i, COLOR_TABLE_BORDER);
+    if (minX < 0) minX = 0;
+    if (maxX >= SCREEN_WIDTH) maxX = SCREEN_WIDTH - 1;
+    if (minY < 0) minY = 0;
+    if (maxY >= SCREEN_HEIGHT) maxY = SCREEN_HEIGHT - 1;
+    
+    // Top rail (chỉ trong vùng ảnh hưởng)
+    if (maxY >= topScreenY - railThickness && minY <= topScreenY + railThickness) {
+        for (int i = 0; i < railThickness; i++) {
+            int y = topScreenY + i;
+            int startX = (minX > TABLE_X - railThickness) ? minX : (TABLE_X - railThickness);
+            int endX = (maxX < TABLE_X + TABLE_WIDTH + railThickness) ? maxX : (TABLE_X + TABLE_WIDTH + railThickness);
+            if (startX <= endX) {
+                tft->drawFastHLine(startX, y, endX - startX + 1, COLOR_TABLE_BORDER);
+            }
         }
     }
     
-    // Bottom rail (thành dưới) - vẽ dày, nhưng bỏ qua các đoạn gần lỗ
-    for (int i = 0; i < railThickness; i++) {
-        // Đoạn 1: từ TABLE_X + pocketSkipRadius đến TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius
-        if (TABLE_X + pocketSkipRadius < TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius) {
-            tft->drawLine(TABLE_X + pocketSkipRadius, bottomScreenY - i, 
-                         TABLE_X + TABLE_WIDTH/2 - pocketSkipRadius, bottomScreenY - i, COLOR_TABLE_BORDER);
-        }
-        // Đoạn 2: từ TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius đến TABLE_X + TABLE_WIDTH - pocketSkipRadius
-        if (TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius < TABLE_X + TABLE_WIDTH - pocketSkipRadius) {
-            tft->drawLine(TABLE_X + TABLE_WIDTH/2 + pocketSkipRadius, bottomScreenY - i, 
-                         TABLE_X + TABLE_WIDTH - pocketSkipRadius, bottomScreenY - i, COLOR_TABLE_BORDER);
+    // Bottom rail
+    if (minY <= bottomScreenY + railThickness && maxY >= bottomScreenY - railThickness) {
+        for (int i = 0; i < railThickness; i++) {
+            int y = bottomScreenY - i;
+            int startX = (minX > TABLE_X - railThickness) ? minX : (TABLE_X - railThickness);
+            int endX = (maxX < TABLE_X + TABLE_WIDTH + railThickness) ? maxX : (TABLE_X + TABLE_WIDTH + railThickness);
+            if (startX <= endX) {
+                tft->drawFastHLine(startX, y, endX - startX + 1, COLOR_TABLE_BORDER);
+            }
         }
     }
     
-    // Left rail (thành trái) - vẽ dày, nhưng bỏ qua các đoạn gần lỗ
-    for (int i = 0; i < railThickness; i++) {
-        // Đoạn 1: từ bottomScreenY + pocketSkipRadius đến topScreenY - pocketSkipRadius (tránh góc dưới và góc trên)
-        if (bottomScreenY + pocketSkipRadius < topScreenY - pocketSkipRadius) {
-            tft->drawLine(TABLE_X - i, bottomScreenY + pocketSkipRadius, 
-                         TABLE_X - i, topScreenY - pocketSkipRadius, COLOR_TABLE_BORDER);
+    // Left rail
+    if (minX <= TABLE_X && maxX >= TABLE_X - railThickness) {
+        for (int i = 0; i < railThickness; i++) {
+            int x = TABLE_X - i;
+            int startY = (minY > bottomScreenY - railThickness) ? minY : (bottomScreenY - railThickness);
+            int endY = (maxY < topScreenY + railThickness) ? maxY : (topScreenY + railThickness);
+            if (startY <= endY) {
+                tft->drawFastVLine(x, startY, endY - startY + 1, COLOR_TABLE_BORDER);
+            }
         }
     }
     
-    // Right rail (thành phải) - vẽ dày, nhưng bỏ qua các đoạn gần lỗ
-    for (int i = 0; i < railThickness; i++) {
-        // Đoạn 1: từ bottomScreenY + pocketSkipRadius đến topScreenY - pocketSkipRadius (tránh góc dưới và góc trên)
-        if (bottomScreenY + pocketSkipRadius < topScreenY - pocketSkipRadius) {
-            tft->drawLine(TABLE_X + TABLE_WIDTH + i, bottomScreenY + pocketSkipRadius, 
-                         TABLE_X + TABLE_WIDTH + i, topScreenY - pocketSkipRadius, COLOR_TABLE_BORDER);
+    // Right rail
+    if (maxX >= TABLE_X + TABLE_WIDTH && minX <= TABLE_X + TABLE_WIDTH + railThickness) {
+        for (int i = 0; i < railThickness; i++) {
+            int x = TABLE_X + TABLE_WIDTH + i;
+            int startY = (minY > bottomScreenY - railThickness) ? minY : (bottomScreenY - railThickness);
+            int endY = (maxY < topScreenY + railThickness) ? maxY : (topScreenY + railThickness);
+            if (startY <= endY) {
+                tft->drawFastVLine(x, startY, endY - startY + 1, COLOR_TABLE_BORDER);
+            }
         }
     }
-    
-    // Vẽ lại TẤT CẢ các lỗ đè lên thành bàn (sau khi vẽ thành bàn)
-    // Điều này đảm bảo lỗ luôn hiển thị đúng, không bị thành bàn che
-    redrawAllPockets();
 }
 
 void BilliardGame::drawBall(int index) {
@@ -481,9 +436,11 @@ void BilliardGame::drawBall(int index) {
         tft->fillCircle(screenX - 2, screenY - 2, 2, 0xFFFF);
     }
     
-    // Update old position
-    oldBallX[index] = ball.x;
-    oldBallY[index] = ball.y;
+    // Chỉ cập nhật old position khi KHÔNG ở khung va chạm để tránh ghi đè sớm
+    if (!collisionThisFrame) {
+        oldBallX[index] = ball.x;
+        oldBallY[index] = ball.y;
+    }
 }
 
 void BilliardGame::eraseCueStick() {
@@ -743,39 +700,52 @@ void BilliardGame::eraseCueStickAtPosition(float angle, float power) {
 }
 
 uint16_t BilliardGame::getBackgroundColorAt(int screenX, int screenY) {
-    // Chuyển đổi screen coordinates về game coordinates
-    float gameY = SCREEN_HEIGHT - screenY;
+    int railThickness = 4;
+    int topScreenY = SCREEN_HEIGHT - TABLE_Y;
+    int bottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);
     
-    // Kiểm tra xem có nằm trong bàn không
-    if (screenX >= TABLE_X && screenX < TABLE_X + TABLE_WIDTH &&
-        gameY >= TABLE_Y && gameY < TABLE_Y + TABLE_HEIGHT) {
-        // Nằm trong bàn - kiểm tra xem có phải thành bàn không
-        int railThickness = 4;
-        int topScreenY = SCREEN_HEIGHT - TABLE_Y;
-        int bottomScreenY = SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT);
+    // Ưu tiên kiểm tra lỗ để đảm bảo lỗ luôn đè lên thành bàn
+    int pocketCenters[6][2] = {
+        {TABLE_X, SCREEN_HEIGHT - TABLE_Y},                              // Top-left
+        {TABLE_X + TABLE_WIDTH, SCREEN_HEIGHT - TABLE_Y},                // Top-right
+        {TABLE_X, SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT)},             // Bottom-left
+        {TABLE_X + TABLE_WIDTH, SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT)}, // Bottom-right
+        {TABLE_X + TABLE_WIDTH / 2, SCREEN_HEIGHT - TABLE_Y},            // Top middle
+        {TABLE_X + TABLE_WIDTH / 2, SCREEN_HEIGHT - (TABLE_Y + TABLE_HEIGHT)} // Bottom middle
+    };
+    
+    for (int i = 0; i < 6; i++) {
+        int dx = screenX - pocketCenters[i][0];
+        int dy = screenY - pocketCenters[i][1];
+        int distSq = dx * dx + dy * dy;
+        int pocketR2 = POCKET_RADIUS * POCKET_RADIUS;
+        int borderR2 = (POCKET_RADIUS + 1) * (POCKET_RADIUS + 1);
         
-        // Kiểm tra thành trên
-        if (screenY >= topScreenY && screenY < topScreenY + railThickness) {
+        if (distSq <= pocketR2) {
+            return COLOR_POCKET;
+        }
+        if (distSq <= borderR2) {
             return COLOR_TABLE_BORDER;
         }
-        // Kiểm tra thành dưới
-        if (screenY <= bottomScreenY && screenY > bottomScreenY - railThickness) {
-            return COLOR_TABLE_BORDER;
-        }
-        // Kiểm tra thành trái
-        if (screenX < TABLE_X && screenX >= TABLE_X - railThickness) {
-            return COLOR_TABLE_BORDER;
-        }
-        // Kiểm tra thành phải
-        if (screenX >= TABLE_X + TABLE_WIDTH && screenX < TABLE_X + TABLE_WIDTH + railThickness) {
-            return COLOR_TABLE_BORDER;
-        }
-        
-        // Nằm trong bàn, không phải thành bàn
-        return COLOR_TABLE;
     }
     
-    // Nằm ngoài bàn
+    // Kiểm tra thành bàn (bao gồm cả phần dày ra ngoài bàn)
+    bool withinVertical = (screenY >= bottomScreenY - railThickness && screenY <= topScreenY + railThickness);
+    if (withinVertical) {
+        if (screenX >= TABLE_X && screenX < TABLE_X + TABLE_WIDTH) {
+            // Trong vùng chiều ngang của bàn
+            if (screenY >= topScreenY && screenY < topScreenY + railThickness) return COLOR_TABLE_BORDER;
+            if (screenY <= bottomScreenY && screenY > bottomScreenY - railThickness) return COLOR_TABLE_BORDER;
+            // Bên trong mặt bàn
+            return COLOR_TABLE;
+        }
+        
+        // Thành trái/phải được vẽ ra ngoài TABLE_X..TABLE_X+TABLE_WIDTH
+        if (screenX >= TABLE_X - railThickness && screenX < TABLE_X) return COLOR_TABLE_BORDER;
+        if (screenX >= TABLE_X + TABLE_WIDTH && screenX < TABLE_X + TABLE_WIDTH + railThickness) return COLOR_TABLE_BORDER;
+    }
+    
+    // Ngoài bàn
     return 0x0000;  // Màu đen
 }
 
@@ -900,6 +870,17 @@ void BilliardGame::draw() {
         // Draw cue ball last for visual priority
         if (balls[activeBallIndex].x >= 0) {
             drawBall(activeBallIndex);
+        }
+        
+        // Sau khi vẽ xong khung va chạm, cập nhật old positions một lần duy nhất
+        for (int i = 0; i < BALL_COUNT; i++) {
+            if (balls[i].x < 0) {
+                oldBallX[i] = -100;
+                oldBallY[i] = -100;
+            } else {
+                oldBallX[i] = balls[i].x;
+                oldBallY[i] = balls[i].y;
+            }
         }
         
         // Collision handled this frame
@@ -1675,6 +1656,9 @@ void BilliardGame::checkBallCollisions() {
                 
                 // Check if balls are overlapping or very close
                 if (distance < minDistance && distance > 0.01f) {
+                    // Bất cứ khi nào có tiếp xúc, coi khung hình là khung va chạm để vẽ lại toàn bộ
+                    collisionThisFrame = true;
+                    
                     // Normalize collision vector
                     float nx = dx / distance;
                     float ny = dy / distance;
@@ -1699,8 +1683,6 @@ void BilliardGame::checkBallCollisions() {
                     // Apply collision impulse if balls are moving towards each other
                     // Or if they're already overlapping (to push them apart)
                     if (dot < 0 || distance < minDistance * 0.9f) {
-                        // Flag that a visible collision happened this frame (to force safe redraw)
-                        collisionThisFrame = true;
                         // Elastic collision: exchange momentum along collision normal
                         // Assuming equal mass (all balls have same mass)
                         // Giảm hệ số va chạm để cân bằng - quả bi đánh đi không quá yếu, quả bi bị đánh không quá mạnh

@@ -19,7 +19,7 @@
 
 // Ball properties
 #define BALL_RADIUS 6
-#define BALL_COUNT 20  // 1 cue ball + 19 target balls
+#define BALL_COUNT 9  // 1 cue ball + 8 target balls
 #define FRICTION 0.975f  // Friction coefficient (tăng ma sát để quả bi dừng lại nhanh hơn)
 #define MIN_VELOCITY 0.2f  // Minimum velocity to stop ball (tăng để quả bi dừng sớm hơn)
 #define POCKET_ATTRACTION 0.3f  // Attraction force when near pocket
