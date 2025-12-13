@@ -11,6 +11,7 @@ BilliardGame::BilliardGame(Adafruit_ST7789* tft) {
     this->isCharging = false;
     this->activeBallIndex = 0;
     this->tableDrawn = false;
+    this->collisionThisFrame = false;
     
     // Initialize old positions
     for (int i = 0; i < BALL_COUNT; i++) {
@@ -865,24 +866,49 @@ void BilliardGame::draw() {
         tableDrawn = true;
     }
     
-    // Update balls (erase old, draw new)
-    // Tối ưu: chỉ vẽ quả bi đang di chuyển để giảm nháy
-    for (int i = 0; i < BALL_COUNT; i++) {
-        // Skip if ball is pocketed
-        if (balls[i].x < 0) continue;
+    auto renderBallOptimized = [&](int i) {
+        if (balls[i].x < 0) return;  // Pocketed
         
-        // Chỉ vẽ lại quả bi nếu đang di chuyển hoặc vị trí thay đổi
         if (balls[i].isActive) {
-            // Quả bi đang di chuyển - xóa và vẽ lại
             eraseBall(i);
             drawBall(i);
-        } else {
-            // Quả bi đứng yên - chỉ vẽ lại nếu vị trí thay đổi (ví dụ khi reset)
-            if (balls[i].x != oldBallX[i] || balls[i].y != oldBallY[i]) {
-                eraseBall(i);
+        } else if (balls[i].x != oldBallX[i] || balls[i].y != oldBallY[i]) {
+            eraseBall(i);
+            drawBall(i);
+        }
+    };
+    
+    if (collisionThisFrame) {
+        // Safe path on collision: erase all old ball areas first, then draw all balls with cue last
+        int eraseRadius = BALL_RADIUS + 2;
+        for (int i = 0; i < BALL_COUNT; i++) {
+            if (oldBallX[i] < 0 || oldBallY[i] < 0) continue;  // Already pocketed sentinel
+            eraseBallAtPosition(oldBallX[i], oldBallY[i], eraseRadius);
+        }
+        // Ensure pockets stay on top after erasing near edges
+        redrawAllPockets();
+        
+        // Draw non-cue balls first
+        for (int i = 0; i < BALL_COUNT; i++) {
+            if (i == activeBallIndex) continue;
+            if (balls[i].x >= 0) {
                 drawBall(i);
             }
         }
+        // Draw cue ball last for visual priority
+        if (balls[activeBallIndex].x >= 0) {
+            drawBall(activeBallIndex);
+        }
+        
+        // Collision handled this frame
+        collisionThisFrame = false;
+    } else {
+        // Normal path: draw all, cue ball last to avoid clipped highlight
+        for (int i = 0; i < BALL_COUNT; i++) {
+            if (i == activeBallIndex) continue;
+            renderBallOptimized(i);
+        }
+        renderBallOptimized(activeBallIndex);
     }
     
     // Update cue stick if angle or power changed
@@ -1013,6 +1039,9 @@ void BilliardGame::drawPowerBar() {
 }
 
 void BilliardGame::update() {
+    // Reset collision flag each frame; will be set during physics when collisions occur
+    collisionThisFrame = false;
+    
     // Auto-increase power while charging (tăng mạnh hơn khi giữ nút)
     if (isCharging && isAiming) {
         cuePower += 2.0f;  // Tự động tăng lực mạnh hơn (tăng từ 0.5f lên 2.0f)
@@ -1032,24 +1061,42 @@ void BilliardGame::updatePhysics() {
     
     // Update ball positions
     for (int i = 0; i < BALL_COUNT; i++) {
-        if (!balls[i].isActive) continue;
+        if (!balls[i].isActive) {
+            // Reactivate slow/stuck balls that are already in the pocket mouth
+            if (balls[i].x >= 0 && isBallInPocketAttractionZone(balls[i])) {
+                balls[i].isActive = true;
+            } else {
+                continue;
+            }
+        }
         
         // Apply friction
         balls[i].vx *= FRICTION;
         balls[i].vy *= FRICTION;
         
-        // Stop ball if velocity is too low
+        bool inPocketAttraction = (balls[i].x >= 0) ? isBallInPocketAttractionZone(balls[i]) : false;
+        
+        // Stop ball if velocity is too low (but never stop inside pocket attraction)
         float speed = sqrt(balls[i].vx * balls[i].vx + balls[i].vy * balls[i].vy);
         if (speed < MIN_VELOCITY) {
-            balls[i].vx = 0.0f;
-            balls[i].vy = 0.0f;
-            balls[i].isActive = false;
+            if (inPocketAttraction) {
+                // Keep the ball moving gently toward the pocket
+                balls[i].vx *= 0.5f;
+                balls[i].vy *= 0.5f;
+                balls[i].isActive = true;
+                anyBallMoving = true;
+            } else {
+                balls[i].vx = 0.0f;
+                balls[i].vy = 0.0f;
+                balls[i].isActive = false;
+            }
         } else {
             anyBallMoving = true;
         }
         
-        // Check if ball is near pocket BEFORE moving - để tránh bounce khi đang rơi vào lỗ
-        bool nearPocket = (balls[i].x >= 0) ? isBallNearPocket(balls[i].x, balls[i].y) : false;
+        if (inPocketAttraction) {
+            applyPocketAttraction(balls[i]);
+        }
         
         // Update position (use smaller steps to prevent tunneling)
         float timeStep = 0.5f;
@@ -1122,15 +1169,13 @@ void BilliardGame::updatePhysics() {
             continue;  // Skip wall collision check for pocketed ball
         }
         
-        // Check wall collisions ONLY if ball hasn't been pocketed AND not near pocket
-        // Tránh bounce khi quả bi đang rơi vào lỗ
-        if (balls[i].x >= 0 && !nearPocket) {
+        // Check wall collisions ONLY if ball hasn't been pocketed AND not in pocket mouth
+        if (balls[i].x >= 0 && !isBallInPocketAttractionZone(balls[i])) {
             checkWallCollisions(balls[i]);
-        } else if (nearPocket) {
-            // Nếu gần lỗ, chỉ kiểm tra xem có rơi vào lỗ chưa, không bounce
-            // Giảm vận tốc để quả bi rơi vào lỗ tự nhiên hơn
-            balls[i].vx *= 0.95f;
-            balls[i].vy *= 0.95f;
+        } else if (balls[i].x >= 0) {
+            // If inside attraction zone after moving, keep pulling toward pocket
+            applyPocketAttraction(balls[i]);
+            anyBallMoving = true;
         }
     }
     
@@ -1141,6 +1186,12 @@ void BilliardGame::updatePhysics() {
     // Apply remaining movement
     for (int i = 0; i < BALL_COUNT; i++) {
         if (balls[i].x < 0 || !balls[i].isActive) continue;
+        
+        bool inPocketAttraction = isBallInPocketAttractionZone(balls[i]);
+        if (inPocketAttraction) {
+            applyPocketAttraction(balls[i]);
+        }
+        
         float timeStep = 0.5f;
         balls[i].x += balls[i].vx * timeStep;
         balls[i].y += balls[i].vy * timeStep;
@@ -1211,7 +1262,7 @@ void BilliardGame::updatePhysics() {
         }
         
         // Check wall collisions after second movement - CHỈ nếu quả bi chưa rơi vào lỗ
-        if (balls[i].x >= 0 && !isBallInPocket(balls[i])) {
+        if (balls[i].x >= 0 && !isBallInPocket(balls[i]) && !isBallInPocketAttractionZone(balls[i])) {
             checkWallCollisions(balls[i]);
         }
     }
@@ -1233,10 +1284,10 @@ void BilliardGame::checkWallCollisions(Ball& ball) {
         return;  // Quả bi đã rơi vào lỗ, không xử lý wall collision
     }
     
-    // First, check if ball is actually in a pocket - if so, don't apply wall collision
-    // This prevents ball from bouncing when it should fall into pocket
-    if (isBallInPocket(ball)) {
-        return;  // Ball is in pocket, don't apply wall collision
+    // Pocket and attraction zones have absolute priority over rail collisions
+    // Skip any wall handling once the ball has entered the pocket mouth area
+    if (isBallInPocket(ball) || isBallInPocketAttractionZone(ball)) {
+        return;
     }
     
     // XỬ LÝ ĐẶC BIỆT CHO GÓC: Kiểm tra xem quả bi có đang ở góc giao thành bàn và viền lỗ không
@@ -1475,8 +1526,82 @@ void BilliardGame::checkWallCollisions(Ball& ball) {
     }
 }
 
+bool BilliardGame::isBallInPocketAttractionZone(const Ball& ball) {
+    if (ball.x < 0) {
+        return false;  // Already pocketed sentinel
+    }
+    
+    float attractionRadius = POCKET_RADIUS + BALL_RADIUS + POCKET_ATTRACTION_MARGIN;
+    float attractionRadiusSq = attractionRadius * attractionRadius;
+    
+    int pockets[6][2] = {
+        {TABLE_X, TABLE_Y},  // Top-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right
+        {TABLE_X, TABLE_Y + TABLE_HEIGHT},  // Bottom-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y + TABLE_HEIGHT},  // Bottom-right
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y},  // Top middle
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y + TABLE_HEIGHT}  // Bottom middle
+    };
+    
+    for (int p = 0; p < 6; p++) {
+        float dx = ball.x - pockets[p][0];
+        float dy = ball.y - pockets[p][1];
+        float distSq = dx * dx + dy * dy;
+        if (distSq <= attractionRadiusSq) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void BilliardGame::applyPocketAttraction(Ball& ball) {
+    // Only apply when inside the attraction zone
+    float attractionRadius = POCKET_RADIUS + BALL_RADIUS + POCKET_ATTRACTION_MARGIN;
+    float attractionRadiusSq = attractionRadius * attractionRadius;
+    
+    int pockets[6][2] = {
+        {TABLE_X, TABLE_Y},  // Top-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right
+        {TABLE_X, TABLE_Y + TABLE_HEIGHT},  // Bottom-left
+        {TABLE_X + TABLE_WIDTH, TABLE_Y + TABLE_HEIGHT},  // Bottom-right
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y},  // Top middle
+        {TABLE_X + TABLE_WIDTH / 2, TABLE_Y + TABLE_HEIGHT}  // Bottom middle
+    };
+    
+    int targetPocket = -1;
+    float closestDistSq = attractionRadiusSq;
+    
+    for (int p = 0; p < 6; p++) {
+        float dx = ball.x - pockets[p][0];
+        float dy = ball.y - pockets[p][1];
+        float distSq = dx * dx + dy * dy;
+        if (distSq < closestDistSq) {
+            closestDistSq = distSq;
+            targetPocket = p;
+        }
+    }
+    
+    if (targetPocket == -1) {
+        return;
+    }
+    
+    float dirX = pockets[targetPocket][0] - ball.x;
+    float dirY = pockets[targetPocket][1] - ball.y;
+    float dist = sqrt(dirX * dirX + dirY * dirY);
+    if (dist < 0.001f) {
+        return;
+    }
+    
+    float normX = dirX / dist;
+    float normY = dirY / dist;
+    
+    ball.vx += normX * POCKET_ATTRACTION;
+    ball.vy += normY * POCKET_ATTRACTION;
+    ball.isActive = true;  // Keep ball active while being pulled in
+}
+
 bool BilliardGame::isBallNearPocket(float x, float y) {
-    float pocketCheckRadius = POCKET_RADIUS + BALL_RADIUS + 2.0f;
+    float pocketCheckRadius = POCKET_RADIUS + BALL_RADIUS + POCKET_ATTRACTION_MARGIN;
     int pockets[6][2] = {
         {TABLE_X, TABLE_Y},  // Top-left
         {TABLE_X + TABLE_WIDTH, TABLE_Y},  // Top-right
@@ -1506,6 +1631,8 @@ void BilliardGame::checkBallCollisions() {
             if (balls[i].x < 0) continue;
             // Skip if ball is already in pocket (kiểm tra lại để chắc chắn)
             if (isBallInPocket(balls[i])) continue;
+            // Skip attraction zone to avoid unnatural bounces when falling in
+            if (isBallInPocketAttractionZone(balls[i])) continue;
             if (!balls[i].isActive && iter == 0) continue;  // Only check active balls on first iteration
             // Skip if ball is near pocket (đang rơi vào lỗ) - tránh bounce khi rơi vào lỗ
             if (isBallNearPocket(balls[i].x, balls[i].y)) continue;
@@ -1515,6 +1642,8 @@ void BilliardGame::checkBallCollisions() {
                 if (balls[j].x < 0) continue;
                 // Skip if ball is already in pocket (kiểm tra lại để chắc chắn)
                 if (isBallInPocket(balls[j])) continue;
+                // Skip attraction zone to avoid unnatural bounces when falling in
+                if (isBallInPocketAttractionZone(balls[j])) continue;
                 if (!balls[j].isActive && iter == 0) continue;  // Only check active balls on first iteration
                 // Skip if ball is near pocket (đang rơi vào lỗ) - tránh bounce khi rơi vào lỗ
                 if (isBallNearPocket(balls[j].x, balls[j].y)) continue;
@@ -1553,6 +1682,8 @@ void BilliardGame::checkBallCollisions() {
                     // Apply collision impulse if balls are moving towards each other
                     // Or if they're already overlapping (to push them apart)
                     if (dot < 0 || distance < minDistance * 0.9f) {
+                        // Flag that a visible collision happened this frame (to force safe redraw)
+                        collisionThisFrame = true;
                         // Elastic collision: exchange momentum along collision normal
                         // Assuming equal mass (all balls have same mass)
                         // Giảm hệ số va chạm để cân bằng - quả bi đánh đi không quá yếu, quả bi bị đánh không quá mạnh

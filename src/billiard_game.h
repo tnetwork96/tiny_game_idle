@@ -23,6 +23,7 @@
 #define FRICTION 0.975f  // Friction coefficient (tăng ma sát để quả bi dừng lại nhanh hơn)
 #define MIN_VELOCITY 0.2f  // Minimum velocity to stop ball (tăng để quả bi dừng sớm hơn)
 #define POCKET_ATTRACTION 0.3f  // Attraction force when near pocket
+#define POCKET_ATTRACTION_MARGIN 6.0f  // Extra radius for pocket attraction zone
 
 // Colors
 #define COLOR_TABLE 0x03E0      // Green table
@@ -72,6 +73,7 @@ private:
     bool isCharging;      // Is player charging shot
     int activeBallIndex;  // Index of cue ball (usually 0)
     bool tableDrawn;      // Has table been drawn
+    bool collisionThisFrame;  // Flag to force safe redraw when collisions happen
     
     void drawTable();
     void eraseBall(int index);
@@ -91,6 +93,8 @@ private:
     uint16_t getBackgroundColorAt(int screenX, int screenY);  // Get background color at screen position
     bool isBallNearPocket(float x, float y);  // Kiểm tra quả bi có gần lỗ không
     void drawPowerBar();  // Vẽ thanh lực
+    bool isBallInPocketAttractionZone(const Ball& ball);  // Vùng hút lỗ
+    void applyPocketAttraction(Ball& ball);  // Kéo bi về tâm lỗ khi trong vùng hút
     
 public:
     BilliardGame(Adafruit_ST7789* tft);
