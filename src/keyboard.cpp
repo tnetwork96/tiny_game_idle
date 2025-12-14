@@ -28,20 +28,27 @@ const String Keyboard::KEY_ENTER = "|e";
 const String Keyboard::KEY_DELETE = "<";
 const String Keyboard::KEY_SHIFT = "shift";
 const String Keyboard::KEY_SPACE = " ";
-const String Keyboard::KEY_ICON = "ic";
+const String Keyboard::KEY_ICON = String(Keyboard::KEY_ICON_CHAR);
 
 // Bảng phím chữ cái (chữ viết thường)
 String Keyboard::qwertyKeysArray[3][10] = {
   { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
   { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
-  { "ic", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
+  { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
 };
 
 // Bảng phím số và ký tự đặc biệt
 String Keyboard::numericKeysArray[3][10] = {
   { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
   { "ABC", "/", ":", ";", "(", ")", "$", "&", "@", "\"" },
-  { "ic", "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
+  { String(Keyboard::KEY_ICON_CHAR), "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
+};
+
+// Bảng phím icon/emoji (dùng control char để chèn vào text)
+String Keyboard::iconKeysArray[3][10] = {
+  { "ABC", String(Keyboard::ICON_SMILE), String(Keyboard::ICON_HEART), String(Keyboard::ICON_STAR), String(Keyboard::ICON_CHECK), String(Keyboard::ICON_MUSIC), String(Keyboard::ICON_SUN), String(Keyboard::ICON_FIRE), String(Keyboard::ICON_THUMBS), String(Keyboard::ICON_GIFT) },
+  { "123", String(Keyboard::ICON_WINK), String(Keyboard::ICON_SMILE), String(Keyboard::ICON_HEART), String(Keyboard::ICON_STAR), String(Keyboard::ICON_CHECK), String(Keyboard::ICON_MUSIC), String(Keyboard::ICON_SUN), String(Keyboard::ICON_FIRE), String(Keyboard::ICON_THUMBS) },
+  { String(Keyboard::KEY_ICON_CHAR), String(Keyboard::ICON_GIFT), String(Keyboard::ICON_SMILE), String(Keyboard::ICON_HEART), String(Keyboard::ICON_STAR), String(Keyboard::ICON_CHECK), String(Keyboard::ICON_MUSIC), String(Keyboard::ICON_SUN), "|e", "<" }
 };
 
 // Constructor
@@ -54,6 +61,8 @@ Keyboard::Keyboard(Adafruit_ST7789* tft) {
     this->currentChar = "";
     this->selectedIndex = 0;
     this->isAlphabetMode = true;
+    this->isUppercaseMode = false;
+    this->isIconMode = false;
     this->textSize = 1;
     this->animationFrame = 0;  // Khởi tạo animation frame
     this->onKeySelected = nullptr;  // Khởi tạo callback = null
@@ -105,7 +114,9 @@ void Keyboard::draw() {
 
     // Chọn bảng phím dựa vào chế độ hiện tại
     String (*currentKeys)[10];
-    if (isAlphabetMode) {
+    if (isIconMode) {
+        currentKeys = iconKeysArray;    // Icon mode
+    } else if (isAlphabetMode) {
         currentKeys = qwertyKeysArray;  // Sử dụng bảng phím chữ cái
     } else {
         currentKeys = numericKeysArray; // Sử dụng bảng phím số/ký tự đặc biệt
@@ -200,11 +211,20 @@ void Keyboard::draw() {
                 tft->setTextColor(textColor, bgColor);  // Màu chữ và nền từ skin
                 tft->setTextSize(currentSkin.textSize);  // Sử dụng textSize từ skin
                 
-                String keyText = currentKeys[row][col];
+                String rawKey = currentKeys[row][col];
+                String keyText = formatKeyLabel(rawKey);
                 
                 // Nếu là phím Enter, vẽ ký tự Enter (mũi tên) thay vì text
-                if (keyText == KEY_ENTER) {
+                if (rawKey == KEY_ENTER) {
                     drawEnterSymbol(xPos, yPos, keyWidth, keyHeight, textColor);
+                }
+                // Nếu là phím icon toggle, vẽ mặt cười thay vì text
+                else if (rawKey == KEY_ICON) {
+                    drawSmileyIcon(xPos, yPos, keyWidth, keyHeight, textColor);
+                }
+                // Nếu là phím icon glyph, vẽ icon tương ứng
+                else if (isIconToken(rawKey)) {
+                    drawIconGlyph(xPos, yPos, keyWidth, keyHeight, textColor, toIconCode(rawKey));
                 } else {
                 // Rút gọn text nếu quá dài (chỉ lấy 1-2 ký tự đầu)
                 if (keyText.length() > 1) {
@@ -281,13 +301,20 @@ String Keyboard::getCurrentKey() const {
     }
 
     String (*currentKeys)[10];
-    if (isAlphabetMode) {
+    if (isIconMode) {
+        currentKeys = iconKeysArray;    // Icon mode
+    } else if (isAlphabetMode) {
         currentKeys = qwertyKeysArray;  // Sử dụng bảng phím chữ cái
     } else {
         currentKeys = numericKeysArray; // Sử dụng bảng phím số/ký tự đặc biệt
     }
 
-    return currentKeys[cursorRow][cursorCol];
+    String rawKey = currentKeys[cursorRow][cursorCol];
+    if (isAlphabetMode && isLetterKey(rawKey) && isUppercaseMode) {
+        char upperChar = rawKey.charAt(0) - 'a' + 'A';
+        return String(upperChar);
+    }
+    return rawKey;
 }
 
 void Keyboard::moveCursor(int8_t deltaRow, int8_t deltaCol) {
@@ -330,17 +357,42 @@ void Keyboard::moveCursorByCommand(String command, int x, int y) {
         moveCursor(0, 1);   // Di chuyển phải
     } else if (command == "select") {
         String currentKey = getCurrentKey();
+        // Nếu nhấn phím Shift, toggle chế độ chữ hoa/thường
+        if (isAlphabetMode && currentKey == KEY_SHIFT) {
+            toggleUppercaseMode();
+        }
         // Nếu nhấn phím "123", chuyển sang bàn phím số/ký tự đặc biệt
-        if (isAlphabetMode && currentKey == "123") {
+        else if (!isIconMode && isAlphabetMode && currentKey == "123") {
             isAlphabetMode = false;  // Chuyển sang chế độ số/ký tự đặc biệt
+            isIconMode = false;
             qwertyKeys = numericKeysArray;  // Cập nhật con trỏ bảng phím
             draw();  // Vẽ lại bàn phím số
         }
         // Nếu nhấn phím "ABC", quay lại bàn phím chữ cái
-        else if (!isAlphabetMode && currentKey == "ABC") {
+        else if (!isIconMode && !isAlphabetMode && currentKey == "ABC") {
             isAlphabetMode = true;   // Quay lại chế độ chữ cái
+            isIconMode = false;
             qwertyKeys = qwertyKeysArray;  // Cập nhật con trỏ bảng phím
             draw();  // Vẽ lại bàn phím chữ cái
+        }
+        // Từ bất kỳ chế độ nào, nhấn phím icon để vào icon mode
+        else if (currentKey == KEY_ICON) {
+            isIconMode = true;
+            isAlphabetMode = false;
+            qwertyKeys = iconKeysArray;
+            draw();  // Vẽ lại bàn phím icon
+        }
+        // Trong icon mode, nhấn "ABC" để về chữ hoặc "123" để sang số
+        else if (isIconMode && currentKey == "ABC") {
+            isIconMode = false;
+            isAlphabetMode = true;
+            qwertyKeys = qwertyKeysArray;
+            draw();
+        } else if (isIconMode && currentKey == "123") {
+            isIconMode = false;
+            isAlphabetMode = false;
+            qwertyKeys = numericKeysArray;
+            draw();
         } else {
             // Gọi callback nếu có để xử lý phím được chọn
             if (onKeySelected != nullptr) {
@@ -364,14 +416,16 @@ void Keyboard::moveCursorTo(uint16_t row, int8_t col) {
 }
 
 bool Keyboard::typeChar(char c) {
-    // Chuyển đổi ký tự thành String để so sánh
-    String charStr = String(c);
-    
-    // Kiểm tra xem ký tự có phải là số không
+    // Phân loại ký tự
     bool isDigit = (c >= '0' && c <= '9');
-    
-    // Kiểm tra xem ký tự có phải là chữ cái không
-    bool isLetter = (c >= 'a' && c <= 'z');
+    bool isLowercaseLetter = (c >= 'a' && c <= 'z');
+    bool isUppercaseLetter = (c >= 'A' && c <= 'Z');
+    bool isLetter = isLowercaseLetter || isUppercaseLetter;
+    bool isIcon = (c >= ICON_SMILE && c <= ICON_WINK);
+    char normalizedChar = c;
+    if (isUppercaseLetter) {
+        normalizedChar = c - 'A' + 'a';  // Lưu layout chữ thường, hiển thị chữ hoa qua state
+    }
     
     // Nếu là số hoặc ký tự đặc biệt, cần chuyển sang chế độ số
     if ((isDigit || (!isLetter && c != ' ')) && isAlphabetMode) {
@@ -392,19 +446,33 @@ bool Keyboard::typeChar(char c) {
         delay(100);
     }
     
+    // Nếu là icon, chuyển sang icon mode
+    if (isIcon && !isIconMode) {
+        // Phím icon nằm hàng 2 cột 0 (KEY_ICON) trong layout chữ/số
+        moveCursorTo(2, 0);
+        delay(100);
+        moveCursorByCommand("select", 0, 0);
+        delay(100);
+    }
+    
+    // Đặt chế độ chữ hoa/thường theo ký tự cần gõ
+    if (isLetter) {
+        setUppercaseMode(isUppercaseLetter);
+    }
+    
     // Tìm ký tự trong bảng phím hiện tại
     String (*currentKeys)[10];
     if (isAlphabetMode) {
         currentKeys = qwertyKeysArray;
     } else {
-        currentKeys = numericKeysArray;
+        currentKeys = isIconMode ? iconKeysArray : numericKeysArray;
     }
     
     for (uint16_t row = 0; row < 3; row++) {
         for (uint16_t col = 0; col < 10; col++) {
             String key = currentKeys[row][col];
-            // So sánh ký tự (bỏ qua các phím đặc biệt như "123", "ABC", "|e", "<", "ic")
-            if (key.length() == 1 && key.charAt(0) == c) {
+            // So sánh ký tự (bỏ qua các phím đặc biệt như "123", "ABC", "|e", "<", icon toggle)
+            if (key.length() == 1 && key.charAt(0) == normalizedChar) {
                 // Di chuyển đến ký tự này
                 moveCursorTo(row, col);
                 delay(150);  // Delay để người dùng thấy di chuyển
@@ -418,7 +486,7 @@ bool Keyboard::typeChar(char c) {
     
     // Nếu không tìm thấy, thử tìm trong bảng kia
     if (isAlphabetMode) {
-        currentKeys = numericKeysArray;
+        currentKeys = isIconMode ? iconKeysArray : numericKeysArray;
     } else {
         currentKeys = qwertyKeysArray;
     }
@@ -426,7 +494,7 @@ bool Keyboard::typeChar(char c) {
     for (uint16_t row = 0; row < 3; row++) {
         for (uint16_t col = 0; col < 10; col++) {
             String key = currentKeys[row][col];
-            if (key.length() == 1 && key.charAt(0) == c) {
+            if (key.length() == 1 && key.charAt(0) == normalizedChar) {
                 // Chuyển đổi chế độ trước
                 if (isAlphabetMode) {
                     moveCursorTo(1, 0);  // "123"
@@ -475,6 +543,54 @@ void Keyboard::applySkin() {
     keyTextColor = currentSkin.keyTextColor;
     bgScreenColor = currentSkin.bgScreenColor;
     textSize = currentSkin.textSize;
+}
+
+void Keyboard::toggleUppercaseMode() {
+    setUppercaseMode(!isUppercaseMode);
+}
+
+void Keyboard::setUppercaseMode(bool uppercase) {
+    if (isUppercaseMode != uppercase) {
+        isUppercaseMode = uppercase;
+        updateCurrentCursor();
+        draw();
+    }
+}
+
+bool Keyboard::isLetterKey(const String& key) const {
+    return key.length() == 1 && key.charAt(0) >= 'a' && key.charAt(0) <= 'z';
+}
+
+bool Keyboard::isIconToken(const String& key) const {
+    return key.length() == 1 && key.charAt(0) >= ICON_SMILE && key.charAt(0) <= ICON_WINK;
+}
+
+char Keyboard::toIconCode(const String& key) const {
+    if (isIconToken(key)) return key.charAt(0);
+    return 0;
+}
+
+String Keyboard::formatKeyLabel(const String& rawKey) const {
+    // Giữ nguyên các phím đặc biệt
+    if (rawKey == KEY_SHIFT) {
+        // Hiển thị trạng thái: Aa = đang ở chữ thường, AA = đang ở chữ hoa
+        return isUppercaseMode ? "AA" : "Aa";
+    }
+    // Icon glyph sẽ được vẽ riêng, không cần label text
+    if (isIconToken(rawKey)) {
+        return "";
+    }
+    
+    // Chỉ chuyển sang chữ hoa cho phím chữ cái khi đang ở chế độ alphabet
+    if (isAlphabetMode && isLetterKey(rawKey)) {
+        char letter = rawKey.charAt(0);
+        if (isUppercaseMode) {
+            letter = letter - 'a' + 'A';
+        }
+        return String(letter);
+    }
+    
+    return rawKey;
 }
 
 // Các skin mẫu đã được di chuyển vào namespace KeyboardSkins
@@ -822,6 +938,121 @@ void Keyboard::drawEnterSymbol(uint16_t x, uint16_t y, uint16_t width, uint16_t 
     tft->drawLine(arrowTipX, arrowTipY, arrowLeftX, arrowLeftY, color);
     // Đường chéo phải
     tft->drawLine(arrowTipX, arrowTipY, arrowRightX, arrowRightY, color);
+}
+
+// Vẽ icon mặt cười (smiley) cho phím icon
+void Keyboard::drawSmileyIcon(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color) {
+    // Xác định tâm và bán kính mặt cười
+    uint16_t cx = x + width / 2;
+    uint16_t cy = y + height / 2;
+    uint16_t radius = (width < height ? width : height) / 3;  // Vừa phải để không chạm viền
+    if (radius < 4) radius = 4;
+    
+    // Vẽ mặt
+    tft->drawCircle(cx, cy, radius, color);
+    // Vẽ mắt
+    uint16_t eyeOffsetX = radius / 2;
+    uint16_t eyeOffsetY = radius / 3;
+    tft->fillCircle(cx - eyeOffsetX, cy - eyeOffsetY, 1, color);
+    tft->fillCircle(cx + eyeOffsetX, cy - eyeOffsetY, 1, color);
+    
+    // Vẽ miệng cong (arc đơn giản bằng các điểm/đoạn thẳng ngắn)
+    uint16_t mouthRadius = radius - 1;
+    for (int16_t dx = -mouthRadius + 1; dx <= mouthRadius - 1; dx++) {
+        int16_t dy = (mouthRadius * mouthRadius - dx * dx) / (mouthRadius * 2);  // simple curve
+        int16_t px = cx + dx;
+        int16_t py = cy + dy + 1;  // hạ miệng xuống một chút
+        if (py > cy) {
+            tft->drawPixel(px, py, color);
+        }
+    }
+}
+
+// Vẽ icon theo mã (dùng chung cho các phím icon)
+void Keyboard::drawIconGlyph(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color, char iconCode) {
+    uint16_t cx = x + width / 2;
+    uint16_t cy = y + height / 2;
+    uint16_t size = (width < height ? width : height) / 3;
+    if (size < 4) size = 4;
+    
+    switch (iconCode) {
+        case ICON_SMILE:
+        case ICON_WINK:
+            // Dùng mặt cười cơ bản, thêm wink nếu cần
+            drawSmileyIcon(x, y, width, height, color);
+            if (iconCode == ICON_WINK) {
+                uint16_t eyeOffsetX = size / 2;
+                uint16_t eyeOffsetY = size / 3;
+                // Vẽ mắt nháy (đường ngang) thay cho mắt phải
+                tft->drawFastHLine(cx + eyeOffsetX - 1, cy - eyeOffsetY, 3, color);
+            }
+            break;
+        case ICON_HEART: {
+            // Trái tim đơn giản
+            uint16_t r = size / 2 + 1;
+            uint16_t hx = cx;
+            uint16_t hy = cy;
+            tft->fillCircle(hx - r, hy - r / 2, r, color);
+            tft->fillCircle(hx + r, hy - r / 2, r, color);
+            tft->fillTriangle(hx - r * 2, hy - r / 2, hx + r * 2, hy - r / 2, hx, hy + r * 2, color);
+            break;
+        }
+        case ICON_STAR: {
+            // Ngôi sao nhỏ
+            uint16_t r = size;
+            for (int i = 0; i < 5; i++) {
+                float angle1 = (72 * i - 90) * 3.14159 / 180.0;
+                float angle2 = (72 * (i + 2) - 90) * 3.14159 / 180.0;
+                uint16_t x1 = cx + r * cos(angle1);
+                uint16_t y1 = cy + r * sin(angle1);
+                uint16_t x2 = cx + r * cos(angle2);
+                uint16_t y2 = cy + r * sin(angle2);
+                tft->drawLine(x1, y1, x2, y2, color);
+            }
+            break;
+        }
+        case ICON_CHECK:
+            tft->drawLine(cx - size, cy, cx - size / 2, cy + size, color);
+            tft->drawLine(cx - size / 2, cy + size, cx + size, cy - size / 2, color);
+            break;
+        case ICON_MUSIC:
+            tft->drawLine(cx - size / 2, cy - size, cx - size / 2, cy + size, color);
+            tft->drawLine(cx - size / 2, cy - size, cx + size, cy - size / 2, color);
+            tft->fillCircle(cx - size / 2, cy + size, size / 3, color);
+            tft->fillCircle(cx + size, cy + size / 2, size / 3, color);
+            break;
+        case ICON_SUN:
+            tft->drawCircle(cx, cy, size - 1, color);
+            for (int i = 0; i < 8; i++) {
+                float angle = (45 * i) * 3.14159 / 180.0;
+                uint16_t x1 = cx + (size + 1) * cos(angle);
+                uint16_t y1 = cy + (size + 1) * sin(angle);
+                uint16_t x2 = cx + (size + 4) * cos(angle);
+                uint16_t y2 = cy + (size + 4) * sin(angle);
+                tft->drawLine(x1, y1, x2, y2, color);
+            }
+            break;
+        case ICON_FIRE:
+            tft->fillTriangle(cx, cy - size, cx - size, cy + size, cx + size, cy + size, color);
+            tft->fillTriangle(cx, cy - size / 2, cx - size / 2, cy + size, cx + size / 2, cy + size, getContrastColor(color));
+            break;
+        case ICON_THUMBS:
+            tft->fillRect(cx - size / 2, cy - size / 2, size / 2, size + 2, color);
+            tft->fillRect(cx - size / 2, cy - size / 2, size, size / 3, color);
+            tft->fillRect(cx + size / 2, cy - size / 2, size / 3, size / 2, color);
+            break;
+        case ICON_GIFT:
+            tft->drawRect(cx - size, cy - size / 2, size * 2, size + 2, color);
+            tft->drawFastVLine(cx, cy - size / 2, size + 2, color);
+            tft->drawFastHLine(cx - size, cy, size * 2, color);
+            tft->drawCircle(cx - size / 2, cy - size / 2, size / 3, color);
+            tft->drawCircle(cx + size / 2, cy - size / 2, size / 3, color);
+            break;
+        default:
+            // Fallback: vẽ mặt cười
+            drawSmileyIcon(x, y, width, height, color);
+            break;
+    }
 }
 
 // Tính màu chữ tương phản dựa trên màu nền

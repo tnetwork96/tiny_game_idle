@@ -48,7 +48,7 @@ void onKeyboardKeySelected(String key) {
 // Bảng phím chữ cái (qwertyKeysArray):
 // row 0: q w e r t y u i o p
 // row 1: 123 a s d f g h j k l
-// row 2: ic z x c v b n m |e <
+// row 2: shift z x c v b n m |e <
 // Bảng phím số (numericKeysArray):
 // row 0: 1 2 3 4 5 6 7 8 9 0
 // row 1: ABC / : ; ( ) $ & @ "
@@ -58,14 +58,14 @@ void typePasswordByMovingKeyboard(String password) {
     String qwertyKeys[3][10] = {
         { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
         { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l"},
-        { "ic", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
+        { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<"}
     };
     
     // Bảng phím số và ký tự đặc biệt (numericKeysArray)
     String numericKeys[3][10] = {
         { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
         { "ABC", "/", ":", ";", "(", ")", "$", "&", "@", "\"" },
-        { "ic", "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
+        { String(Keyboard::KEY_ICON_CHAR), "#", ".", ",", "?", "!", "'", "-", "|e", "<"}
     };
     
     Serial.println("TEST: Starting to type password by moving keyboard cursor...");
@@ -127,7 +127,7 @@ void typePasswordByMovingKeyboard(String password) {
                 Serial.print(key.length());
                 Serial.print(")");
                 
-                // Chỉ tìm các phím có 1 ký tự (bỏ qua "123", "ABC", "|e", "<", "ic")
+                // Chỉ tìm các phím có 1 ký tự (bỏ qua "123", "ABC", "|e", "<", icon toggle)
                 if (key.length() == 1 && key.charAt(0) == targetChar) {
                     Serial.println(" -> MATCH!");
                     Serial.print("TEST: Moving to key '");
@@ -235,12 +235,13 @@ void testAutoConnect() {
 
 // Sinh chuỗi tin nhắn ngẫu nhiên (chỉ dùng ký tự có trên bàn phím)
 String buildChatKeyboardTestMessage(int cycleIndex) {
-    const char allowedChars[] = "abcdefghijklmnopqrstuvwxyz0123456789/:;()$&@\"#.,?!'- ";
+    const char allowedChars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/:;()$&@\"#.,?!'- ";
     const int charsetLength = sizeof(allowedChars) - 1;  // Trừ ký tự null
     
     // Độ dài mục tiêu 12-28 ký tự để đủ dài nhìn thấy
     int targetLength = random(12, 29);
-    String message = "c" + String(cycleIndex) + " ";
+    // Bắt đầu bằng chữ hoa để chắc chắn có ký tự uppercase trong mỗi chu kỳ test
+    String message = "C" + String(cycleIndex) + " ";
     
     while (message.length() < targetLength) {
         int idx = random(0, charsetLength);
@@ -307,6 +308,9 @@ void runChatKeyboardToggleTypingTest() {
             if (!messageTyped) {
                 Serial.print("Chat Keyboard Test: typing message: ");
                 Serial.println(pendingMessage);
+                // Điều hướng và chèn icon mặt cười trước để đảm bảo có icon (và test đi qua phím icon)
+                keyboard->typeChar(Keyboard::ICON_SMILE);
+                delay(120);
                 keyboard->typeString(pendingMessage);
                 messageTyped = true;
                 stepStart = millis();
@@ -434,6 +438,16 @@ void setup() {
     chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
     chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
     chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
+    // Thêm tin nhắn mẫu có icon để test render và lưu/đọc icon
+    String iconTestMsg = "Icon test: ";
+    iconTestMsg += String(Keyboard::ICON_SMILE);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_HEART);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_STAR);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_WINK);
+    chatScreen->addMessage(iconTestMsg, true);
     chatScreen->draw();
     // Test: bật bàn phím ngay sau khi vào chat để xem layout
     chatScreen->handleSelect();

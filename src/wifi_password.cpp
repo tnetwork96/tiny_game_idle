@@ -135,7 +135,7 @@ void WiFiPasswordScreen::handleKeyPress(String key) {
             password += " ";
             drawPassword();  // Chỉ vẽ lại phần password, không vẽ lại keyboard
         }
-    } else if (key != "123" && key != "ABC" && key != "ic") {
+    } else if (key != "123" && key != "ABC" && key != Keyboard::KEY_ICON && key != "shift") {
         // Thêm ký tự thông thường (bỏ qua các phím chuyển đổi)
         if (password.length() < maxPasswordLength) {
             password += key;

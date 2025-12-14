@@ -31,6 +31,7 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->messageCount = 0;
     this->scrollOffset = 0;
     this->currentMessage = "";
+    this->inputCursorPos = 0;
     this->keyboardVisible = false;  // Bàn phím ẩn mặc định
     this->friendStatus = 2;  // 0 = offline, 1 = online, 2 = typing
     
@@ -476,15 +477,15 @@ void ChatScreen::drawMessages() {
                 int yPos = startY + lineIndex * lineHeight - groupTransitions * gapReduction;
                 
                 // Tính vị trí X: user căn phải, other căn trái
-                uint16_t textX;
-                if (messages[i].isUser) {
-                    // Tin nhắn của user: căn phải
-                    uint16_t textWidth = lineText.length() * 12;  // Khoảng 12px mỗi ký tự với text size 2
-                    textX = chatAreaWidth - textWidth - margin;
-                } else {
-                    // Tin nhắn của người khác: căn trái
-                    textX = margin;
-                }
+            uint16_t textX;
+            uint16_t approxWidth = lineText.length() * 12;  // ước lượng
+            if (messages[i].isUser) {
+                // Tin nhắn của user: căn phải
+                textX = chatAreaWidth - approxWidth - margin;
+            } else {
+                // Tin nhắn của người khác: căn trái
+                textX = margin;
+            }
                 
                 // Vẽ bubble background nếu bật decor
                 if (showMessageBubbles && line == 0) {
@@ -497,9 +498,20 @@ void ChatScreen::drawMessages() {
                 }
                 
                 // Vẽ dòng này
-                tft->setCursor(textX, yPos);
                 tft->setTextColor(msgColor, bgColor);
-                tft->print(lineText);
+                tft->setTextSize(2);
+                uint16_t cursorX = textX;
+                for (uint16_t cIndex = 0; cIndex < lineText.length(); cIndex++) {
+                    char c = lineText.charAt(cIndex);
+                    if (c >= Keyboard::ICON_SMILE && c <= Keyboard::ICON_WINK) {
+                        drawIconInline(cursorX, yPos, 12, msgColor, bgColor, c);
+                        cursorX += 12;
+                    } else {
+                        tft->setCursor(cursorX, yPos);
+                        tft->print(String(c));
+                        cursorX += 12;
+                    }
+                }
                 
                 lineIndex++;
             }
@@ -596,6 +608,100 @@ void ChatScreen::drawMessageBubble(int x, int y, int width, int height, uint16_t
     tft->drawPixel(x + width - 1, y + height - 1, bgColor);
 }
 
+// Vẽ icon inline cho text/chat (kích thước khoảng 12px)
+void ChatScreen::drawIconInline(uint16_t x, uint16_t y, uint16_t size, uint16_t color, uint16_t bgColor, char iconCode) {
+    // clear nền nhỏ cho icon để tránh cấn text
+    tft->fillRect(x, y, size, size, bgColor);
+    uint16_t cx = x + size / 2;
+    uint16_t cy = y + size / 2;
+    uint16_t r = size / 2 - 1;
+    if (r < 3) r = 3;
+    switch (iconCode) {
+        case Keyboard::ICON_SMILE:
+        case Keyboard::ICON_WINK:
+            // mặt cười
+            tft->drawCircle(cx, cy, r, color);
+            tft->fillCircle(cx - r/2, cy - r/3, 1, color);
+            if (iconCode == Keyboard::ICON_WINK) {
+                tft->drawFastHLine(cx + r/2 - 1, cy - r/3, 3, color);
+            } else {
+                tft->fillCircle(cx + r/2, cy - r/3, 1, color);
+            }
+            // miệng cong
+            for (int16_t dx = -r + 1; dx <= r - 1; dx++) {
+                int16_t dy = (r * r - dx * dx) / (r * 2);
+                int16_t py = cy + dy / 2;
+                if (py > cy) tft->drawPixel(cx + dx, py, color);
+            }
+            break;
+        case Keyboard::ICON_HEART:
+            tft->fillCircle(cx - r/2, cy - r/3, r/2, color);
+            tft->fillCircle(cx + r/2, cy - r/3, r/2, color);
+            tft->fillTriangle(cx - r, cy - r/3, cx + r, cy - r/3, cx, cy + r, color);
+            break;
+        case Keyboard::ICON_STAR:
+            for (int i = 0; i < 5; i++) {
+                float a1 = (72 * i - 90) * 3.14159 / 180.0;
+                float a2 = (72 * (i + 2) - 90) * 3.14159 / 180.0;
+                uint16_t x1 = cx + r * cos(a1);
+                uint16_t y1 = cy + r * sin(a1);
+                uint16_t x2 = cx + r * cos(a2);
+                uint16_t y2 = cy + r * sin(a2);
+                tft->drawLine(x1, y1, x2, y2, color);
+            }
+            break;
+        case Keyboard::ICON_CHECK:
+            tft->drawLine(cx - r, cy, cx - r/2, cy + r, color);
+            tft->drawLine(cx - r/2, cy + r, cx + r, cy - r/2, color);
+            break;
+        case Keyboard::ICON_MUSIC:
+            tft->drawLine(cx - r/2, cy - r, cx - r/2, cy + r/2, color);
+            tft->drawLine(cx - r/2, cy - r, cx + r, cy - r/2, color);
+            tft->fillCircle(cx - r/2, cy + r/2, r/3, color);
+            tft->fillCircle(cx + r, cy, r/3, color);
+            break;
+        case Keyboard::ICON_SUN:
+            tft->drawCircle(cx, cy, r-1, color);
+            for (int i = 0; i < 8; i++) {
+                float ang = (45 * i) * 3.14159 / 180.0;
+                uint16_t x1 = cx + (r+1) * cos(ang);
+                uint16_t y1 = cy + (r+1) * sin(ang);
+                uint16_t x2 = cx + (r+3) * cos(ang);
+                uint16_t y2 = cy + (r+3) * sin(ang);
+                tft->drawLine(x1, y1, x2, y2, color);
+            }
+            break;
+        case Keyboard::ICON_FIRE:
+            tft->fillTriangle(cx, cy - r, cx - r, cy + r, cx + r, cy + r, color);
+            break;
+        case Keyboard::ICON_THUMBS:
+            tft->fillRect(cx - r/2, cy - r/2, r/2, r + 2, color);
+            tft->fillRect(cx - r/2, cy - r/2, r, r/3, color);
+            tft->fillRect(cx + r/2, cy - r/2, r/3, r/2, color);
+            break;
+        case Keyboard::ICON_GIFT:
+            tft->drawRect(cx - r, cy - r/2, r*2, r+2, color);
+            tft->drawFastVLine(cx, cy - r/2, r+2, color);
+            tft->drawFastHLine(cx - r, cy, r*2, color);
+            tft->drawCircle(cx - r/2, cy - r/2, r/3, color);
+            tft->drawCircle(cx + r/2, cy - r/2, r/3, color);
+            break;
+        default:
+            tft->drawCircle(cx, cy, r, color);
+            break;
+    }
+}
+
+bool ChatScreen::containsIcon(const String& text) const {
+    for (uint16_t i = 0; i < text.length(); i++) {
+        char c = text.charAt(i);
+        if (c >= Keyboard::ICON_SMILE && c <= Keyboard::ICON_WINK) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void ChatScreen::drawCurrentMessage() {
     uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
     uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
@@ -613,24 +719,39 @@ void ChatScreen::drawCurrentMessage() {
                                 : inputBoxHeight;
     tft->fillRect(textX, textY, inputBoxWidth - 10, textAreaHeight, inputBoxBgColor);
     
-    // Vẽ tin nhắn đang nhập
-    tft->setTextColor(textColor, inputBoxBgColor);
+    // Vẽ tin nhắn đang nhập (có icon)
     tft->setTextSize(2);  // Cỡ chữ tầm trung
-    tft->setCursor(textX, textY);
-    
+    // Đảm bảo con trỏ luôn nằm trong phạm vi
+    if (inputCursorPos < 0) inputCursorPos = 0;
+    if (inputCursorPos > currentMessage.length()) inputCursorPos = currentMessage.length();
     if (currentMessage.length() == 0) {
         // Hiển thị placeholder
         uint16_t placeholderColor = 0x5008;
         tft->setTextColor(placeholderColor, inputBoxBgColor);
+        tft->setCursor(textX, textY);
         tft->print("Type message...");
     } else {
-        // Hiển thị tin nhắn (cắt nếu quá dài)
+        // Hiển thị tin nhắn (cắt nếu quá dài) với icon
         String displayText = currentMessage;
         int maxChars = (inputBoxWidth - 10) / 12;  // Với text size 2, khoảng 12px mỗi ký tự
         if (displayText.length() > maxChars) {
             displayText = displayText.substring(displayText.length() - maxChars);
         }
-        tft->print(displayText);
+        uint16_t cursorX = textX;
+        uint16_t cursorY = textY;
+        for (uint16_t i = 0; i < displayText.length(); i++) {
+            char c = displayText.charAt(i);
+            if (c >= Keyboard::ICON_SMILE && c <= Keyboard::ICON_WINK) {
+                drawIconInline(cursorX, cursorY, 12, textColor, inputBoxBgColor, c);
+                cursorX += 12;
+            } else {
+                tft->setTextColor(textColor, inputBoxBgColor);
+                tft->setCursor(cursorX, cursorY);
+                tft->print(String(c));
+                cursorX += 12;
+            }
+            if (cursorX > inputBoxX + inputBoxWidth - 12) break;  // tránh tràn
+        }
     }
     
     // Vẽ lại viền dưới
@@ -679,20 +800,23 @@ void ChatScreen::handleKeyPress(String key) {
         sendMessage();
     } else if (key == "<") {
         // Delete - xóa ký tự cuối
-        if (currentMessage.length() > 0) {
-            currentMessage.remove(currentMessage.length() - 1);
+        if (currentMessage.length() > 0 && inputCursorPos > 0) {
+            currentMessage.remove(inputCursorPos - 1, 1);
+            inputCursorPos--;
             drawCurrentMessage();
         }
     } else if (key == " ") {
         // Space - thêm dấu cách
         if (currentMessage.length() < maxMessageLength) {
-            currentMessage += " ";
+            currentMessage = currentMessage.substring(0, inputCursorPos) + " " + currentMessage.substring(inputCursorPos);
+            inputCursorPos++;
             drawCurrentMessage();
         }
-    } else if (key != "123" && key != "ABC" && key != "ic") {
+    } else if (key != "123" && key != "ABC" && key != Keyboard::KEY_ICON && key != "shift") {
         // Thêm ký tự thông thường
         if (currentMessage.length() < maxMessageLength) {
-            currentMessage += key;
+            currentMessage = currentMessage.substring(0, inputCursorPos) + key + currentMessage.substring(inputCursorPos);
+            inputCursorPos += key.length();
             drawCurrentMessage();
         }
     }
@@ -724,8 +848,27 @@ void ChatScreen::addMessage(String text, bool isUser) {
 
 void ChatScreen::sendMessage() {
     if (currentMessage.length() > 0) {
+        // Yêu cầu phải có ít nhất 1 icon trước khi gửi
+        if (!containsIcon(currentMessage)) {
+            // Hiển thị hint nhỏ ngay trên ô input
+            uint16_t screenWidth = 320;
+            uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
+            int16_t hintY = static_cast<int16_t>(inputBoxY) - 12;
+            if (hintY < 0) hintY = 0;
+            // Xóa vùng hint cũ và vẽ thông báo
+            tft->fillRect(inputBoxX, hintY, inputBoxWidth, 10, bgColor);
+            tft->setTextSize(1);
+            tft->setTextColor(NEON_PINK, bgColor);
+            tft->setCursor(inputBoxX, hintY);
+            tft->print("Add an icon to send");
+            // Nhấn mạnh viền dưới ô input
+            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, NEON_PINK);
+            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, NEON_PINK);
+            return;
+        }
         addMessage(currentMessage, true);
         currentMessage = "";
+        inputCursorPos = 0;
         drawCurrentMessage();
     }
 }

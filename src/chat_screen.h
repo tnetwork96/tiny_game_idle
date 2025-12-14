@@ -37,6 +37,7 @@ private:
     
     // Tin nhắn đang nhập
     String currentMessage;
+    int inputCursorPos;  // Vị trí con trỏ trong currentMessage (theo ký tự)
     
     // Trạng thái bàn phím
     bool keyboardVisible;
@@ -93,6 +94,8 @@ private:
     
     // Vẽ tin nhắn đang nhập
     void drawCurrentMessage();
+    void drawIconInline(uint16_t x, uint16_t y, uint16_t size, uint16_t color, uint16_t bgColor, char iconCode);  // Vẽ icon trong text/input
+    bool containsIcon(const String& text) const;  // Kiểm tra tin nhắn có chứa icon hay không
     
     // Cuộn tin nhắn
     void scrollUp();
@@ -134,8 +137,8 @@ public:
     
     // Getter/Setter
     String getCurrentMessage() const { return currentMessage; }
-    void setCurrentMessage(String msg) { currentMessage = msg; }
-    void clearCurrentMessage() { currentMessage = ""; }
+    void setCurrentMessage(String msg) { currentMessage = msg; inputCursorPos = currentMessage.length(); }
+    void clearCurrentMessage() { currentMessage = ""; inputCursorPos = 0; }
     
     // Setter cho màu sắc
     void setBgColor(uint16_t color) { bgColor = color; }
