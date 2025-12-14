@@ -97,6 +97,13 @@ private:
     
     // Tính toán số dòng có thể hiển thị
     int getVisibleLines();
+    int calculateTotalLines() const;
+    void clampScrollOffset();
+    void scrollToLatest();
+    
+    // Bố cục động (ẩn/hiện keyboard)
+    uint16_t computeKeyboardHeight() const;
+    void recalculateLayout();
     
     // Lưu/tải lịch sử chat
     String getChatHistoryFileName();  // Tạo tên file từ nickname

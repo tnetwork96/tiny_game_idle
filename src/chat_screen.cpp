@@ -20,10 +20,10 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     // Khởi tạo vị trí và kích thước (màn hình rotation 3: 320x240)
     this->titleY = 5;
     this->chatAreaY = 25;  // Bắt đầu sau title bar
-    this->chatAreaHeight = 215;  // Chiều cao vùng chat (từ 25 đến 240)
+    this->chatAreaHeight = 0;  // Sẽ được tính động
     this->chatAreaWidth = 320;   // Rộng toàn màn hình (rotation 3: 320px)
-    this->inputBoxY = 240;  // Vị trí input box (ngay dưới chat area)
-    this->inputBoxHeight = 35;   // Chiều cao ô nhập
+    this->inputBoxY = 0;  // Sẽ được tính động
+    this->inputBoxHeight = 44;   // Chiều cao ô nhập (tăng nhẹ để dễ đọc)
     this->inputBoxWidth = 300;   // Rộng ô nhập (fit màn hình 320px)
     this->maxMessageLength = 80;  // Tăng độ dài tin nhắn lên 80 ký tự
     
@@ -66,6 +66,9 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->decorPatternColor = NEON_PURPLE;
     this->decorAccentColor = NEON_CYAN;
     this->decorAnimationFrame = 0;
+    
+    // Tính lại bố cục sau khi khởi tạo
+    recalculateLayout();
 }
 
 ChatScreen::~ChatScreen() {
@@ -155,6 +158,113 @@ int ChatScreen::getVisibleLines() {
     int lineHeight = 24;  // Tăng khoảng cách cho text size 2 (16px text + 8px spacing)
     int padding = 4;      // Padding trên và dưới
     return (chatAreaHeight - padding * 2) / lineHeight;
+}
+
+int ChatScreen::calculateTotalLines() const {
+    int totalLines = 0;
+    const int charsPerLine = 20;
+    
+    for (int i = 0; i < messageCount; i++) {
+        if (i > 0 && messages[i].isUser != messages[i - 1].isUser) {
+            totalLines += 1;  // Thêm 1 dòng spacing giữa hai người gửi
+        }
+        int messageLength = messages[i].text.length();
+        int numLines = (messageLength + charsPerLine - 1) / charsPerLine;
+        totalLines += numLines;
+    }
+    
+    return totalLines;
+}
+
+void ChatScreen::clampScrollOffset() {
+    int totalLines = calculateTotalLines();
+    int maxLines = getVisibleLines();
+    int maxScroll = (totalLines > maxLines) ? (totalLines - maxLines) : 0;
+    
+    if (scrollOffset > maxScroll) {
+        scrollOffset = maxScroll;
+    }
+    if (scrollOffset < 0) {
+        scrollOffset = 0;
+    }
+}
+
+void ChatScreen::scrollToLatest() {
+    int totalLines = calculateTotalLines();
+    int maxLines = getVisibleLines();
+    int maxScroll = (totalLines > maxLines) ? (totalLines - maxLines) : 0;
+    scrollOffset = maxScroll;
+}
+
+uint16_t ChatScreen::computeKeyboardHeight() const {
+    if (keyboard == nullptr) return 0;
+    
+    KeyboardSkin skin = keyboard->getSkin();
+    // Bàn phím có 3 hàng phím + hàng Space; mỗi hàng cách nhau spacing
+    uint16_t keyHeight = skin.keyHeight;
+    uint16_t spacing = skin.spacing;
+    
+    uint16_t height = (4 * (keyHeight + spacing)) - spacing;  // 4 hàng, 3 khoảng cách
+    // Chừa thêm biên nhỏ để tránh đè viền/glow
+    height += 4;
+    return height;
+}
+
+void ChatScreen::recalculateLayout() {
+    const uint16_t screenWidth = 320;   // rotation 3
+    const uint16_t screenHeight = 240;  // rotation 3
+    const uint16_t titleBarHeight = 25;
+    const uint16_t spacing = 6;         // Khoảng cách nhỏ giữa các khối
+    const uint16_t minChatHeight = 40;  // Đảm bảo luôn có không gian hiển thị
+    
+    chatAreaWidth = screenWidth;
+    chatAreaY = titleBarHeight;
+    
+    uint16_t keyboardHeight = keyboardVisible ? computeKeyboardHeight() : 0;
+    if (keyboardHeight > screenHeight) {
+        keyboardHeight = screenHeight;
+    }
+    
+    // Tính vị trí Y cho input box
+    uint16_t proposedInputY;
+    if (keyboardVisible) {
+        // Đặt ngay trên bàn phím, chừa một khoảng nhỏ
+        if (screenHeight > (keyboardHeight + inputBoxHeight + spacing)) {
+            proposedInputY = screenHeight - keyboardHeight - inputBoxHeight - spacing;
+        } else {
+            proposedInputY = chatAreaY + spacing;  // fallback nếu bàn phím quá cao
+        }
+    } else {
+        // Khi ẩn bàn phím, đặt sát đáy với khoảng cách nhỏ
+        if (screenHeight > (inputBoxHeight + spacing)) {
+            proposedInputY = screenHeight - inputBoxHeight - spacing;
+        } else {
+            proposedInputY = chatAreaY + spacing;
+        }
+    }
+    
+    // Giữ input box trong màn hình
+    if (proposedInputY + inputBoxHeight > screenHeight) {
+        proposedInputY = (screenHeight > inputBoxHeight) ? (screenHeight - inputBoxHeight) : 0;
+    }
+    if (proposedInputY < chatAreaY + spacing) {
+        proposedInputY = chatAreaY + spacing;
+    }
+    
+    inputBoxY = proposedInputY;
+    
+    // Tính lại chiều cao vùng chat dựa trên vị trí input box
+    int16_t computedChatHeight = static_cast<int16_t>(inputBoxY) - static_cast<int16_t>(chatAreaY) - static_cast<int16_t>(spacing);
+    if (computedChatHeight < static_cast<int16_t>(minChatHeight)) {
+        computedChatHeight = minChatHeight;
+    }
+    if (computedChatHeight > static_cast<int16_t>(screenHeight - chatAreaY)) {
+        computedChatHeight = screenHeight - chatAreaY;
+    }
+    chatAreaHeight = static_cast<uint16_t>(computedChatHeight);
+    
+    // Đảm bảo scrollOffset hợp lệ khi chiều cao thay đổi
+    clampScrollOffset();
 }
 
 void ChatScreen::drawScrollbar() {
@@ -444,10 +554,17 @@ void ChatScreen::drawCurrentMessage() {
     uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
     uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
     uint16_t textX = inputBoxX + 5;
-    uint16_t textY = inputBoxY + 10;
+    
+    // Căn giữa theo chiều dọc dựa trên chiều cao text size 2 (~16px)
+    const uint16_t textHeight = 16;
+    int16_t verticalPadding = static_cast<int16_t>((inputBoxHeight - textHeight) / 2);
+    if (verticalPadding < 2) verticalPadding = 2;  // Đảm bảo có tối thiểu một chút padding
+    uint16_t textY = inputBoxY + verticalPadding;
     
     // Xóa vùng text cũ
-    uint16_t textAreaHeight = inputBoxHeight - 20;
+    uint16_t textAreaHeight = inputBoxHeight > (verticalPadding * 2)
+                                ? (inputBoxHeight - verticalPadding * 2)
+                                : inputBoxHeight;
     tft->fillRect(textX, textY, inputBoxWidth - 10, textAreaHeight, inputBoxBgColor);
     
     // Vẽ tin nhắn đang nhập
@@ -476,6 +593,9 @@ void ChatScreen::drawCurrentMessage() {
 }
 
 void ChatScreen::draw() {
+    // Bố cục có thể thay đổi khi toggle keyboard -> tính lại mỗi lần vẽ
+    recalculateLayout();
+    
     // Vẽ nền màn hình
     tft->fillScreen(bgColor);
     
@@ -547,7 +667,7 @@ void ChatScreen::addMessage(String text, bool isUser) {
     messageCount++;
     
     // Tự động cuộn xuống tin nhắn mới nhất
-    scrollOffset = 0;
+    scrollToLatest();
     
     // Lưu tin nhắn vào file
     saveMessagesToFile();
@@ -604,27 +724,8 @@ void ChatScreen::handleDown() {
 void ChatScreen::handleSelect() {
     // Toggle keyboard visibility
     keyboardVisible = !keyboardVisible;
-    
-    if (keyboardVisible) {
-        // Hiện bàn phím
-        keyboard->draw();
-        
-        // Vẽ lại viền input box
-        uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
-        uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
-        tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
-        tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
-    } else {
-        // Ẩn bàn phím - xóa vùng bàn phím
-        // Bàn phím thường ở vị trí y = 80 trở xuống
-        uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
-        tft->fillRect(0, 80, screenWidth, 240 - 80, bgColor);
-        
-        // Vẽ lại input box và tin nhắn
-        drawInputBox();
-        drawCurrentMessage();
-        drawMessages();
-    }
+    // Bố cục thay đổi -> vẽ lại toàn bộ để tránh artefact
+    draw();
 }
 
 void ChatScreen::clearMessages() {
@@ -754,6 +855,8 @@ void ChatScreen::loadMessagesFromFile() {
     
     // Vẽ lại tin nhắn sau khi load
     if (messageCount > 0) {
+        recalculateLayout();
+        scrollToLatest();
         drawMessages();
     }
 }
