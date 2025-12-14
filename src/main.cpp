@@ -9,6 +9,7 @@
 #include "gunny_game.h"
 #include "caro_game.h"
 #include "billiard_game.h"
+#include "chat_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -24,15 +25,21 @@ GameMenuScreen* gameMenu;
 GunnyGame* gunnyGame;
 CaroGame* caroGame;
 BilliardGame* billiardGame;
+ChatScreen* chatScreen;
 bool testMode = true;  // Bật chế độ test
 bool testStarted = false;
 bool menuShown = false;  // Đánh dấu đã hiển thị menu chưa
 bool inGame = false;  // Đánh dấu đang trong game
-int currentGame = 0;  // 0 = none, 1 = gunny, 2 = caro, 3 = billiard
+int currentGame = 0;  // 0 = none, 1 = gunny, 2 = caro, 3 = billiard, 4 = chat
 
 // Callback function cho keyboard input
 void onKeyboardKeySelected(String key) {
-    if (wifiManager != nullptr) {
+    // Xử lý input cho chat nếu đang ở chế độ chat
+    if (inGame && currentGame == 4 && chatScreen != nullptr) {
+        chatScreen->handleKeyPress(key);
+    }
+    // Xử lý input cho WiFi nếu đang ở chế độ WiFi
+    else if (wifiManager != nullptr) {
         wifiManager->handleKeyboardInput(key);
     }
 }
@@ -281,12 +288,26 @@ void setup() {
     // Khởi tạo Billiard Game
     billiardGame = new BilliardGame(&tft);
     
-    // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
-    Serial.println("Auto-starting Billiard Game...");
-    billiardGame->init();
+    // Khởi tạo Chat Screen
+    chatScreen = new ChatScreen(&tft, keyboard);
+    
+    // TỰ ĐỘNG MỞ CHAT SCREEN
+    Serial.println("Auto-starting Chat Screen...");
+    // Thêm một số tin nhắn dài 80 ký tự để test
+    chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
+    chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
+    chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
+    chatScreen->draw();
     inGame = true;
-    currentGame = 3;  // Billiard game
-    menuShown = true;  // Đánh dấu đã qua menu để không hiển thị lại
+    currentGame = 4;  // Chat mode
+    menuShown = true;
+    
+    // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
+    // Serial.println("Auto-starting Billiard Game...");
+    // billiardGame->init();
+    // inGame = true;
+    // currentGame = 3;  // Billiard game
+    // menuShown = true;  // Đánh dấu đã qua menu để không hiển thị lại
     
     // Bỏ qua WiFi và menu
     // wifiManager->begin();
@@ -583,6 +604,131 @@ void loop() {
         
         // Draw only changed parts (optimized to reduce flicker)
         billiardGame->draw();
+    }
+    
+    // Update Chat screen if active
+    if (inGame && currentGame == 4 && chatScreen != nullptr) {
+        // Cập nhật animation cho decor
+        chatScreen->updateDecorAnimation();
+        
+        // Test: Tự động gửi vài tin nhắn, sau đó scroll up/down từ từ
+        static unsigned long lastTestMessageTime = 0;
+        static unsigned long lastScrollTime = 0;
+        static int testMessageCount = 0;
+        static int scrollTestStep = 0;  // 0 = gửi tin nhắn, 1 = scroll up, 2 = scroll down
+        static bool isUserTurn = true;
+        static int scrollUpCount = 0;
+        static int maxScrollUp = 0;
+        
+        unsigned long currentTime = millis();
+        
+        // Bước 1: Gửi vài tin nhắn trước (tối đa 10 tin nhắn)
+        if (testMessageCount < 10 && currentTime - lastTestMessageTime > 1500) {
+            // Tạo tin nhắn với độ dài ngẫu nhiên (5-80 ký tự)
+            int messageLength = random(5, 81);  // Random từ 5 đến 80 ký tự
+            String testMessage = "";
+            
+            // Tạo nội dung tin nhắn với độ dài ngẫu nhiên
+            if (messageLength <= 10) {
+                // Tin nhắn ngắn
+                String shortMessages[] = {"Hi!", "OK", "Yes", "No", "Thanks", "Hello", "Bye", "Sure", "Cool", "Nice"};
+                testMessage = shortMessages[random(0, 10)];
+            } else if (messageLength <= 30) {
+                // Tin nhắn trung bình
+                testMessage = "Msg " + String(testMessageCount) + " - This is a medium length message!";
+                if (testMessage.length() > messageLength) {
+                    testMessage = testMessage.substring(0, messageLength);
+                } else {
+                    while (testMessage.length() < messageLength) {
+                        testMessage += " x";
+                    }
+                    if (testMessage.length() > messageLength) {
+                        testMessage = testMessage.substring(0, messageLength);
+                    }
+                }
+            } else {
+                // Tin nhắn dài
+                testMessage = "Msg " + String(testMessageCount) + " - This is a very long message to test scrolling functionality with random length!";
+                while (testMessage.length() < messageLength) {
+                    testMessage += " x";
+                }
+                if (testMessage.length() > messageLength) {
+                    testMessage = testMessage.substring(0, messageLength);
+                }
+            }
+            
+            chatScreen->addMessage(testMessage, isUserTurn);
+            
+            testMessageCount++;
+            isUserTurn = !isUserTurn;  // Đổi lượt user/other
+            lastTestMessageTime = currentTime;
+            
+            Serial.print("Chat Test: Sent message #");
+            Serial.print(testMessageCount);
+            Serial.print(" (");
+            Serial.print(isUserTurn ? "Other" : "You");
+            Serial.print(", length: ");
+            Serial.print(testMessage.length());
+            Serial.println(" chars)");
+            
+            // Tính max scroll up có thể
+            if (testMessageCount > 5) {
+                maxScrollUp = testMessageCount - 5;  // Có thể scroll lên tối đa
+            }
+        }
+        // Bước 2: Sau khi gửi đủ tin nhắn, bắt đầu scroll test
+        else if (testMessageCount >= 10 && scrollTestStep == 0) {
+            // Chờ 2 giây sau tin nhắn cuối
+            if (currentTime - lastTestMessageTime > 2000) {
+                scrollTestStep = 1;  // Bắt đầu scroll up
+                scrollUpCount = 0;
+                lastScrollTime = currentTime;
+                Serial.println("Chat Test: Starting scroll test - scrolling UP...");
+            }
+        }
+        // Bước 3: Scroll up từ từ
+        else if (scrollTestStep == 1 && currentTime - lastScrollTime > 800) {
+            if (scrollUpCount < maxScrollUp) {
+                chatScreen->handleUp();
+                scrollUpCount++;
+                lastScrollTime = currentTime;
+                Serial.print("Chat Test: Scrolled UP (");
+                Serial.print(scrollUpCount);
+                Serial.print("/");
+                Serial.print(maxScrollUp);
+                Serial.println(")");
+            } else {
+                // Đã scroll up hết, chờ 2 giây rồi scroll down
+                scrollTestStep = 2;
+                lastScrollTime = currentTime;
+                Serial.println("Chat Test: Finished scrolling UP, waiting 2s then scrolling DOWN...");
+            }
+        }
+        // Bước 4: Scroll down từ từ
+        else if (scrollTestStep == 2) {
+            if (currentTime - lastScrollTime > 2000 && scrollUpCount > 0) {
+                // Bắt đầu scroll down
+                if (currentTime - lastScrollTime > 2000 + 800) {
+                    chatScreen->handleDown();
+                    scrollUpCount--;
+                    lastScrollTime = currentTime;
+                    Serial.print("Chat Test: Scrolled DOWN (remaining: ");
+                    Serial.print(scrollUpCount);
+                    Serial.println(")");
+                    
+                    if (scrollUpCount == 0) {
+                        // Đã scroll down hết, reset để test lại
+                        Serial.println("Chat Test: Finished scroll test! Resetting in 3s...");
+                        delay(3000);
+                        testMessageCount = 0;
+                        scrollTestStep = 0;
+                        scrollUpCount = 0;
+                        chatScreen->clearMessages();
+                        lastTestMessageTime = currentTime;
+                    }
+                }
+            }
+        }
     }
     
     delay(100);
