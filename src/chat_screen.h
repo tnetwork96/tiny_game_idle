@@ -44,6 +44,7 @@ private:
     // Nickname
     String ownerNickname;   // Tên của chủ sở hữu (người dùng)
     String friendNickname;  // Tên của người bạn (người khác)
+    uint8_t friendStatus;   // Trạng thái bạn (offline/online/typing)
     
     // Màu sắc
     uint16_t bgColor;
@@ -81,6 +82,8 @@ private:
     void drawInputBoxDecor();       // Vẽ decor cho input box
     void drawMessageBubble(int x, int y, int width, int height, uint16_t color, bool isUser);  // Vẽ bubble cho tin nhắn
     uint16_t interpolateColor(uint16_t color1, uint16_t color2, float ratio);  // Interpolate màu
+    uint16_t getStatusDotColor() const;   // Màu dot theo trạng thái
+    bool isStatusDotVisible() const;      // Ẩn/hiện dot (typing blink)
     
     // Vẽ tin nhắn
     void drawMessages();
@@ -161,6 +164,9 @@ public:
     void setOwnerNickname(String nickname) { ownerNickname = nickname; }
     String getFriendNickname() const { return friendNickname; }
     void setFriendNickname(String nickname) { friendNickname = nickname; }
+    // Status: 0 = offline, 1 = online, 2 = typing
+    void setFriendStatus(uint8_t status);
+    uint8_t getFriendStatus() const { return friendStatus; }
     
     // Setter cho decor elements
     void setShowTitleBarGradient(bool show) { showTitleBarGradient = show; }

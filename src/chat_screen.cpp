@@ -32,6 +32,7 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->scrollOffset = 0;
     this->currentMessage = "";
     this->keyboardVisible = false;  // Bàn phím ẩn mặc định
+    this->friendStatus = 2;  // 0 = offline, 1 = online, 2 = typing
     
     // Khởi tạo nickname mặc định
     this->ownerNickname = "You";      // Tên mặc định của người dùng
@@ -86,15 +87,36 @@ void ChatScreen::drawTitle() {
     tft->drawFastHLine(0, titleBarY + titleBarHeight - 2, screenWidth, chatAreaBorderColor);
     tft->drawFastHLine(0, titleBarY + titleBarHeight - 1, screenWidth, chatAreaBorderColor);
     
-    // Vẽ text "CHAT" căn giữa
+    // Vẽ tên bạn (friend) căn giữa, fallback "CHAT" nếu trống
     tft->setTextColor(titleColor, chatAreaBgColor);
     tft->setTextSize(2);  // Cỡ chữ tầm trung
-    String title = "CHAT";
-    uint16_t textWidth = title.length() * 12;  // Khoảng 12px mỗi ký tự với text size 2
-    uint16_t textX = (screenWidth - textWidth) / 2;     // Căn giữa theo chiều ngang
+    String title = friendNickname.length() > 0 ? friendNickname : "CHAT";
+    
+    // Giới hạn độ dài để không tràn title bar (có tính dot trạng thái)
+    const uint16_t charWidth = 12;  // Ước lượng mỗi ký tự size 2 ~12px
+    const uint16_t horizontalMargin = 12;
+    const uint16_t statusDotDiameter = 8;
+    const uint16_t statusDotSpacing = 6;
+    uint16_t reservedForDot = statusDotDiameter + statusDotSpacing;
+    uint16_t maxChars = (screenWidth - horizontalMargin * 2 - reservedForDot) / charWidth;
+    if (title.length() > maxChars && maxChars > 3) {
+        title = title.substring(0, maxChars - 3) + "...";
+    }
+    
+    uint16_t textWidth = title.length() * charWidth;
+    uint16_t combinedWidth = textWidth + reservedForDot;
+    uint16_t startX = (screenWidth > combinedWidth) ? ((screenWidth - combinedWidth) / 2) : 0;
+    uint16_t textX = startX;
     uint16_t textY = titleBarY + (titleBarHeight - 16) / 2;  // Căn giữa theo chiều dọc (text size 2 cao ~16px)
     tft->setCursor(textX, textY);
     tft->print(title);
+    
+    // Vẽ dot trạng thái bên phải tên
+    uint16_t dotCenterX = startX + textWidth + statusDotSpacing + statusDotDiameter / 2;
+    uint16_t dotCenterY = titleBarY + titleBarHeight / 2;
+    if (isStatusDotVisible()) {
+        tft->fillCircle(dotCenterX, dotCenterY, statusDotDiameter / 2, getStatusDotColor());
+    }
     
     // Vẽ decor cho title bar nếu bật
     if (showTitleBarGradient) {
@@ -140,6 +162,26 @@ uint16_t ChatScreen::interpolateColor(uint16_t color1, uint16_t color2, float ra
     uint8_t b = b1 + (b2 - b1) * ratio;
     
     return (r << 11) | (g << 5) | b;
+}
+
+uint16_t ChatScreen::getStatusDotColor() const {
+    // 0 = offline, 1 = online, 2 = typing
+    switch (friendStatus) {
+        case 1: // online
+            return NEON_GREEN;
+        case 2: // typing
+            return NEON_CYAN;
+        default: // offline
+            return 0x8410; // Gray-ish
+    }
+}
+
+bool ChatScreen::isStatusDotVisible() const {
+    // Blinking when typing, always visible otherwise
+    if (friendStatus == 2) {
+        return (decorAnimationFrame % 20) < 12;
+    }
+    return true;
 }
 
 void ChatScreen::drawChatArea() {
@@ -323,7 +365,10 @@ void ChatScreen::drawMessages() {
     int padding = 4;
     int startY = chatAreaY + padding;
     int maxLines = getVisibleLines();
-    int messageGroupSpacing = 8;  // Khoảng cách giữa các nhóm tin nhắn (khi đổi người gửi)
+    // Nén khoảng cách giữa các nhóm tin nhắn (khác người gửi) để tăng mật độ
+    const int groupGapPx = 2;            // Gap nhỏ giữa các nhóm (sát hơn)
+    const int gapReduction = lineHeight - groupGapPx;  // Lượng nén so với 1 dòng đầy đủ
+    int groupTransitions = 0;            // Số lần đổi người gửi đã render
     
     // Xóa vùng tin nhắn (trừ phần scrollbar)
     uint16_t scrollbarWidth = 4;
@@ -401,7 +446,8 @@ void ChatScreen::drawMessages() {
             // Kiểm tra nếu tin nhắn này khác người gửi với tin nhắn trước đó
             // -> thêm khoảng cách (message group spacing)
             if (i > startIndex && messages[i].isUser != messages[i-1].isUser) {
-                // Khác người gửi -> thêm khoảng cách (1 dòng trống)
+                // Khác người gửi -> thêm khoảng cách (nén nhỏ hơn 1 dòng)
+                groupTransitions++;
                 lineIndex++;
                 
                 // Kiểm tra không vượt quá maxLines
@@ -427,7 +473,7 @@ void ChatScreen::drawMessages() {
                 String lineText = messageText.substring(startChar, endChar);
                 
                 // Tính vị trí Y
-                int yPos = startY + lineIndex * lineHeight;
+                int yPos = startY + lineIndex * lineHeight - groupTransitions * gapReduction;
                 
                 // Tính vị trí X: user căn phải, other căn trái
                 uint16_t textX;
@@ -859,6 +905,12 @@ void ChatScreen::loadMessagesFromFile() {
         scrollToLatest();
         drawMessages();
     }
+}
+
+void ChatScreen::setFriendStatus(uint8_t status) {
+    friendStatus = status;
+    // Chỉ cần vẽ lại title bar để cập nhật dot
+    drawTitle();
 }
 
 void ChatScreen::enableAllDecor() {
