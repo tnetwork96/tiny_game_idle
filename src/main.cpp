@@ -10,6 +10,7 @@
 #include "caro_game.h"
 #include "billiard_game.h"
 #include "chat_screen.h"
+#include "login_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -26,14 +27,24 @@ GunnyGame* gunnyGame;
 CaroGame* caroGame;
 BilliardGame* billiardGame;
 ChatScreen* chatScreen;
+LoginScreen* loginScreen;
 bool testMode = true;  // Bật chế độ test
 bool testStarted = false;
 bool menuShown = false;  // Đánh dấu đã hiển thị menu chưa
 bool inGame = false;  // Đánh dấu đang trong game
 int currentGame = 0;  // 0 = none, 1 = gunny, 2 = caro, 3 = billiard, 4 = chat
+bool postLoginFlowStarted = false;
+bool autoUsernameDone = false;  // Điều hướng tự động điền username (test)
+bool autoPinDone = false;       // Điều hướng tự động điền PIN (test)
 
 // Callback function cho keyboard input
 void onKeyboardKeySelected(String key) {
+    // Ưu tiên xử lý login trước khi vào các màn hình khác
+    if (loginScreen != nullptr && !loginScreen->isAuthenticated()) {
+        loginScreen->handleKeyPress(key);
+        return;
+    }
+
     // Xử lý input cho chat nếu đang ở chế độ chat
     if (inGame && currentGame == 4 && chatScreen != nullptr) {
         chatScreen->handleKeyPress(key);
@@ -164,6 +175,61 @@ void typePasswordByMovingKeyboard(String password) {
     }
     
     Serial.println("TEST: Finished typing password");
+}
+
+// Điều hướng bàn phím để tự động điền username ở màn hình login
+void autoFillUsernameByNavigation(const String& usernameToFill) {
+    if (autoUsernameDone) return;
+    if (loginScreen == nullptr || keyboard == nullptr) return;
+
+    // Chỉ chạy khi chưa vào bước PIN và chưa authenticated
+    if (loginScreen->isAuthenticated() || loginScreen->isOnPinStep()) {
+        autoUsernameDone = true;
+        return;
+    }
+
+    Serial.print("LOGIN AUTO: typing username '");
+    Serial.print(usernameToFill);
+    Serial.println("' via keyboard navigation...");
+
+    // Đảm bảo ở chế độ chữ và di chuyển/gõ từng ký tự
+    keyboard->typeString(usernameToFill);
+    delay(200);
+
+    // Nhấn Enter (row 2, col 8) để chuyển sang bước PIN
+    keyboard->moveCursorTo(2, 8);
+    delay(150);
+    keyboard->moveCursorByCommand("select", 0, 0);
+    delay(150);
+
+    autoUsernameDone = true;
+}
+
+// Điều hướng bàn phím để tự động điền PIN ở màn hình PIN
+void autoFillPinByNavigation(const String& pinToFill) {
+    if (autoPinDone) return;
+    if (loginScreen == nullptr || keyboard == nullptr) return;
+
+    // Chỉ chạy khi đang ở bước PIN và chưa authenticated
+    if (!loginScreen->isOnPinStep() || loginScreen->isAuthenticated()) {
+        autoPinDone = true;
+        return;
+    }
+
+    Serial.print("LOGIN AUTO: typing PIN '");
+    Serial.print(pinToFill);
+    Serial.println("' via keyboard navigation...");
+
+    keyboard->typeString(pinToFill);
+    delay(200);
+
+    // Nhấn Enter (row 2, col 8) để xác nhận PIN
+    keyboard->moveCursorTo(2, 8);
+    delay(150);
+    keyboard->moveCursorByCommand("select", 0, 0);
+    delay(150);
+
+    autoPinDone = true;
 }
 
 // Hàm test tự động chọn WiFi "Van Ninh" và nhập password
@@ -374,6 +440,34 @@ void runChatKeyboardToggleTypingTest() {
     }
 }
 
+// Bắt đầu màn hình chat sau khi login thành công
+void startChatAfterLogin() {
+    if (chatScreen == nullptr || postLoginFlowStarted) return;
+
+    Serial.println("Login success: starting Chat Screen...");
+    chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
+    chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
+    chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
+
+    String iconTestMsg = "Icon test: ";
+    iconTestMsg += String(Keyboard::ICON_SMILE);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_HEART);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_STAR);
+    iconTestMsg += " ";
+    iconTestMsg += String(Keyboard::ICON_WINK);
+    chatScreen->addMessage(iconTestMsg, true);
+
+    chatScreen->draw();
+    // Bật bàn phím ngay sau khi vào chat để xem layout
+    chatScreen->handleSelect();
+    inGame = true;
+    currentGame = 4;  // Chat mode
+    menuShown = true;
+    postLoginFlowStarted = true;
+}
+
 void setup() {
     Serial.begin(115200);
     delay(200);
@@ -411,6 +505,10 @@ void setup() {
     
     // Thiết lập callback cho keyboard
     keyboard->setOnKeySelectedCallback(onKeyboardKeySelected);
+
+    // Khởi tạo Login Screen
+    loginScreen = new LoginScreen(&tft, keyboard);
+    loginScreen->draw();
     
     // Khởi tạo WiFi Manager
     wifiManager = new WiFiManager(&tft, keyboard);
@@ -432,29 +530,6 @@ void setup() {
     // Khởi tạo Chat Screen
     chatScreen = new ChatScreen(&tft, keyboard);
     
-    // TỰ ĐỘNG MỞ CHAT SCREEN
-    Serial.println("Auto-starting Chat Screen...");
-    // Thêm một số tin nhắn dài 80 ký tự để test
-    chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
-    chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
-    chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
-    // Thêm tin nhắn mẫu có icon để test render và lưu/đọc icon
-    String iconTestMsg = "Icon test: ";
-    iconTestMsg += String(Keyboard::ICON_SMILE);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_HEART);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_STAR);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_WINK);
-    chatScreen->addMessage(iconTestMsg, true);
-    chatScreen->draw();
-    // Test: bật bàn phím ngay sau khi vào chat để xem layout
-    chatScreen->handleSelect();
-    inGame = true;
-    currentGame = 4;  // Chat mode
-    menuShown = true;
-    
     // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
     // Serial.println("Auto-starting Billiard Game...");
     // billiardGame->init();
@@ -469,301 +544,315 @@ void setup() {
 }
 
 void loop() {
-    // Cập nhật trạng thái WiFi Manager (kiểm tra kết nối)
-    if (wifiManager != nullptr) {
-        wifiManager->update();
-        
-        // Test mode: tự động chọn WiFi "Hai Dung" và nhập password
-        if (testMode && !testStarted && wifiManager->getState() == WIFI_STATE_SELECT) {
-            testAutoConnect();
-        }
-        
-        // Chuyển sang màn hình menu game sau khi kết nối WiFi thành công
-        if (wifiManager->isConnected() && !menuShown && !inGame) {
-            Serial.println("Main: WiFi connected, showing game menu...");
-            delay(1000);  // Đợi một chút để thấy thông báo "Connected"
-            if (gameMenu != nullptr) {
-                gameMenu->draw();
-                menuShown = true;
-                Serial.println("Main: Game menu displayed!");
-            }
-        }
+    bool loggedIn = (loginScreen == nullptr) || loginScreen->isAuthenticated();
+
+    // Tự động điều hướng để điền username ở màn hình login (chỉ trong test mode)
+    if (!loggedIn && testMode) {
+        autoFillUsernameByNavigation("player1");
+        autoFillPinByNavigation("4321");
     }
-    
-    // Xử lý game menu navigation và game start
-    if (menuShown && !inGame && gameMenu != nullptr) {
-        gameMenu->update();
-        
-        // TODO: Handle menu selection (Up/Down buttons, Select button)
-        // For now, auto-start games for testing
-        static bool gameStarted = false;
-        static int testGameIndex = 2;  // Start with Billiard game for testing
-        if (!gameStarted) {
-            delay(2000);  // Wait 2 seconds on menu
-            
-            // Test Billiard game first (for testing)
-            if (testGameIndex == 2 && billiardGame != nullptr) {
-                Serial.println("Main: Starting Billiard game...");
-                // Tô đen màn hình trước khi chuyển game
-                tft.fillScreen(0x0000);  // Black screen
-                delay(100);  // Short delay for screen clear
-                billiardGame->init();
-                inGame = true;
-                menuShown = false;
-                currentGame = 3;  // Billiard game
-                gameStarted = true;
-                testGameIndex = 0;  // Next: Caro
-            }
-            // Then test Caro game
-            else if (testGameIndex == 0 && caroGame != nullptr) {
-                Serial.println("Main: Starting Caro game...");
-                caroGame->init();
-                inGame = true;
-                menuShown = false;
-                currentGame = 2;  // Caro game
-                gameStarted = true;
-                testGameIndex = 1;
-            }
-            // Then test Gunny game
-            else if (testGameIndex == 1 && gunnyGame != nullptr) {
-                Serial.println("Main: Starting Gunny game...");
-                gunnyGame->init();
-                inGame = true;
-                menuShown = false;
-                currentGame = 1;  // Gunny game
-                gameStarted = true;
-                testGameIndex = 2;  // Reset for next cycle
-            }
-        }
+
+    if (loggedIn && !postLoginFlowStarted) {
+        startChatAfterLogin();
     }
-    
-    // Update Caro game if active
-    if (inGame && currentGame == 2 && caroGame != nullptr) {
-        caroGame->update();
-        
-        // Test controls: Auto-play Caro game to test win conditions
-        static unsigned long lastMoveTime = 0;
-        static int moveCount = 0;
-        
-        if (millis() - lastMoveTime > 500 && caroGame->getGameState() == GAME_PLAYING) {
-            // Test different moves on 15x15 board
-            // Try to create winning patterns: horizontal, vertical, diagonal
-            int pattern = moveCount % 20;
+
+    if (loggedIn) {
+        // Cập nhật trạng thái WiFi Manager (kiểm tra kết nối)
+        if (wifiManager != nullptr) {
+            wifiManager->update();
             
-            // Pattern 1: Horizontal line (row 7, cols 5-9)
-            if (pattern < 5) {
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                for (int i = 0; i < pattern; i++) caroGame->handleRight();
-                caroGame->handleSelect();
+            // Test mode: tự động chọn WiFi "Hai Dung" và nhập password
+            if (testMode && !testStarted && wifiManager->getState() == WIFI_STATE_SELECT) {
+                testAutoConnect();
             }
-            // Pattern 2: Vertical line (col 7, rows 5-9)
-            else if (pattern < 10) {
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                for (int i = 0; i < (pattern - 5); i++) caroGame->handleDown();
-                caroGame->handleSelect();
-            }
-            // Pattern 3: Diagonal (from 5,5 to 9,9)
-            else if (pattern < 15) {
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                caroGame->handleLeft();
-                for (int i = 0; i < (pattern - 10); i++) {
-                    caroGame->handleDown();
-                    caroGame->handleRight();
+            
+            // Chuyển sang màn hình menu game sau khi kết nối WiFi thành công
+            if (wifiManager->isConnected() && !menuShown && !inGame) {
+                Serial.println("Main: WiFi connected, showing game menu...");
+                delay(1000);  // Đợi một chút để thấy thông báo "Connected"
+                if (gameMenu != nullptr) {
+                    gameMenu->draw();
+                    menuShown = true;
+                    Serial.println("Main: Game menu displayed!");
                 }
-                caroGame->handleSelect();
             }
-            // Pattern 4: Anti-diagonal (from 5,9 to 9,5)
-            else {
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleUp();
-                caroGame->handleRight();
-                caroGame->handleRight();
-                caroGame->handleRight();
-                caroGame->handleRight();
-                caroGame->handleRight();
-                for (int i = 0; i < (pattern - 15); i++) {
-                    caroGame->handleDown();
+        }
+        
+        // Xử lý game menu navigation và game start
+        if (menuShown && !inGame && gameMenu != nullptr) {
+            gameMenu->update();
+            
+            // TODO: Handle menu selection (Up/Down buttons, Select button)
+            // For now, auto-start games for testing
+            static bool gameStarted = false;
+            static int testGameIndex = 2;  // Start with Billiard game for testing
+            if (!gameStarted) {
+                delay(2000);  // Wait 2 seconds on menu
+                
+                // Test Billiard game first (for testing)
+                if (testGameIndex == 2 && billiardGame != nullptr) {
+                    Serial.println("Main: Starting Billiard game...");
+                    // Tô đen màn hình trước khi chuyển game
+                    tft.fillScreen(0x0000);  // Black screen
+                    delay(100);  // Short delay for screen clear
+                    billiardGame->init();
+                    inGame = true;
+                    menuShown = false;
+                    currentGame = 3;  // Billiard game
+                    gameStarted = true;
+                    testGameIndex = 0;  // Next: Caro
+                }
+                // Then test Caro game
+                else if (testGameIndex == 0 && caroGame != nullptr) {
+                    Serial.println("Main: Starting Caro game...");
+                    caroGame->init();
+                    inGame = true;
+                    menuShown = false;
+                    currentGame = 2;  // Caro game
+                    gameStarted = true;
+                    testGameIndex = 1;
+                }
+                // Then test Gunny game
+                else if (testGameIndex == 1 && gunnyGame != nullptr) {
+                    Serial.println("Main: Starting Gunny game...");
+                    gunnyGame->init();
+                    inGame = true;
+                    menuShown = false;
+                    currentGame = 1;  // Gunny game
+                    gameStarted = true;
+                    testGameIndex = 2;  // Reset for next cycle
+                }
+            }
+        }
+        
+        // Update Caro game if active
+        if (inGame && currentGame == 2 && caroGame != nullptr) {
+            caroGame->update();
+            
+            // Test controls: Auto-play Caro game to test win conditions
+            static unsigned long lastMoveTime = 0;
+            static int moveCount = 0;
+            
+            if (millis() - lastMoveTime > 500 && caroGame->getGameState() == GAME_PLAYING) {
+                // Test different moves on 15x15 board
+                // Try to create winning patterns: horizontal, vertical, diagonal
+                int pattern = moveCount % 20;
+                
+                // Pattern 1: Horizontal line (row 7, cols 5-9)
+                if (pattern < 5) {
                     caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    for (int i = 0; i < pattern; i++) caroGame->handleRight();
+                    caroGame->handleSelect();
                 }
-                caroGame->handleSelect();
-            }
-            
-            moveCount++;
-            lastMoveTime = millis();
-            
-            // If game finished, reset after delay
-            if (caroGame->getGameState() != GAME_PLAYING) {
-                delay(3000);
-                caroGame->init();
-                moveCount = 0;
-            }
-        }
-    }
-    
-    // Update Gunny game if active
-    if (inGame && currentGame == 1 && gunnyGame != nullptr) {
-        gunnyGame->update();
-        
-        // Test controls: Simulate fire button press/release for testing
-        static unsigned long lastTestTime = 0;
-        static bool testCharging = false;
-        
-        if (millis() - lastTestTime > 3000 && !gunnyGame->getIsFiring()) {
-            // Every 3 seconds, test fire
-            if (!testCharging) {
-                // Start charging
-                gunnyGame->handleFirePress();
-                testCharging = true;
-                Serial.println("Test: Starting to charge...");
-                lastTestTime = millis();
-            } else {
-                // Release after 1 second of charging
-                if (millis() - lastTestTime > 1000) {
-                    gunnyGame->handleFireRelease();
-                    testCharging = false;
-                    Serial.println("Test: Firing!");
-                    lastTestTime = millis();
+                // Pattern 2: Vertical line (col 7, rows 5-9)
+                else if (pattern < 10) {
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    for (int i = 0; i < (pattern - 5); i++) caroGame->handleDown();
+                    caroGame->handleSelect();
                 }
-            }
-        }
-        
-        // Test angle adjustment (slowly change angle)
-        static unsigned long lastAngleTime = 0;
-        if (millis() - lastAngleTime > 200 && !gunnyGame->getIsFiring()) {
-            gunnyGame->handleAngleUp();
-            lastAngleTime = millis();
-        }
-    }
-    
-    // Update Billiard game if active
-    if (inGame && currentGame == 3 && billiardGame != nullptr) {
-        billiardGame->update();
-        
-        // Test controls: Tự động đánh cho đến khi tất cả quả bi rơi vào lỗ
-        static unsigned long lastBilliardTime = 0;
-        static unsigned long chargeStartTime = 0;
-        static int testStep = 0;
-        static bool stepExecuted = false;
-        
-        unsigned long currentTime = millis();
-        
-        // Kiểm tra số quả bi còn trên bàn
-        int activeBalls = billiardGame->countActiveBalls();
-        
-        // Nếu chỉ còn 1 quả bi (cue ball) hoặc không còn quả bi nào, reset game
-        if (activeBalls <= 1 && billiardGame->getIsAiming() && currentTime - lastBilliardTime > 2000) {
-            Serial.print("Billiard Test: All balls pocketed! (");
-            Serial.print(activeBalls);
-            Serial.println(" balls remaining)");
-            Serial.println("Billiard Test: Resetting game...");
-            billiardGame->init();
-            testStep = 0;
-            stepExecuted = false;
-            lastBilliardTime = currentTime;
-        }
-        
-        switch (testStep) {
-            case 0:
-                // Tự động ngắm vào quả bi gần nhất (để đánh các quả bi khác vào lỗ)
-                if (!stepExecuted || currentTime - lastBilliardTime > 500) {
-                    billiardGame->aimAtNearestBall();
-                    lastBilliardTime = currentTime;
-                    stepExecuted = true;
-                    if (billiardGame->getIsAiming()) {
-                        // Sau khi ngắm, chuyển sang bước charge ngay
-                        static int aimCount = 0;
-                        aimCount++;
-                        if (aimCount > 2) {  // Ngắm 2 lần để đảm bảo góc đúng
-                            testStep = 1;  // Chuyển sang bước charge
-                            stepExecuted = false;
-                            aimCount = 0;
-                            lastBilliardTime = currentTime;
-                            Serial.print("Billiard Test: Aimed at nearest ball. Active balls: ");
-                            Serial.println(activeBalls);
-                        }
+                // Pattern 3: Diagonal (from 5,5 to 9,9)
+                else if (pattern < 15) {
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    caroGame->handleLeft();
+                    for (int i = 0; i < (pattern - 10); i++) {
+                        caroGame->handleDown();
+                        caroGame->handleRight();
                     }
+                    caroGame->handleSelect();
                 }
-                break;
-            case 1:
-                // Bắt đầu charge đến MAX LỰC (100%)
-                if (!stepExecuted) {
-                    billiardGame->handleChargeStart();
-                    chargeStartTime = currentTime;
-                    stepExecuted = true;
-                    Serial.println("Billiard Test: Started charging to MAX POWER (100%)...");
+                // Pattern 4: Anti-diagonal (from 5,9 to 9,5)
+                else {
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleUp();
+                    caroGame->handleRight();
+                    caroGame->handleRight();
+                    caroGame->handleRight();
+                    caroGame->handleRight();
+                    caroGame->handleRight();
+                    for (int i = 0; i < (pattern - 15); i++) {
+                        caroGame->handleDown();
+                        caroGame->handleLeft();
+                    }
+                    caroGame->handleSelect();
                 }
                 
-                // Tăng lực nhanh bằng handlePowerUp() để đạt max lực nhanh hơn
-                if (currentTime - lastBilliardTime > 50) {  // Mỗi 50ms tăng lực một lần
-                    float currentPower = billiardGame->getCuePower();
-                    if (currentPower < 100.0f) {
-                        // Tăng lực nhanh đến 100%
-                        billiardGame->handlePowerUp();
-                        lastBilliardTime = currentTime;
-                        
-                        Serial.print("Billiard Test: Charging... Power: ");
-                        Serial.print(currentPower);
-                        Serial.println("%");
-                    } else {
-                        // Đã đạt max lực (100%), đánh ngay
-                        Serial.print("Billiard Test: MAX POWER (100%) reached! Firing...");
-                        Serial.println(billiardGame->getCuePower());
-                        billiardGame->handleChargeRelease();
-                        testStep = 2;
-                        stepExecuted = false;
-                        lastBilliardTime = currentTime;
-                    }
+                moveCount++;
+                lastMoveTime = millis();
+                
+                // If game finished, reset after delay
+                if (caroGame->getGameState() != GAME_PLAYING) {
+                    delay(3000);
+                    caroGame->init();
+                    moveCount = 0;
                 }
-                break;
-            case 2:
-                // Đợi các quả bi ngừng di chuyển
-                if (!stepExecuted) {
-                    stepExecuted = true;
-                    lastBilliardTime = currentTime;
-                }
-                // Kiểm tra xem có thể ngắm lại chưa (tất cả quả bi đã dừng)
-                if (billiardGame->getIsAiming() && currentTime - lastBilliardTime > 2000) {
-                    // Kiểm tra xem còn quả bi nào không
-                    activeBalls = billiardGame->countActiveBalls();
-                    if (activeBalls > 1) {  // Còn quả bi để đánh
-                        Serial.print("Billiard Test: Ready for next shot. Active balls: ");
-                        Serial.println(activeBalls);
-                        testStep = 0;  // Quay lại bước ngắm
-                        stepExecuted = false;
-                        lastBilliardTime = currentTime;
-                    }
-                }
-                break;
+            }
         }
         
-        // Draw only changed parts (optimized to reduce flicker)
-        billiardGame->draw();
-    }
-    
-    // Update Chat screen if active
-    if (inGame && currentGame == 4 && chatScreen != nullptr) {
-        // Cập nhật animation cho decor
-        chatScreen->updateDecorAnimation();
-        runChatKeyboardToggleTypingTest();
+        // Update Gunny game if active
+        if (inGame && currentGame == 1 && gunnyGame != nullptr) {
+            gunnyGame->update();
+            
+            // Test controls: Simulate fire button press/release for testing
+            static unsigned long lastTestTime = 0;
+            static bool testCharging = false;
+            
+            if (millis() - lastTestTime > 3000 && !gunnyGame->getIsFiring()) {
+                // Every 3 seconds, test fire
+                if (!testCharging) {
+                    // Start charging
+                    gunnyGame->handleFirePress();
+                    testCharging = true;
+                    Serial.println("Test: Starting to charge...");
+                    lastTestTime = millis();
+                } else {
+                    // Release after 1 second of charging
+                    if (millis() - lastTestTime > 1000) {
+                        gunnyGame->handleFireRelease();
+                        testCharging = false;
+                        Serial.println("Test: Firing!");
+                        lastTestTime = millis();
+                    }
+                }
+            }
+            
+            // Test angle adjustment (slowly change angle)
+            static unsigned long lastAngleTime = 0;
+            if (millis() - lastAngleTime > 200 && !gunnyGame->getIsFiring()) {
+                gunnyGame->handleAngleUp();
+                lastAngleTime = millis();
+            }
+        }
+        
+        // Update Billiard game if active
+        if (inGame && currentGame == 3 && billiardGame != nullptr) {
+            billiardGame->update();
+            
+            // Test controls: Tự động đánh cho đến khi tất cả quả bi rơi vào lỗ
+            static unsigned long lastBilliardTime = 0;
+            static unsigned long chargeStartTime = 0;
+            static int testStep = 0;
+            static bool stepExecuted = false;
+            
+            unsigned long currentTime = millis();
+            
+            // Kiểm tra số quả bi còn trên bàn
+            int activeBalls = billiardGame->countActiveBalls();
+            
+            // Nếu chỉ còn 1 quả bi (cue ball) hoặc không còn quả bi nào, reset game
+            if (activeBalls <= 1 && billiardGame->getIsAiming() && currentTime - lastBilliardTime > 2000) {
+                Serial.print("Billiard Test: All balls pocketed! (");
+                Serial.print(activeBalls);
+                Serial.println(" balls remaining)");
+                Serial.println("Billiard Test: Resetting game...");
+                billiardGame->init();
+                testStep = 0;
+                stepExecuted = false;
+                lastBilliardTime = currentTime;
+            }
+            
+            switch (testStep) {
+                case 0:
+                    // Tự động ngắm vào quả bi gần nhất (để đánh các quả bi khác vào lỗ)
+                    if (!stepExecuted || currentTime - lastBilliardTime > 500) {
+                        billiardGame->aimAtNearestBall();
+                        lastBilliardTime = currentTime;
+                        stepExecuted = true;
+                        if (billiardGame->getIsAiming()) {
+                            // Sau khi ngắm, chuyển sang bước charge ngay
+                            static int aimCount = 0;
+                            aimCount++;
+                            if (aimCount > 2) {  // Ngắm 2 lần để đảm bảo góc đúng
+                                testStep = 1;  // Chuyển sang bước charge
+                                stepExecuted = false;
+                                aimCount = 0;
+                                lastBilliardTime = currentTime;
+                                Serial.print("Billiard Test: Aimed at nearest ball. Active balls: ");
+                                Serial.println(activeBalls);
+                            }
+                        }
+                    }
+                    break;
+                case 1:
+                    // Bắt đầu charge đến MAX LỰC (100%)
+                    if (!stepExecuted) {
+                        billiardGame->handleChargeStart();
+                        chargeStartTime = currentTime;
+                        stepExecuted = true;
+                        Serial.println("Billiard Test: Started charging to MAX POWER (100%)...");
+                    }
+                    
+                    // Tăng lực nhanh bằng handlePowerUp() để đạt max lực nhanh hơn
+                    if (currentTime - lastBilliardTime > 50) {  // Mỗi 50ms tăng lực một lần
+                        float currentPower = billiardGame->getCuePower();
+                        if (currentPower < 100.0f) {
+                            // Tăng lực nhanh đến 100%
+                            billiardGame->handlePowerUp();
+                            lastBilliardTime = currentTime;
+                            
+                            Serial.print("Billiard Test: Charging... Power: ");
+                            Serial.print(currentPower);
+                            Serial.println("%");
+                        } else {
+                            // Đã đạt max lực (100%), đánh ngay
+                            Serial.print("Billiard Test: MAX POWER (100%) reached! Firing...");
+                            Serial.println(billiardGame->getCuePower());
+                            billiardGame->handleChargeRelease();
+                            testStep = 2;
+                            stepExecuted = false;
+                            lastBilliardTime = currentTime;
+                        }
+                    }
+                    break;
+                case 2:
+                    // Đợi các quả bi ngừng di chuyển
+                    if (!stepExecuted) {
+                        stepExecuted = true;
+                        lastBilliardTime = currentTime;
+                    }
+                    // Kiểm tra xem có thể ngắm lại chưa (tất cả quả bi đã dừng)
+                    if (billiardGame->getIsAiming() && currentTime - lastBilliardTime > 2000) {
+                        // Kiểm tra xem còn quả bi nào không
+                        activeBalls = billiardGame->countActiveBalls();
+                        if (activeBalls > 1) {  // Còn quả bi để đánh
+                            Serial.print("Billiard Test: Ready for next shot. Active balls: ");
+                            Serial.println(activeBalls);
+                            testStep = 0;  // Quay lại bước ngắm
+                            stepExecuted = false;
+                            lastBilliardTime = currentTime;
+                        }
+                    }
+                    break;
+            }
+            
+            // Draw only changed parts (optimized to reduce flicker)
+            billiardGame->draw();
+        }
+        
+        // Update Chat screen if active
+        if (inGame && currentGame == 4 && chatScreen != nullptr) {
+            // Cập nhật animation cho decor
+            chatScreen->updateDecorAnimation();
+            runChatKeyboardToggleTypingTest();
+        }
     }
     
     delay(100);
