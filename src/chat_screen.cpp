@@ -30,6 +30,22 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     // Khởi tạo tin nhắn
     this->messageCount = 0;
     this->scrollOffset = 0;
+    
+    // Khởi tạo lazy loading tracking
+    this->loadedMessageCount = 0;
+    this->totalMessagesInFile = 0;
+    this->hasMoreMessages = false;
+    this->fileReadPosition = 0;
+    
+    // Khởi tạo loading state flags
+    this->isLoadingMessages = false;
+    this->lastLoadTime = 0;
+    this->showLoadingIndicator = false;
+    
+    // Khởi tạo file position cache
+    this->fileLinePositions = nullptr;
+    this->cachedLineCount = 0;
+    this->positionCacheValid = false;
     this->currentMessage = "";
     this->inputCursorPos = 0;
     this->keyboardVisible = false;  // Bàn phím ẩn mặc định
@@ -44,8 +60,9 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
         Serial.println("Chat: SPIFFS initialization failed!");
     } else {
         Serial.println("Chat: SPIFFS initialized successfully");
-        // Tự động load tin nhắn từ file khi khởi động
-        loadMessagesFromFile();
+        // KHÔNG tự động load tin nhắn từ file khi khởi động
+        // Messages sẽ được thêm sau khi vẽ màn hình chat
+        // loadMessagesFromFile();  // Disabled - messages loaded after screen is drawn
     }
     
     // Khởi tạo màu sắc mặc định - Phong cách Synthwave/Vaporwave
@@ -80,7 +97,11 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
 }
 
 ChatScreen::~ChatScreen() {
-    // Không cần giải phóng gì
+    // Giải phóng file position cache
+    if (fileLinePositions != nullptr) {
+        delete[] fileLinePositions;
+        fileLinePositions = nullptr;
+    }
 }
 
 void ChatScreen::drawTitle() {
@@ -368,6 +389,15 @@ void ChatScreen::drawScrollbar() {
 void ChatScreen::drawMessages() {
     // Chỉ vẽ lại khi cần thiết (optimization để tránh vẽ liên tục)
     if (!needsMessagesRedraw && !needsRedraw) return;
+    
+    // Optional: Draw lightweight loading indicator at top when loading older messages
+    if (showLoadingIndicator && isLoadingMessages) {
+        int indicatorY = chatAreaY + 2;
+        tft->setTextSize(1);
+        tft->setTextColor(ST77XX_WHITE);
+        tft->setCursor(4, indicatorY);
+        tft->print("Loading...");
+    }
     
     int lineHeight = 24;  // Khoảng cách cho text size 2 (16px text + 8px spacing)
     int padding = 4;
@@ -885,7 +915,7 @@ void ChatScreen::addMessage(String text, bool isUser) {
     
     // Đánh dấu cần vẽ lại messages
     needsMessagesRedraw = true;
-    drawMessages();
+    // drawMessages() will be called via flag system
 }
 
 void ChatScreen::sendMessage() {
@@ -920,25 +950,45 @@ void ChatScreen::sendMessage() {
 void ChatScreen::handleUp() {
     // Cuộn lên (xem tin nhắn cũ hơn) - scroll theo từng dòng
     // Tính tổng số dòng
-    int totalLines = 0;
-    int charsPerLine = 20;
-    for (int i = 0; i < messageCount; i++) {
-        if (i > 0 && messages[i].isUser != messages[i-1].isUser) {
-            totalLines += 1;  // Spacing
-        }
-        int messageLength = messages[i].text.length();
-        int numLines = (messageLength + charsPerLine - 1) / charsPerLine;
-        totalLines += numLines;
-    }
-    
+    int totalLines = calculateTotalLines();
     int maxLines = getVisibleLines();
     int maxScroll = (totalLines > maxLines) ? (totalLines - maxLines) : 0;
     
+    // SMOOTH LOADING: Load incrementally (1-2 messages) for progressive, smooth experience
+    // Reduced threshold and debounce for more responsive loading
+    const int PREFETCH_THRESHOLD = 5;  // Load when 5 lines from top (reduced from 7 for earlier trigger)
+    const unsigned long LOAD_DEBOUNCE_MS = 200;  // Reduced from 500ms for more responsive loading
+    
+    if (scrollOffset >= (maxScroll - PREFETCH_THRESHOLD) && 
+        hasMoreMessages && 
+        !isLoadingMessages &&
+        (millis() - lastLoadTime) > LOAD_DEBOUNCE_MS) {
+        
+        Serial.println("Chat: Smoothly loading older messages...");
+        isLoadingMessages = true;
+        showLoadingIndicator = true;
+        lastLoadTime = millis();
+        
+        // Load 1-2 messages per batch for incremental, smooth loading
+        // This prevents sudden jumps and provides progressive experience
+        bool loaded = loadMoreMessages(2);
+        
+        isLoadingMessages = false;
+        showLoadingIndicator = false;
+        
+        if (loaded) {
+            // Tính lại sau khi load (loadMoreMessages đã adjust scrollOffset)
+            totalLines = calculateTotalLines();
+            maxLines = getVisibleLines();
+            maxScroll = (totalLines > maxLines) ? (totalLines - maxLines) : 0;
+            // scrollOffset đã được adjust trong loadMoreMessages() để maintain position
+        }
+    }
+    
     if (scrollOffset < maxScroll) {
         scrollOffset++;  // Tăng 1 dòng
-        // Đánh dấu cần vẽ lại messages
+        // Chỉ set flag, không gọi drawMessages() trực tiếp
         needsMessagesRedraw = true;
-        drawMessages();
         Serial.print("Chat: Scrolled up 1 line, offset: ");
         Serial.print(scrollOffset);
         Serial.print("/");
@@ -950,9 +1000,8 @@ void ChatScreen::handleDown() {
     // Cuộn xuống (xem tin nhắn mới hơn) - scroll theo từng dòng
     if (scrollOffset > 0) {
         scrollOffset--;  // Giảm 1 dòng
-        // Đánh dấu cần vẽ lại messages
+        // Chỉ set flag, không gọi drawMessages() trực tiếp
         needsMessagesRedraw = true;
-        drawMessages();
         Serial.print("Chat: Scrolled down 1 line, offset: ");
         Serial.println(scrollOffset);
     }
@@ -970,6 +1019,15 @@ void ChatScreen::clearMessages() {
     messageCount = 0;
     scrollOffset = 0;
     
+    // Reset lazy loading state
+    loadedMessageCount = 0;
+    totalMessagesInFile = 0;
+    hasMoreMessages = false;
+    fileReadPosition = 0;
+    
+    // Invalidate position cache
+    invalidatePositionCache();
+    
     // Xóa file lịch sử
     String fileName = getChatHistoryFileName();
     if (SPIFFS.exists(fileName)) {
@@ -979,7 +1037,7 @@ void ChatScreen::clearMessages() {
     }
     
     needsMessagesRedraw = true;
-    drawMessages();
+    // drawMessages() will be called via flag system
 }
 
 String ChatScreen::getChatHistoryFileName() {
@@ -1005,6 +1063,234 @@ String ChatScreen::getChatHistoryFileName() {
     fileName.replace("|", "_");
     
     return fileName;
+}
+
+// Helper: Calculate total lines for a set of messages
+int ChatScreen::calculateLinesForMessages(const ChatMessage* msgs, int msgCount) const {
+    int totalLines = 0;
+    const int charsPerLine = 20;
+    
+    for (int i = 0; i < msgCount; i++) {
+        if (i > 0 && msgs[i].isUser != msgs[i-1].isUser) {
+            totalLines += 1;  // Spacing between different senders
+        }
+        int messageLength = msgs[i].text.length();
+        int numLines = (messageLength + charsPerLine - 1) / charsPerLine;
+        totalLines += numLines;
+    }
+    
+    return totalLines;
+}
+
+// Helper: Invalidate position cache
+void ChatScreen::invalidatePositionCache() {
+    positionCacheValid = false;
+    if (fileLinePositions != nullptr) {
+        delete[] fileLinePositions;
+        fileLinePositions = nullptr;
+        cachedLineCount = 0;
+    }
+}
+
+// Helper: Build file position cache for efficient seeking
+void ChatScreen::buildFilePositionCache() {
+    String fileName = getChatHistoryFileName();
+    if (!SPIFFS.exists(fileName)) {
+        invalidatePositionCache();
+        return;
+    }
+    
+    File file = SPIFFS.open(fileName, "r");
+    if (!file) {
+        invalidatePositionCache();
+        return;
+    }
+    
+    // Free old cache
+    if (fileLinePositions != nullptr) {
+        delete[] fileLinePositions;
+    }
+    
+    // Allocate cache for max messages
+    fileLinePositions = new size_t[totalMessagesInFile + 1];  // +1 for count line
+    cachedLineCount = 0;
+    
+    // Read first line (count) - cache its position
+    fileLinePositions[0] = 0;  // Start of file
+    String countLine = file.readStringUntil('\n');
+    cachedLineCount = 1;
+    
+    // Read each message line and cache its position
+    size_t currentPos = file.position();
+    int messageIndex = 0;
+    while (file.available() && messageIndex < totalMessagesInFile) {
+        fileLinePositions[cachedLineCount] = currentPos;
+        String line = file.readStringUntil('\n');
+        currentPos = file.position();
+        if (line.length() > 0) {
+            cachedLineCount++;
+            messageIndex++;
+        }
+    }
+    
+    file.close();
+    positionCacheValid = true;
+    
+    Serial.print("Chat: Built position cache for ");
+    Serial.print(cachedLineCount - 1);  // -1 for count line
+    Serial.println(" messages");
+}
+
+// Helper: Read message at specific line using cache
+ChatMessage ChatScreen::readMessageAtLine(File& file, int lineIndex) {
+    ChatMessage msg;
+    msg.text = "";
+    msg.isUser = false;
+    msg.timestamp = 0;
+    
+    if (lineIndex < 0 || lineIndex >= cachedLineCount - 1) {
+        return msg;  // Invalid index
+    }
+    
+    // Seek to line position (lineIndex + 1 because line 0 is count)
+    if (positionCacheValid && fileLinePositions != nullptr) {
+        file.seek(fileLinePositions[lineIndex + 1]);
+    }
+    
+    String line = file.readStringUntil('\n');
+    line.trim();
+    
+    if (line.length() == 0) {
+        return msg;
+    }
+    
+    // Parse: isUser|text|timestamp
+    int pipe1 = line.indexOf('|');
+    int pipe2 = line.indexOf('|', pipe1 + 1);
+    
+    if (pipe1 > 0 && pipe2 > pipe1) {
+        String isUserStr = line.substring(0, pipe1);
+        String text = line.substring(pipe1 + 1, pipe2);
+        String timestampStr = line.substring(pipe2 + 1);
+        
+        msg.isUser = (isUserStr == "1");
+        msg.text = text;
+        msg.timestamp = timestampStr.toInt();
+    }
+    
+    return msg;
+}
+
+// Helper: Read last N messages efficiently (Facebook-style)
+void ChatScreen::readLastNMessages(File& file, int n, ChatMessage* output, int& outputCount) {
+    outputCount = 0;
+    
+    if (n <= 0 || totalMessagesInFile == 0) {
+        return;
+    }
+    
+    int messagesToRead = (n > totalMessagesInFile) ? totalMessagesInFile : n;
+    int startLineIndex = totalMessagesInFile - messagesToRead;
+    
+    // Cache should be built before calling this function
+    if (!positionCacheValid || fileLinePositions == nullptr) {
+        Serial.println("Chat: Warning - position cache not valid, falling back to sequential read");
+        // Fallback: sequential read from end
+        // Skip count line
+        file.seek(0);
+        file.readStringUntil('\n');
+        
+        // Read all lines to find last N
+        String* tempLines = new String[totalMessagesInFile];
+        int tempCount = 0;
+        while (file.available() && tempCount < totalMessagesInFile) {
+            String line = file.readStringUntil('\n');
+            line.trim();
+            if (line.length() > 0) {
+                tempLines[tempCount] = line;
+                tempCount++;
+            }
+        }
+        
+        // Parse last N messages
+        int startIdx = (tempCount > messagesToRead) ? (tempCount - messagesToRead) : 0;
+        for (int i = startIdx; i < tempCount && outputCount < messagesToRead; i++) {
+            String line = tempLines[i];
+            int pipe1 = line.indexOf('|');
+            int pipe2 = line.indexOf('|', pipe1 + 1);
+            if (pipe1 > 0 && pipe2 > pipe1) {
+                output[outputCount].isUser = (line.substring(0, pipe1) == "1");
+                output[outputCount].text = line.substring(pipe1 + 1, pipe2);
+                output[outputCount].timestamp = line.substring(pipe2 + 1).toInt();
+                outputCount++;
+            }
+        }
+        
+        delete[] tempLines;
+        return;
+    }
+    
+    // Read messages using cache
+    for (int i = startLineIndex; i < totalMessagesInFile && outputCount < messagesToRead; i++) {
+        ChatMessage msg = readMessageAtLine(file, i);
+        if (msg.text.length() > 0) {
+            output[outputCount] = msg;
+            outputCount++;
+        }
+    }
+}
+
+// Helper: Read messages from specific position
+void ChatScreen::readMessagesFromPosition(File& file, int startIndex, int count, ChatMessage* output, int& outputCount) {
+    outputCount = 0;
+    
+    if (startIndex < 0 || count <= 0 || startIndex >= totalMessagesInFile) {
+        return;
+    }
+    
+    int messagesToRead = count;
+    if (startIndex + messagesToRead > totalMessagesInFile) {
+        messagesToRead = totalMessagesInFile - startIndex;
+    }
+    
+    // Cache should be built before calling this function
+    if (!positionCacheValid || fileLinePositions == nullptr) {
+        Serial.println("Chat: Warning - position cache not valid, falling back to sequential read");
+        // Fallback: sequential read
+        file.seek(0);
+        file.readStringUntil('\n');  // Skip count line
+        
+        // Skip to startIndex
+        for (int i = 0; i < startIndex; i++) {
+            file.readStringUntil('\n');
+        }
+        
+        // Read messages
+        for (int i = 0; i < messagesToRead && file.available(); i++) {
+            String line = file.readStringUntil('\n');
+            line.trim();
+            if (line.length() > 0) {
+                int pipe1 = line.indexOf('|');
+                int pipe2 = line.indexOf('|', pipe1 + 1);
+                if (pipe1 > 0 && pipe2 > pipe1) {
+                    output[outputCount].isUser = (line.substring(0, pipe1) == "1");
+                    output[outputCount].text = line.substring(pipe1 + 1, pipe2);
+                    output[outputCount].timestamp = line.substring(pipe2 + 1).toInt();
+                    outputCount++;
+                }
+            }
+        }
+        return;
+    }
+    
+    // Read messages using cache
+    for (int i = startIndex; i < startIndex + messagesToRead && outputCount < messagesToRead; i++) {
+        ChatMessage msg = readMessageAtLine(file, i);
+        if (msg.text.length() > 0) {
+            output[outputCount] = msg;
+            outputCount++;
+        }
+    }
 }
 
 void ChatScreen::saveMessagesToFile() {
@@ -1036,6 +1322,9 @@ void ChatScreen::saveMessagesToFile() {
     Serial.print(messageCount);
     Serial.print(" messages to file: ");
     Serial.println(fileName);
+    
+    // Invalidate position cache when file is modified
+    invalidatePositionCache();
 }
 
 void ChatScreen::loadMessagesFromFile() {
@@ -1045,6 +1334,10 @@ void ChatScreen::loadMessagesFromFile() {
     if (!SPIFFS.exists(fileName)) {
         Serial.print("Chat: No history file found: ");
         Serial.println(fileName);
+        totalMessagesInFile = 0;
+        loadedMessageCount = 0;
+        hasMoreMessages = false;
+        invalidatePositionCache();
         return;
     }
     
@@ -1053,52 +1346,169 @@ void ChatScreen::loadMessagesFromFile() {
     if (!file) {
         Serial.print("Chat: Failed to open file for reading: ");
         Serial.println(fileName);
+        totalMessagesInFile = 0;
+        loadedMessageCount = 0;
+        hasMoreMessages = false;
+        invalidatePositionCache();
         return;
     }
     
     // Đọc số lượng tin nhắn
     String countStr = file.readStringUntil('\n');
-    int count = countStr.toInt();
+    totalMessagesInFile = countStr.toInt();
     
-    if (count > MAX_MESSAGES) count = MAX_MESSAGES;
-    
-    // Đọc từng tin nhắn
-    messageCount = 0;
-    for (int i = 0; i < count && messageCount < MAX_MESSAGES; i++) {
-        String line = file.readStringUntil('\n');
-        line.trim();
-        
-        if (line.length() == 0) continue;
-        
-        // Parse: isUser|text|timestamp
-        int pipe1 = line.indexOf('|');
-        int pipe2 = line.indexOf('|', pipe1 + 1);
-        
-        if (pipe1 > 0 && pipe2 > pipe1) {
-            String isUserStr = line.substring(0, pipe1);
-            String text = line.substring(pipe1 + 1, pipe2);
-            String timestampStr = line.substring(pipe2 + 1);
-            
-            messages[messageCount].isUser = (isUserStr == "1");
-            messages[messageCount].text = text;
-            messages[messageCount].timestamp = timestampStr.toInt();
-            messageCount++;
-        }
+    if (totalMessagesInFile > MAX_MESSAGES) {
+        totalMessagesInFile = MAX_MESSAGES;
     }
     
+    if (totalMessagesInFile == 0) {
+        file.close();
+        messageCount = 0;
+        loadedMessageCount = 0;
+        hasMoreMessages = false;
+        fileReadPosition = 0;
+        invalidatePositionCache();
+        return;
+    }
+    
+    // OPTIMIZED LOADING: Chỉ load 1 tin nhắn cuối cùng khi khởi động
+    // Load nhanh để hiển thị ngay, sau đó load ngầm khi user scroll up
+    const int INITIAL_LOAD_COUNT = 1;
+    int messagesToLoad = (totalMessagesInFile < INITIAL_LOAD_COUNT) ? totalMessagesInFile : INITIAL_LOAD_COUNT;
+    
+    // Build position cache for efficient seeking
+    buildFilePositionCache();
+    
+    // Read last N messages using efficient method
+    ChatMessage loadedMsgs[50];
+    int loadedCount = 0;
+    readLastNMessages(file, messagesToLoad, loadedMsgs, loadedCount);
+    
     file.close();
-    Serial.print("Chat: Loaded ");
+    
+    // Copy loaded messages to messages array
+    messageCount = 0;
+    for (int i = 0; i < loadedCount && messageCount < MAX_MESSAGES; i++) {
+        messages[messageCount] = loadedMsgs[i];
+        messageCount++;
+    }
+    
+    // Update lazy loading state
+    loadedMessageCount = messageCount;
+    fileReadPosition = totalMessagesInFile - loadedCount;  // Vị trí bắt đầu đã đọc
+    hasMoreMessages = (fileReadPosition > 0);  // Còn tin nhắn cũ hơn để load
+    
+    Serial.print("Chat: Initial load - ");
     Serial.print(messageCount);
-    Serial.print(" messages from file: ");
+    Serial.print(" message(s) of ");
+    Serial.print(totalMessagesInFile);
+    Serial.print(" total. More will load on scroll. File: ");
     Serial.println(fileName);
     
-    // Vẽ lại tin nhắn sau khi load
+    // Vẽ lại tin nhắn sau khi load (via flag system, not direct call)
     if (messageCount > 0) {
         recalculateLayout();
         scrollToLatest();
         needsMessagesRedraw = true;
-        drawMessages();
+        // drawMessages() will be called via flag system
     }
+}
+
+bool ChatScreen::loadMoreMessages(int count) {
+    if (!hasMoreMessages || fileReadPosition <= 0 || isLoadingMessages) {
+        return false;  // Không còn tin nhắn để load hoặc đang load
+    }
+    
+    // FACEBOOK-STYLE: Maintain scroll position - tính số dòng trước khi load
+    int linesBeforeLoad = calculateTotalLines();
+    
+    String fileName = getChatHistoryFileName();
+    if (!SPIFFS.exists(fileName)) {
+        return false;
+    }
+    
+    // Build cache if needed (before opening file for reading)
+    if (!positionCacheValid) {
+        buildFilePositionCache();
+    }
+    
+    File file = SPIFFS.open(fileName, "r");
+    if (!file) {
+        return false;
+    }
+    
+    // Bỏ qua dòng đầu (total count)
+    file.readStringUntil('\n');
+    
+    // Tính số tin nhắn cần load
+    int messagesToLoad = count;
+    if (fileReadPosition < messagesToLoad) {
+        messagesToLoad = fileReadPosition;  // Chỉ load những gì còn lại
+    }
+    
+    // Tính vị trí bắt đầu load (từ fileReadPosition - messagesToLoad)
+    int startIndex = fileReadPosition - messagesToLoad;
+    
+    // FACEBOOK-STYLE: Efficient reading - sử dụng cache và helper method
+    ChatMessage newMessages[50];
+    int newMessageCount = 0;
+    readMessagesFromPosition(file, startIndex, messagesToLoad, newMessages, newMessageCount);
+    
+    file.close();
+    
+    if (newMessageCount == 0) {
+        hasMoreMessages = false;
+        return false;
+    }
+    
+    // Kiểm tra nếu thêm vào sẽ vượt quá MAX_MESSAGES
+    if (messageCount + newMessageCount > MAX_MESSAGES) {
+        // Xóa tin nhắn cũ nhất (ở cuối mảng) để nhường chỗ
+        int excess = (messageCount + newMessageCount) - MAX_MESSAGES;
+        for (int i = 0; i < messageCount - excess; i++) {
+            messages[i] = messages[i + excess];
+        }
+        messageCount = messageCount - excess;
+    }
+    
+    // Dịch chuyển tin nhắn hiện tại để nhường chỗ cho tin nhắn cũ hơn
+    for (int i = messageCount - 1; i >= 0; i--) {
+        messages[i + newMessageCount] = messages[i];
+    }
+    
+    // Chèn tin nhắn mới vào đầu (tin nhắn cũ nhất ở index 0)
+    for (int i = 0; i < newMessageCount; i++) {
+        messages[i] = newMessages[i];
+    }
+    
+    messageCount += newMessageCount;
+    loadedMessageCount += newMessageCount;
+    fileReadPosition = startIndex;
+    hasMoreMessages = (fileReadPosition > 0);
+    
+    // FACEBOOK-STYLE: Maintain scroll position - tính số dòng sau khi load
+    int linesAfterLoad = calculateTotalLines();
+    int addedLines = linesAfterLoad - linesBeforeLoad;
+    
+    // Adjust scrollOffset để giữ nguyên vị trí hiển thị
+    scrollOffset += addedLines;
+    clampScrollOffset();
+    
+    Serial.print("Chat: Efficiently loaded ");
+    Serial.print(newMessageCount);
+    Serial.print(" more messages. Total loaded: ");
+    Serial.print(loadedMessageCount);
+    Serial.print("/");
+    Serial.print(totalMessagesInFile);
+    Serial.print(" (adjusted scroll by ");
+    Serial.print(addedLines);
+    Serial.println(" lines)");
+    
+    // Đánh dấu cần vẽ lại (KHÔNG gọi drawMessages() trực tiếp)
+    // drawMessages() sẽ được gọi tự động trong draw() hoặc loop()
+    needsMessagesRedraw = true;
+    
+    return true;
 }
 
 void ChatScreen::setFriendStatus(uint8_t status) {

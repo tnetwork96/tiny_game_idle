@@ -35,6 +35,22 @@ private:
     int messageCount;
     int scrollOffset;  // Số dòng đã cuộn (scroll theo dòng, không phải theo tin nhắn)
     
+    // Lazy loading tracking
+    int loadedMessageCount;      // Số tin nhắn đã load từ file
+    int totalMessagesInFile;     // Tổng số tin nhắn trong file
+    bool hasMoreMessages;        // Còn tin nhắn để load không
+    int fileReadPosition;        // Vị trí đọc file (số dòng đã đọc từ đầu file)
+    
+    // Loading state flags to prevent race conditions
+    bool isLoadingMessages;      // Flag để prevent concurrent loading
+    unsigned long lastLoadTime;  // Thời gian load cuối cùng (để debounce)
+    bool showLoadingIndicator;   // Flag để hiển thị loading indicator khi đang load
+    
+    // File position cache for efficient seeking (Facebook-style)
+    size_t* fileLinePositions;   // Cache byte positions of each line in file
+    int cachedLineCount;         // Number of cached positions
+    bool positionCacheValid;     // Whether cache is up to date
+    
     // Tin nhắn đang nhập
     String currentMessage;
     int inputCursorPos;  // Vị trí con trỏ trong currentMessage (theo ký tự)
@@ -120,7 +136,16 @@ private:
     // Lưu/tải lịch sử chat
     String getChatHistoryFileName();  // Tạo tên file từ nickname
     void saveMessagesToFile();        // Lưu tin nhắn vào file
-    void loadMessagesFromFile();       // Tải tin nhắn từ file
+    void loadMessagesFromFile();       // Tải tin nhắn từ file (lazy load: chỉ 5 tin nhắn đầu)
+    bool loadMoreMessages(int count = 5);  // Load thêm tin nhắn cũ hơn khi scroll lên
+    
+    // File reading helpers (Facebook-style efficient reading)
+    void buildFilePositionCache();     // Build cache of file line positions
+    void invalidatePositionCache();    // Mark cache as invalid
+    ChatMessage readMessageAtLine(File& file, int lineIndex);  // Read message at specific line using cache
+    void readLastNMessages(File& file, int n, ChatMessage* output, int& count);  // Read last N messages efficiently
+    void readMessagesFromPosition(File& file, int startIndex, int count, ChatMessage* output, int& outputCount);  // Read messages from position
+    int calculateLinesForMessages(const ChatMessage* msgs, int msgCount) const;  // Calculate total lines for messages
 
 public:
     // Constructor

@@ -332,6 +332,115 @@ String buildFriendChatMessage(int cycleIndex) {
     return message;
 }
 
+// Tạo lịch sử chat random và load vào khung chat
+void generateRandomChatHistory(ChatScreen* chatScreen, int messageCount) {
+    if (chatScreen == nullptr) {
+        Serial.println("Random Chat History: chatScreen is null!");
+        return;
+    }
+    
+    Serial.print("Random Chat History: Generating ");
+    Serial.print(messageCount);
+    Serial.println(" random messages...");
+    
+    // Xóa tin nhắn cũ trước (optional - có thể bỏ nếu muốn giữ lại)
+    chatScreen->clearMessages();
+    
+    // Mảng các từ/cụm từ phổ biến để tạo tin nhắn tự nhiên hơn
+    const char* userGreetings[] = {"Hi", "Hello", "Hey", "What's up", "How are you", "Good morning", "Good evening"};
+    const char* friendGreetings[] = {"Hi there", "Hello", "Hey", "Hey you", "Howdy", "Good to see you"};
+    const char* userQuestions[] = {"How are you?", "What are you doing?", "Are you free?", "Want to play?", "Ready?", "What's new?"};
+    const char* friendResponses[] = {"I'm good", "Not much", "Just chilling", "Sure thing", "Yeah", "Sounds good", "Let's do it"};
+    const char* userMessages[] = {"That's great", "Nice", "Cool", "Awesome", "I see", "Got it", "Thanks"};
+    const char* friendMessages[] = {"See you later", "Talk soon", "Bye", "Take care", "Later", "Catch you later"};
+    
+    // Icons có sẵn
+    char icons[] = {Keyboard::ICON_SMILE, Keyboard::ICON_HEART, Keyboard::ICON_STAR, Keyboard::ICON_WINK};
+    int iconCount = 4;
+    
+    for (int i = 0; i < messageCount; i++) {
+        bool isUser = (i % 2 == 0);  // Luân phiên giữa user và friend
+        String message = "";
+        
+        // Quyết định loại tin nhắn dựa trên vị trí trong cuộc trò chuyện
+        int messageType = random(0, 100);
+        bool includeIcon = (random(0, 100) < 30);  // 30% cơ hội có icon
+        
+        if (i < 2) {
+            // Tin nhắn đầu tiên: greeting
+            if (isUser) {
+                message = userGreetings[random(0, sizeof(userGreetings) / sizeof(userGreetings[0]))];
+            } else {
+                message = friendGreetings[random(0, sizeof(friendGreetings) / sizeof(friendGreetings[0]))];
+            }
+        } else if (i < messageCount - 2) {
+            // Tin nhắn giữa: random content
+            if (messageType < 20 && isUser) {
+                // User question
+                message = userQuestions[random(0, sizeof(userQuestions) / sizeof(userQuestions[0]))];
+            } else if (messageType < 40 && !isUser) {
+                // Friend response
+                message = friendResponses[random(0, sizeof(friendResponses) / sizeof(friendResponses[0]))];
+            } else if (messageType < 60 && isUser) {
+                // User message
+                message = userMessages[random(0, sizeof(userMessages) / sizeof(userMessages[0]))];
+            } else {
+                // Random text message với độ dài khác nhau
+                int length = random(5, 50);
+                const char allowedChars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/:;()$&@\"#.,?!'- ";
+                const int charsetLength = sizeof(allowedChars) - 1;
+                
+                for (int j = 0; j < length; j++) {
+                    int idx = random(0, charsetLength);
+                    message += allowedChars[idx];
+                }
+            }
+        } else {
+            // Tin nhắn cuối: closing
+            if (!isUser) {
+                message = friendMessages[random(0, sizeof(friendMessages) / sizeof(friendMessages[0]))];
+            } else {
+                message = "Bye!";
+            }
+        }
+        
+        // Thêm icon vào một số tin nhắn
+        if (includeIcon && message.length() > 0) {
+            int iconPos = random(0, 3);  // 0 = đầu, 1 = giữa, 2 = cuối
+            char icon = icons[random(0, iconCount)];
+            
+            if (iconPos == 0) {
+                message = String(icon) + " " + message;
+            } else if (iconPos == 1 && message.length() > 5) {
+                int midPos = message.length() / 2;
+                message = message.substring(0, midPos) + " " + String(icon) + " " + message.substring(midPos);
+            } else {
+                message = message + " " + String(icon);
+            }
+        }
+        
+        // Đảm bảo message không rỗng
+        if (message.length() == 0) {
+            message = isUser ? "Hello" : "Hi";
+        }
+        
+        // Giới hạn độ dài tối đa
+        if (message.length() > 80) {
+            message = message.substring(0, 77) + "...";
+        }
+        
+        // Thêm tin nhắn vào chat screen
+        chatScreen->addMessage(message, isUser);
+        
+        // Delay nhỏ để timestamps khác nhau
+        delay(10);
+    }
+    
+    Serial.print("Random Chat History: Generated and saved ");
+    Serial.print(messageCount);
+    Serial.println(" messages!");
+}
+
 // Test: lặp lại chu trình show keyboard -> nhập -> gửi -> hide nhiều lần
 void runChatKeyboardToggleTypingTest() {
     if (chatScreen == nullptr || keyboard == nullptr) return;
@@ -511,21 +620,22 @@ void startChatAfterLogin() {
 
     Serial.println("Login success: starting Chat Screen...");
     
-    // Chỉ hiển thị khung chat và box nhập chat (không thêm tin nhắn ban đầu)
-    // Vẽ màn hình chat với keyboard ẩn
+    // BƯỚC 1: Vẽ màn hình chat trước (trống, không có messages)
+    // Chỉ hiển thị khung chat và box nhập chat
+    Serial.println("Chat Screen: Drawing empty chat screen (frame and input box only)...");
     chatScreen->draw();
     
     Serial.println("Chat Screen: Displaying chat frame and input box, waiting 10 seconds...");
     delay(10000);  // Sleep 10 giây
     
-    // Sau 10 giây, tự động nhấn vào ô nhập chat (bật keyboard)
+    // BƯỚC 2: Sau đó mới tạo và thêm random messages
+    // Tăng lên 50 messages để test lazy loading behavior (initial load 1, còn lại load khi scroll up)
+    Serial.println("Chat Screen: Generating random chat history...");
+    generateRandomChatHistory(chatScreen, 50);  // Tạo 50 tin nhắn random để test lazy loading
+    
+    // BƯỚC 3: Sau khi có messages, tự động nhấn vào ô nhập chat (bật keyboard)
     Serial.println("Chat Screen: Activating input box (showing keyboard)...");
     chatScreen->handleSelect();
-    
-    // Thêm tin nhắn test sau khi đã bật keyboard (optional - có thể bỏ nếu không cần)
-    // chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
-    // chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
-    // chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
     
     inGame = true;
     currentGame = 4;  // Chat mode
