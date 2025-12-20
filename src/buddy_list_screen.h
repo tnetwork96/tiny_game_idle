@@ -51,6 +51,7 @@ private:
     uint16_t highlightColor;
     uint16_t onlineColor;
     uint16_t offlineColor;
+    uint16_t avatarColor;  // Light gray/blue for avatar
 
     // Layout helpers
     uint8_t getVisibleRows() const;

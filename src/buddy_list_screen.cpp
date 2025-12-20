@@ -6,13 +6,20 @@ BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
     selectedIndex = 0;
     scrollOffset = 0;
 
-    bgColor = ST77XX_BLACK;
-    headerColor = 0x780F;       // Yahoo-like purple
-    headerTextColor = ST77XX_WHITE;
-    listTextColor = ST77XX_WHITE;
-    highlightColor = 0x2104;    // Dark gray highlight
-    onlineColor = 0x07E0;       // Green
-    offlineColor = 0xF800;      // Red
+    // Deep Space Arcade Theme - Midnight Blue
+    // Background: Deep Midnight Blue #020817 (RGB: 2, 8, 23) -> RGB565: 0x0042
+    bgColor = 0x0042;           // Deep Midnight Blue background
+    // Header: Lighter Blue #0F172A (RGB: 15, 23, 42) -> RGB565: 0x08A5
+    headerColor = 0x08A5;       // Lighter blue header
+    headerTextColor = 0xFFFF;   // White text for header
+    listTextColor = 0xFFFF;     // White text for names (crisp white)
+    // Selection: Electric Blue tint #162845 (RGB: 22, 40, 69) -> RGB565: 0x1148
+    highlightColor = 0x1148;    // Electric Blue tint for selection (Tron Glow)
+    // Status dots: Minty Green #00FF99 for online, Bright Red #FF3333 for offline
+    onlineColor = 0x07F3;       // Minty Neon Green #00FF99 (RGB: 0, 255, 153) -> RGB565: 0x07F3
+    offlineColor = 0xF986;      // Bright Red #FF3333 (RGB: 255, 51, 51) -> RGB565: 0xF986
+    // Avatar: Dark Slate Blue #1E293B (RGB: 30, 41, 59) -> RGB565: 0x1947
+    avatarColor = 0x1947;       // Dark Slate Blue for avatar
 }
 
 void BuddyListScreen::setBuddies(const BuddyEntry* entries, uint8_t count) {
@@ -34,7 +41,7 @@ void BuddyListScreen::updateStatus(uint8_t index, bool online) {
 
 uint8_t BuddyListScreen::getVisibleRows() const {
     const uint16_t headerHeight = 30;
-    const uint16_t rowHeight = 20;
+    const uint16_t rowHeight = 24;  // Updated to 24px as per requirements
     uint16_t available = (240 > headerHeight) ? (240 - headerHeight) : 0;
     uint8_t rows = available / rowHeight;
     return rows < 1 ? 1 : rows;
@@ -68,42 +75,71 @@ void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
     if (tft == nullptr || buddyIdx >= buddyCount) return;
 
     const uint16_t headerHeight = 30;
-    const uint16_t rowHeight = 20;
+    const uint16_t rowHeight = 24;  // Updated to 24px
     const uint16_t y = headerHeight + visibleRow * rowHeight;
 
     bool isSelected = (buddyIdx == selectedIndex);
     uint16_t rowBg = isSelected ? highlightColor : bgColor;
 
     tft->fillRect(0, y, 320, rowHeight, rowBg);
+    
+    // Draw Cyan accent bar on left edge for selected row (Neon Glow effect)
+    if (isSelected) {
+        const uint16_t accentBarWidth = 2;  // Thin vertical bar
+        const uint16_t accentBarColor = 0x07FF;  // Cyan #00FFFF (RGB: 0, 255, 255)
+        tft->fillRect(0, y, accentBarWidth, rowHeight, accentBarColor);
+    }
 
-    // Status dot
-    uint16_t dotX = 14;
-    uint16_t dotY = y + rowHeight / 2;
-    tft->fillCircle(dotX, dotY, 5, statusColor(buddies[buddyIdx].online));
+    // Avatar: 20x20px circle, Dark Slate Blue color, no text
+    const uint16_t avatarSize = 20;
+    const uint16_t avatarX = 2;  // Left margin
+    const uint16_t avatarY = y + (rowHeight - avatarSize) / 2;  // Vertically centered
+    const uint16_t avatarCenterX = avatarX + avatarSize / 2;
+    const uint16_t avatarCenterY = avatarY + avatarSize / 2;
+    const uint16_t avatarRadius = avatarSize / 2;
+    
+    // Draw avatar circle (Dark Slate Blue)
+    tft->fillCircle(avatarCenterX, avatarCenterY, avatarRadius, avatarColor);
+    // Border: Deep Midnight Blue to match background (blends cleanly)
+    tft->drawCircle(avatarCenterX, avatarCenterY, avatarRadius, bgColor);
 
-    // Name
+    // Status dot: 4-5px maximum (using 4px diameter = 2px radius for subtlety)
+    // Position: Bottom-right corner of avatar
+    const uint16_t dotRadius = 2;  // 4px diameter (20-25% of 20px avatar)
+    const uint16_t dotOffsetX = 6;  // Offset from avatar center to bottom-right
+    const uint16_t dotOffsetY = 6;
+    const uint16_t dotCenterX = avatarCenterX + dotOffsetX;
+    const uint16_t dotCenterY = avatarCenterY + dotOffsetY;
+    
+    // Draw status dot with deep midnight blue stroke (1px border) to cut cleanly into avatar
+    uint16_t statusDotColor = statusColor(buddies[buddyIdx].online);
+    
+    // Draw deep midnight blue stroke (outer circle) - matches background
+    tft->fillCircle(dotCenterX, dotCenterY, dotRadius + 1, bgColor);
+    // Draw status dot (inner circle) - Minty Green or Bright Red
+    tft->fillCircle(dotCenterX, dotCenterY, dotRadius, statusDotColor);
+
+    // Name: White text, vertically centered
     tft->setTextColor(listTextColor, rowBg);
     tft->setTextSize(2);
-    uint16_t textX = 26;
-    uint16_t textY = y + 2;
+    uint16_t textX = avatarX + avatarSize + 4;  // 4px spacing after avatar
+    uint16_t textY = y + (rowHeight - 16) / 2;  // Vertically centered (text size 2 is ~16px tall)
     tft->setCursor(textX, textY);
     String displayName = buddies[buddyIdx].name;
     const uint8_t charWidth = 12;  // Approx for text size 2
-    const uint16_t rightMargin = 92;
+    const uint16_t rightMargin = 4;
     uint8_t maxChars = (320 - textX - rightMargin) / charWidth;
     if (displayName.length() > maxChars && maxChars > 3) {
         displayName = displayName.substring(0, maxChars - 3) + "...";
     }
     tft->print(displayName);
-
-    // No status label text (Yahoo-style: only dot)
 }
 
 void BuddyListScreen::drawList() {
     if (tft == nullptr) return;
 
     const uint16_t headerHeight = 30;
-    const uint16_t rowHeight = 20;
+    const uint16_t rowHeight = 24;  // Updated to 24px
     const uint16_t startY = headerHeight;
     const uint8_t visibleRows = getVisibleRows();
     const uint16_t listHeight = visibleRows * rowHeight;
@@ -117,11 +153,12 @@ void BuddyListScreen::drawList() {
         drawBuddyRow(row, buddyIdx);
     }
 
-    // Simple scrollbar on the right
+    // Simple scrollbar on the right (Deep Space theme)
     if (buddyCount > visibleRows) {
         uint16_t barWidth = 4;
         uint16_t barX = 320 - barWidth;
-        tft->fillRect(barX, startY, barWidth, listHeight, 0x4208);  // Dark gray track
+        // Dark track (darker than background) - use slightly darker midnight blue
+        tft->fillRect(barX, startY, barWidth, listHeight, 0x0021);  // Very dark midnight blue track
 
         float ratio = (float)visibleRows / (float)buddyCount;
         uint16_t thumbHeight = listHeight * ratio;
@@ -132,7 +169,8 @@ void BuddyListScreen::drawList() {
         if (scrollPercent > 1.0f) scrollPercent = 1.0f;
         uint16_t thumbY = startY + (listHeight - thumbHeight) * scrollPercent;
 
-        tft->fillRect(barX, thumbY, barWidth, thumbHeight, onlineColor);
+        // Cyan thumb for scrollbar (Tron-like accent)
+        tft->fillRect(barX, thumbY, barWidth, thumbHeight, 0x07FF);  // Cyan #00FFFF
     }
 }
 
