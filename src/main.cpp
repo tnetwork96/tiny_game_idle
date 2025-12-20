@@ -510,23 +510,23 @@ void startChatAfterLogin() {
     }
 
     Serial.println("Login success: starting Chat Screen...");
-    chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
-    chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
-    chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
-
-    String iconTestMsg = "Icon test: ";
-    iconTestMsg += String(Keyboard::ICON_SMILE);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_HEART);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_STAR);
-    iconTestMsg += " ";
-    iconTestMsg += String(Keyboard::ICON_WINK);
-    chatScreen->addMessage(iconTestMsg, true);
-
+    
+    // Chỉ hiển thị khung chat và box nhập chat (không thêm tin nhắn ban đầu)
+    // Vẽ màn hình chat với keyboard ẩn
     chatScreen->draw();
-    // Bật bàn phím ngay sau khi vào chat để xem layout
+    
+    Serial.println("Chat Screen: Displaying chat frame and input box, waiting 10 seconds...");
+    delay(10000);  // Sleep 10 giây
+    
+    // Sau 10 giây, tự động nhấn vào ô nhập chat (bật keyboard)
+    Serial.println("Chat Screen: Activating input box (showing keyboard)...");
     chatScreen->handleSelect();
+    
+    // Thêm tin nhắn test sau khi đã bật keyboard (optional - có thể bỏ nếu không cần)
+    // chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
+    // chatScreen->addMessage("Another long message here to test scrolling and pushing up effect when messages are very long!", true);
+    // chatScreen->addMessage("Third long message to see how multiple long messages stack and push each other up on the screen!", false);
+    
     inGame = true;
     currentGame = 4;  // Chat mode
     menuShown = true;
@@ -919,9 +919,12 @@ void loop() {
         if (inGame && currentGame == 4 && chatScreen != nullptr) {
             // Cập nhật animation cho decor
             chatScreen->updateDecorAnimation();
-            // Auto scroll preview ~10 moves for visual inspection
-            runChatScrollPreview();
-            runChatKeyboardToggleTypingTest();
+            // Chỉ chạy test functions khi ở test mode
+            if (testMode) {
+                // Auto scroll preview ~10 moves for visual inspection
+                runChatScrollPreview();
+                runChatKeyboardToggleTypingTest();
+            }
         }
     }
     

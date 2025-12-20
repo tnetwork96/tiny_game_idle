@@ -68,6 +68,12 @@ private:
     uint16_t decorAccentColor;      // Màu accent trang trí
     int decorAnimationFrame;        // Frame animation cho decor
     
+    // Dirty flags for conditional rendering optimization
+    bool needsRedraw;               // Indicates full screen needs redraw
+    bool needsMessagesRedraw;        // Indicates messages area needs redraw
+    bool needsInputRedraw;          // Indicates input box needs redraw
+    unsigned long lastAnimationUpdate;  // Timestamp of last animation update
+    
     // Vẽ tiêu đề
     void drawTitle();
     

@@ -69,6 +69,12 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->decorAccentColor = NEON_CYAN;
     this->decorAnimationFrame = 0;
     
+    // Khởi tạo dirty flags (default true để trigger initial draw)
+    this->needsRedraw = true;
+    this->needsMessagesRedraw = true;
+    this->needsInputRedraw = true;
+    this->lastAnimationUpdate = 0;
+    
     // Tính lại bố cục sau khi khởi tạo
     recalculateLayout();
 }
@@ -79,10 +85,10 @@ ChatScreen::~ChatScreen() {
 
 void ChatScreen::drawTitle() {
     // Vẽ title bar fit toàn bộ màn hình (320px với rotation 3)
+    // LƯU Ý: Nền đã được vẽ trong draw(), chỉ vẽ các element lên trên
     uint16_t titleBarHeight = 25;
     uint16_t titleBarY = 0;
     uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
-    tft->fillRect(0, titleBarY, screenWidth, titleBarHeight, chatAreaBgColor);
     
     // Vẽ viền dưới title bar (toàn bộ chiều rộng)
     tft->drawFastHLine(0, titleBarY + titleBarHeight - 2, screenWidth, chatAreaBorderColor);
@@ -186,9 +192,7 @@ bool ChatScreen::isStatusDotVisible() const {
 }
 
 void ChatScreen::drawChatArea() {
-    // Không vẽ khung, chỉ cần xóa nền nếu cần
-    // Vùng chat sẽ được vẽ trực tiếp khi vẽ tin nhắn
-    
+    // LƯU Ý: Nền đã được vẽ trong draw(), chỉ vẽ decor nếu bật
     // Vẽ decor cho vùng chat nếu bật
     if (showChatAreaPattern) {
         drawChatAreaDecor();
@@ -362,6 +366,9 @@ void ChatScreen::drawScrollbar() {
 }
 
 void ChatScreen::drawMessages() {
+    // Chỉ vẽ lại khi cần thiết (optimization để tránh vẽ liên tục)
+    if (!needsMessagesRedraw && !needsRedraw) return;
+    
     int lineHeight = 24;  // Khoảng cách cho text size 2 (16px text + 8px spacing)
     int padding = 4;
     int startY = chatAreaY + padding;
@@ -371,9 +378,9 @@ void ChatScreen::drawMessages() {
     const int gapReduction = lineHeight - groupGapPx;  // Lượng nén so với 1 dòng đầy đủ
     int groupTransitions = 0;            // Số lần đổi người gửi đã render
     
-    // Xóa vùng tin nhắn (trừ phần scrollbar)
+    // LƯU Ý: Nền chat area đã được vẽ trong draw(), không cần xóa lại
+    // Chỉ cần vẽ tin nhắn lên trên nền đã có
     uint16_t scrollbarWidth = 4;
-    tft->fillRect(0, chatAreaY, chatAreaWidth - scrollbarWidth, chatAreaHeight, bgColor);
     
     // Logic: Vẽ tin nhắn từ trên xuống (tin nhắn cũ ở trên, mới ở dưới)
     // Khi có nhiều tin nhắn hơn số dòng hiển thị, chỉ hiển thị các tin nhắn mới nhất
@@ -520,14 +527,16 @@ void ChatScreen::drawMessages() {
     
     // Vẽ thanh scrollbar sau khi vẽ tin nhắn
     drawScrollbar();
+    
+    // Reset dirty flag sau khi vẽ xong
+    needsMessagesRedraw = false;
 }
 
 void ChatScreen::drawInputBox() {
     uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
     uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
     
-    // Vẽ nền ô nhập
-    tft->fillRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, inputBoxBgColor);
+    // LƯU Ý: Nền đã được vẽ trong draw(), chỉ vẽ viền và decor
     
     // Vẽ viền ô nhập
     // Viền trên
@@ -757,25 +766,51 @@ void ChatScreen::drawCurrentMessage() {
     // Vẽ lại viền dưới
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
+    
+    // Reset dirty flag sau khi vẽ xong
+    needsInputRedraw = false;
 }
 
 void ChatScreen::draw() {
+    // Chỉ vẽ lại khi cần thiết (optimization để tránh vẽ liên tục)
+    if (!needsRedraw) return;
+    
     // Bố cục có thể thay đổi khi toggle keyboard -> tính lại mỗi lần vẽ
     recalculateLayout();
     
-    // Vẽ nền màn hình
+    // BƯỚC 1: Vẽ nền full màn hình trước
     tft->fillScreen(bgColor);
     
-    // Vẽ tiêu đề
-    drawTitle();
+    // BƯỚC 2: Vẽ nền cho từng vùng trước
+    const uint16_t screenWidth = 320;
+    const uint16_t screenHeight = 240;
+    const uint16_t titleBarHeight = 25;
     
-    // Vẽ vùng chat
-    drawChatArea();
+    // Vẽ nền title bar
+    tft->fillRect(0, 0, screenWidth, titleBarHeight, chatAreaBgColor);
+    
+    // Vẽ nền vùng chat (từ title bar xuống đến input box)
+    tft->fillRect(0, chatAreaY, chatAreaWidth, chatAreaHeight, chatAreaBgColor);
+    
+    // Vẽ nền ô nhập
+    uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
+    tft->fillRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, inputBoxBgColor);
+    
+    // Vẽ nền cho bàn phím (nếu hiển thị)
+    if (keyboardVisible && keyboard != nullptr) {
+        uint16_t keyboardHeight = computeKeyboardHeight();
+        uint16_t keyboardY = screenHeight - keyboardHeight;
+        tft->fillRect(0, keyboardY, screenWidth, keyboardHeight, bgColor);
+    }
+    
+    // BƯỚC 3: Vẽ các element lên trên nền đã vẽ
+    // Vẽ tiêu đề (text và dot trạng thái)
+    drawTitle();
     
     // Vẽ tin nhắn
     drawMessages();
     
-    // Vẽ ô nhập
+    // Vẽ viền và decor cho ô nhập
     drawInputBox();
     
     // Vẽ tin nhắn đang nhập
@@ -786,11 +821,14 @@ void ChatScreen::draw() {
         keyboard->draw();
         
         // Vẽ lại viền sau khi bàn phím vẽ
-        uint16_t screenWidth = 320;  // Chiều rộng màn hình với rotation 3
-        uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
         tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
         tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
     }
+    
+    // Reset tất cả dirty flags sau khi vẽ xong
+    needsRedraw = false;
+    needsMessagesRedraw = false;
+    needsInputRedraw = false;
 }
 
 void ChatScreen::handleKeyPress(String key) {
@@ -803,6 +841,7 @@ void ChatScreen::handleKeyPress(String key) {
         if (currentMessage.length() > 0 && inputCursorPos > 0) {
             currentMessage.remove(inputCursorPos - 1, 1);
             inputCursorPos--;
+            needsInputRedraw = true;
             drawCurrentMessage();
         }
     } else if (key == " ") {
@@ -810,6 +849,7 @@ void ChatScreen::handleKeyPress(String key) {
         if (currentMessage.length() < maxMessageLength) {
             currentMessage = currentMessage.substring(0, inputCursorPos) + " " + currentMessage.substring(inputCursorPos);
             inputCursorPos++;
+            needsInputRedraw = true;
             drawCurrentMessage();
         }
     } else if (key != "123" && key != "ABC" && key != Keyboard::KEY_ICON && key != "shift") {
@@ -817,6 +857,7 @@ void ChatScreen::handleKeyPress(String key) {
         if (currentMessage.length() < maxMessageLength) {
             currentMessage = currentMessage.substring(0, inputCursorPos) + key + currentMessage.substring(inputCursorPos);
             inputCursorPos += key.length();
+            needsInputRedraw = true;
             drawCurrentMessage();
         }
     }
@@ -842,7 +883,8 @@ void ChatScreen::addMessage(String text, bool isUser) {
     // Lưu tin nhắn vào file
     saveMessagesToFile();
     
-    // Vẽ lại tin nhắn
+    // Đánh dấu cần vẽ lại messages
+    needsMessagesRedraw = true;
     drawMessages();
 }
 
@@ -869,6 +911,8 @@ void ChatScreen::sendMessage() {
         addMessage(currentMessage, true);
         currentMessage = "";
         inputCursorPos = 0;
+        needsInputRedraw = true;
+        needsMessagesRedraw = true;  // Message was added, so messages need redraw too
         drawCurrentMessage();
     }
 }
@@ -892,6 +936,8 @@ void ChatScreen::handleUp() {
     
     if (scrollOffset < maxScroll) {
         scrollOffset++;  // Tăng 1 dòng
+        // Đánh dấu cần vẽ lại messages
+        needsMessagesRedraw = true;
         drawMessages();
         Serial.print("Chat: Scrolled up 1 line, offset: ");
         Serial.print(scrollOffset);
@@ -904,6 +950,8 @@ void ChatScreen::handleDown() {
     // Cuộn xuống (xem tin nhắn mới hơn) - scroll theo từng dòng
     if (scrollOffset > 0) {
         scrollOffset--;  // Giảm 1 dòng
+        // Đánh dấu cần vẽ lại messages
+        needsMessagesRedraw = true;
         drawMessages();
         Serial.print("Chat: Scrolled down 1 line, offset: ");
         Serial.println(scrollOffset);
@@ -913,7 +961,8 @@ void ChatScreen::handleDown() {
 void ChatScreen::handleSelect() {
     // Toggle keyboard visibility
     keyboardVisible = !keyboardVisible;
-    // Bố cục thay đổi -> vẽ lại toàn bộ để tránh artefact
+    // Bố cục thay đổi -> đánh dấu cần vẽ lại toàn bộ
+    needsRedraw = true;
     draw();
 }
 
@@ -929,6 +978,7 @@ void ChatScreen::clearMessages() {
         Serial.println(fileName);
     }
     
+    needsMessagesRedraw = true;
     drawMessages();
 }
 
@@ -1046,6 +1096,7 @@ void ChatScreen::loadMessagesFromFile() {
     if (messageCount > 0) {
         recalculateLayout();
         scrollToLatest();
+        needsMessagesRedraw = true;
         drawMessages();
     }
 }
@@ -1073,8 +1124,25 @@ void ChatScreen::disableAllDecor() {
 }
 
 void ChatScreen::updateDecorAnimation() {
+    // Chỉ update animation nếu có decor nào đó được bật
+    bool hasActiveDecor = showTitleBarGradient || showChatAreaPattern || 
+                          showInputBoxGlow || showMessageBubbles || 
+                          showScrollbarGlow || (friendStatus == 2); // typing status dot
+    
+    if (!hasActiveDecor) return; // Không cần update nếu không có decor
+    
+    // Throttle: chỉ update mỗi 50ms để giảm tần suất vẽ lại
+    unsigned long now = millis();
+    if (now - lastAnimationUpdate < 50) return;
+    lastAnimationUpdate = now;
+    
     // Cập nhật frame animation cho decor
     decorAnimationFrame++;
     if (decorAnimationFrame > 1000) decorAnimationFrame = 0;
+    
+    // Đánh dấu cần vẽ lại nếu decor đang hiển thị
+    if (hasActiveDecor) {
+        needsRedraw = true;
+    }
 }
 
