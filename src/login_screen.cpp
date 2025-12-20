@@ -190,6 +190,7 @@ void LoginScreen::handleKeyPress(const String& key) {
     if (state == LOGIN_USERNAME) {
         handleUsernameKey(key);
     } else if (state == LOGIN_PIN) {
+        // Forward to PIN screen; PIN is assumed valid on Enter
         pinScreen->handleKeyPress(key);
         if (pinScreen->isPinAccepted()) {
             state = LOGIN_SUCCESS;

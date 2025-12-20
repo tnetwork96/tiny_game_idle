@@ -10,6 +10,7 @@
 #include "caro_game.h"
 #include "billiard_game.h"
 #include "chat_screen.h"
+#include "buddy_list_screen.h"
 #include "login_screen.h"
 
 // ST7789 pins
@@ -27,6 +28,7 @@ GunnyGame* gunnyGame;
 CaroGame* caroGame;
 BilliardGame* billiardGame;
 ChatScreen* chatScreen;
+BuddyListScreen* buddyListScreen;
 LoginScreen* loginScreen;
 bool testMode = true;  // Bật chế độ test
 bool testStarted = false;
@@ -440,9 +442,72 @@ void runChatKeyboardToggleTypingTest() {
     }
 }
 
+// Test: auto-scroll chat view up/down ~10 times for visual check
+void runChatScrollPreview() {
+    if (chatScreen == nullptr) return;
+    static bool initialized = false;
+    static int moves = 0;               // Count total scroll moves
+    static bool scrollUp = true;        // Alternate up/down
+    static unsigned long lastMoveMs = 0;
+    const int targetMoves = 10;
+    const unsigned long intervalMs = 180;  // Delay between scrolls
+
+    if (moves >= targetMoves) return;
+
+    unsigned long now = millis();
+    if (!initialized) {
+        initialized = true;
+        lastMoveMs = now;
+        Serial.println("Chat Scroll Preview: starting auto up/down scroll...");
+        // Pre-ensure latest messages are in view before scrolling
+        chatScreen->handleDown();
+    }
+
+    if (now - lastMoveMs < intervalMs) return;
+
+    if (scrollUp) {
+        chatScreen->handleUp();
+    } else {
+        chatScreen->handleDown();
+    }
+
+    scrollUp = !scrollUp;
+    moves++;
+    lastMoveMs = now;
+
+    if (moves >= targetMoves) {
+        Serial.println("Chat Scroll Preview: completed 10 moves.");
+    }
+}
+
 // Bắt đầu màn hình chat sau khi login thành công
 void startChatAfterLogin() {
     if (chatScreen == nullptr || postLoginFlowStarted) return;
+
+    // Hiển thị danh sách bạn bè kiểu Yahoo Messenger trước khi vào chat
+    if (buddyListScreen != nullptr) {
+        BuddyEntry demo[] = {
+            { "Alice", true },   { "Bob", false },     { "Charlie", true }, { "Daisy", false },
+            { "Evan", true },    { "Fiona", true },    { "Grace", false },  { "Hank", true },
+            { "Ivy", false },    { "Jack", true },     { "Kara", false },   { "Leo", true },
+            { "Mia", false },    { "Noah", true },     { "Olivia", false }, { "Paul", true },
+            { "Quinn", false },  { "Rex", true },      { "Sara", false },   { "Tom", true }
+        };
+        buddyListScreen->setBuddies(demo, sizeof(demo) / sizeof(demo[0]));
+        buddyListScreen->draw();
+        // Điều hướng lên/xuống rồi chọn ngẫu nhiên một bạn để chat
+        for (int i = 0; i < 3; i++) buddyListScreen->handleDown();
+        for (int i = 0; i < 2; i++) buddyListScreen->handleUp();
+        buddyListScreen->handleSelectRandom();
+        BuddyEntry chosen = buddyListScreen->getSelectedBuddy();
+        if (chosen.name.length() > 0) {
+            chatScreen->setFriendNickname(chosen.name);
+            chatScreen->setFriendStatus(chosen.online ? 1 : 0);
+            Serial.print("Chat: selected buddy -> ");
+            Serial.println(chosen.name);
+        }
+        delay(1200);  // Giữ màn hình danh sách bạn bè một chút
+    }
 
     Serial.println("Login success: starting Chat Screen...");
     chatScreen->addMessage("This is a very long message to test the 80 character limit! Let's see how it works!", false);
@@ -529,6 +594,9 @@ void setup() {
     
     // Khởi tạo Chat Screen
     chatScreen = new ChatScreen(&tft, keyboard);
+    
+    // Khởi tạo Buddy List Screen (kiểu Yahoo)
+    buddyListScreen = new BuddyListScreen(&tft);
     
     // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
     // Serial.println("Auto-starting Billiard Game...");
@@ -851,6 +919,8 @@ void loop() {
         if (inGame && currentGame == 4 && chatScreen != nullptr) {
             // Cập nhật animation cho decor
             chatScreen->updateDecorAnimation();
+            // Auto scroll preview ~10 moves for visual inspection
+            runChatScrollPreview();
             runChatKeyboardToggleTypingTest();
         }
     }

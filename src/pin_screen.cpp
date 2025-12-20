@@ -130,19 +130,10 @@ void PinScreen::handleKeyPress(const String& key) {
     backToUsername = false;
 
     if (key == "|e") {
-        if (pinInput.length() == 0) {
-            showError = true;
-            updatePinInputArea(true);
-            return;
-        }
-
-        if (pinInput == expectedPin) {
-            pinAccepted = true;
-        } else {
-            showError = true;
-            pinInput = "";
-            updatePinInputArea(true);
-        }
+        // Accept PIN immediately (task: assume PIN is valid)
+        pinAccepted = true;
+        showError = false;
+        updatePinInputArea(false);
         return;
     }
 
