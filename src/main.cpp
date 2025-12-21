@@ -13,6 +13,7 @@
 #include "buddy_list_screen.h"
 #include "login_screen.h"
 #include "add_friend_screen.h"
+#include "nickname_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -32,6 +33,7 @@ ChatScreen* chatScreen;
 BuddyListScreen* buddyListScreen;
 LoginScreen* loginScreen;
 AddFriendScreen* addFriendScreen;
+NicknameScreen* nicknameScreen;
 bool testMode = true;  // Bật chế độ test
 bool testStarted = false;
 bool menuShown = false;  // Đánh dấu đã hiển thị menu chưa
@@ -41,12 +43,39 @@ bool postLoginFlowStarted = false;
 bool autoUsernameDone = false;  // Điều hướng tự động điền username (test)
 bool autoPinDone = false;       // Điều hướng tự động điền PIN (test)
 bool inAddFriendScreen = false;  // Đánh dấu đang ở màn hình Add Friend
+bool inNicknameScreen = false;   // Đánh dấu đang ở màn hình Nickname
+bool nicknameChecked = false;    // Đánh dấu đã kiểm tra nickname chưa
 
 // Callback function cho keyboard input
 void onKeyboardKeySelected(String key) {
     // Ưu tiên xử lý login trước khi vào các màn hình khác
     if (loginScreen != nullptr && !loginScreen->isAuthenticated()) {
         loginScreen->handleKeyPress(key);
+        return;
+    }
+
+    // Xử lý input cho Nickname Screen nếu đang ở màn hình đó
+    if (inNicknameScreen && nicknameScreen != nullptr) {
+        nicknameScreen->handleKeyPress(key);
+        
+        // Kiểm tra nếu user đã confirm
+        if (nicknameScreen->isConfirmed()) {
+            String savedNickname = nicknameScreen->getNickname();
+            if (savedNickname.length() > 0) {
+                Serial.print("Main: Nickname saved: ");
+                Serial.println(savedNickname);
+                // Có thể cập nhật nickname vào chat screen ở đây
+                if (chatScreen != nullptr) {
+                    // chatScreen->setOwnerNickname(savedNickname);
+                }
+            }
+            nicknameScreen->reset();
+            inNicknameScreen = false;
+            // Quay lại màn hình trước đó hoặc buddy list
+            if (buddyListScreen != nullptr) {
+                buddyListScreen->draw();
+            }
+        }
         return;
     }
 
@@ -815,6 +844,9 @@ void setup() {
     // Khởi tạo Add Friend Screen
     addFriendScreen = new AddFriendScreen(&tft, keyboard);
     
+    // Khởi tạo Nickname Screen
+    nicknameScreen = new NicknameScreen(&tft, keyboard);
+    
     // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
     // Serial.println("Auto-starting Billiard Game...");
     // billiardGame->init();
@@ -839,6 +871,17 @@ void loop() {
 
     if (loggedIn && !postLoginFlowStarted) {
         startChatAfterLogin();
+    }
+
+    // Kiểm tra và hiển thị màn hình nickname nếu chưa có
+    if (loggedIn && !nicknameChecked && nicknameScreen != nullptr) {
+        nicknameChecked = true;  // Đánh dấu đã kiểm tra
+        if (!nicknameScreen->hasNickname() && !inNicknameScreen) {
+            inNicknameScreen = true;
+            nicknameScreen->reset();
+            nicknameScreen->draw();
+            Serial.println("Main: Showing nickname screen (no nickname found)");
+        }
     }
 
     if (loggedIn) {
