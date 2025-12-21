@@ -13,19 +13,26 @@
 #define SOFT_WHITE 0xFFFF
 #define NEON_PINK 0xF81F
 
+// Static member definition (must be defined in .cpp file)
+ChatScreen* ChatScreen::instanceForCallback = nullptr;
+
 ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
     
     // Khởi tạo vị trí và kích thước (màn hình rotation 3: 320x240)
     this->titleY = 5;
-    this->chatAreaY = 25;  // Bắt đầu sau title bar
+    this->chatAreaY = 25;  // Bắt đầu sau title bar (titleBarHeight ~25px)
     this->chatAreaHeight = 0;  // Sẽ được tính động
     this->chatAreaWidth = 320;   // Rộng toàn màn hình (rotation 3: 320px)
     this->inputBoxY = 0;  // Sẽ được tính động
     this->inputBoxHeight = 44;   // Chiều cao ô nhập (tăng nhẹ để dễ đọc)
     this->inputBoxWidth = 300;   // Rộng ô nhập (fit màn hình 320px)
     this->maxMessageLength = 80;  // Tăng độ dài tin nhắn lên 80 ký tự
+    this->titleBarFocus = 0;  // No focus initially
+    
+    // Khởi tạo Confirmation Dialog
+    this->confirmationDialog = new ConfirmationDialog(tft);
     
     // Khởi tạo tin nhắn
     this->messageCount = 0;
@@ -60,6 +67,23 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
         Serial.println("Chat: SPIFFS initialization failed!");
     } else {
         Serial.println("Chat: SPIFFS initialized successfully");
+        
+        // Load nickname từ file nếu có
+        const char* nicknameFile = "/nickname.txt";
+        if (SPIFFS.exists(nicknameFile)) {
+            File file = SPIFFS.open(nicknameFile, "r");
+            if (file) {
+                String loadedNickname = file.readStringUntil('\n');
+                loadedNickname.trim();
+                if (loadedNickname.length() > 0) {
+                    this->ownerNickname = loadedNickname;
+                    Serial.print("Chat: Loaded nickname from file: ");
+                    Serial.println(loadedNickname);
+                }
+                file.close();
+            }
+        }
+        
         // KHÔNG tự động load tin nhắn từ file khi khởi động
         // Messages sẽ được thêm sau khi vẽ màn hình chat
         // loadMessagesFromFile();  // Disabled - messages loaded after screen is drawn
@@ -115,42 +139,142 @@ void ChatScreen::drawTitle() {
     tft->drawFastHLine(0, titleBarY + titleBarHeight - 2, screenWidth, chatAreaBorderColor);
     tft->drawFastHLine(0, titleBarY + titleBarHeight - 1, screenWidth, chatAreaBorderColor);
     
-    // Vẽ tên bạn (friend) căn giữa, fallback "CHAT" nếu trống
+    // Spacing constants for "breathing room"
+    const uint16_t screenPaddingX = 6;   // Left/Right edge padding
+    const uint16_t buttonGap = 8;       // Gap between INVITE and KICK buttons
+    const uint16_t sectionGap = 12;     // Gap between Name and INVITE button
+    
+    // Button dimensions
+    const uint16_t buttonHeight = 20;    // Button height
+    const uint16_t buttonPadding = 4;    // Internal padding for text
+    
+    // Button widths (fixed, with proper spacing for text labels)
+    const uint16_t kickButtonWidth = 50;    // Width for "KICK" button
+    const uint16_t inviteButtonWidth = 60;  // Width for "INVITE" button
+    
+    // Calculate total spacing overhead
+    const uint16_t totalSpacingOverhead = screenPaddingX + sectionGap + buttonGap + screenPaddingX;  // 6 + 12 + 8 + 6 = 32px
+    const uint16_t totalButtonsWidth = kickButtonWidth + inviteButtonWidth;  // 50 + 60 = 110px
+    
+    // Calculate max name width
+    const uint16_t maxNameWidth = screenWidth - totalButtonsWidth - totalSpacingOverhead;  // 320 - 110 - 32 = 178px
+    
+    // Calculate max name width (left side)
+    const uint16_t charWidth = 12;  // Ước lượng mỗi ký tự size 2 ~12px
+    const uint16_t statusDotDiameter = 8;
+    const uint16_t statusDotSpacing = 6;
+    uint16_t reservedForDot = statusDotDiameter + statusDotSpacing;
+    
+    // Name width calculation (already calculated above: maxNameWidth = 178px)
+    // Account for status dot in character calculation
+    uint16_t maxNameWidthWithDot = maxNameWidth - reservedForDot;  // 178 - 14 = 164px
+    uint16_t maxChars = maxNameWidthWithDot / charWidth;  // ~13-14 characters
+    
+    // Calculate button positions FIRST (needed for name cutoff calculation)
+    uint16_t buttonY = titleBarY + (titleBarHeight - buttonHeight) / 2;  // Center vertically
+    
+    // Unfriend button (KICK) - rightmost, aligned at screenPaddingX from right
+    uint16_t unfriendX = screenWidth - screenPaddingX - kickButtonWidth;  // 320 - 6 - 50 = 264px
+    
+    // Invite button (INVITE) - left of Unfriend with buttonGap
+    uint16_t inviteX = unfriendX - inviteButtonWidth - buttonGap;  // 264 - 60 - 8 = 196px
+    
+    // Name cutoff point: Invite button X - sectionGap
+    uint16_t nameCutoffX = inviteX - sectionGap;  // 196 - 12 = 184px
+    
+    // Vẽ tên bạn (friend) left-aligned, fallback "CHAT" nếu trống
     tft->setTextColor(titleColor, chatAreaBgColor);
     tft->setTextSize(2);  // Cỡ chữ tầm trung
     String title = friendNickname.length() > 0 ? friendNickname : "CHAT";
     
-    // Giới hạn độ dài để không tràn title bar (có tính dot trạng thái)
-    const uint16_t charWidth = 12;  // Ước lượng mỗi ký tự size 2 ~12px
-    const uint16_t horizontalMargin = 12;
-    const uint16_t statusDotDiameter = 8;
-    const uint16_t statusDotSpacing = 6;
-    uint16_t reservedForDot = statusDotDiameter + statusDotSpacing;
-    uint16_t maxChars = (screenWidth - horizontalMargin * 2 - reservedForDot) / charWidth;
+    // Truncate name if too long (based on maxChars calculation)
     if (title.length() > maxChars && maxChars > 3) {
         title = title.substring(0, maxChars - 3) + "...";
     }
     
-    uint16_t textWidth = title.length() * charWidth;
-    uint16_t combinedWidth = textWidth + reservedForDot;
-    uint16_t startX = (screenWidth > combinedWidth) ? ((screenWidth - combinedWidth) / 2) : 0;
-    uint16_t textX = startX;
+    // Draw name text (left-aligned with screen padding)
+    uint16_t textX = screenPaddingX;  // Start at 6px from left edge
     uint16_t textY = titleBarY + (titleBarHeight - 16) / 2;  // Căn giữa theo chiều dọc (text size 2 cao ~16px)
+    
+    // Draw name text (will be truncated if too long)
     tft->setCursor(textX, textY);
     tft->print(title);
     
-    // Vẽ dot trạng thái bên phải tên
-    uint16_t dotCenterX = startX + textWidth + statusDotSpacing + statusDotDiameter / 2;
-    uint16_t dotCenterY = titleBarY + titleBarHeight / 2;
-    if (isStatusDotVisible()) {
-        tft->fillCircle(dotCenterX, dotCenterY, statusDotDiameter / 2, getStatusDotColor());
+    // Clip name if it would overlap (draw a background rect to cover overflow)
+    uint16_t textWidth = title.length() * charWidth;
+    uint16_t nameEndX = textX + textWidth;
+    if (nameEndX > nameCutoffX) {
+        // Draw background to cover overflow
+        uint16_t overflowStart = nameCutoffX;
+        uint16_t overflowWidth = nameEndX - nameCutoffX;
+        tft->fillRect(overflowStart, titleBarY, overflowWidth, titleBarHeight, chatAreaBgColor);
     }
+    
+    // Vẽ dot trạng thái bên phải tên (only if name doesn't extend too far)
+    uint16_t dotCenterX = textX + textWidth + statusDotSpacing + statusDotDiameter / 2;
+    if (dotCenterX + statusDotDiameter / 2 < nameCutoffX) {
+        uint16_t dotCenterY = titleBarY + titleBarHeight / 2;
+        if (isStatusDotVisible()) {
+            tft->fillCircle(dotCenterX, dotCenterY, statusDotDiameter / 2, getStatusDotColor());
+        }
+    }
+    
+    // Draw action buttons on the right
+    bool unfriendFocused = (titleBarFocus == 2);
+    drawTitleBarButton(unfriendX, buttonY, kickButtonWidth, buttonHeight, NEON_PINK, unfriendFocused, 'X', "KICK");
+    
+    bool inviteFocused = (titleBarFocus == 1);
+    drawTitleBarButton(inviteX, buttonY, inviteButtonWidth, buttonHeight, NEON_CYAN, inviteFocused, '+', "INVITE");
     
     // Vẽ decor cho title bar nếu bật
     if (showTitleBarGradient) {
         drawTitleBarDecor();
     }
 }
+
+void ChatScreen::drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color, bool focused, char icon, const String& label) {
+    if (tft == nullptr) return;
+    
+    // Draw button background
+    uint16_t bgColor = focused ? YELLOW_ORANGE : chatAreaBgColor;
+    if (focused) {
+        // Draw solid background when focused (pressed button effect)
+        tft->fillRoundRect(x, y, width, height, 3, bgColor);
+        // Draw border
+        tft->drawRoundRect(x, y, width, height, 3, color);
+    } else {
+        // Draw transparent background (use title bar background)
+        // Just draw border
+        tft->drawRoundRect(x, y, width, height, 3, color);
+    }
+    
+    // Draw icon + text label
+    const uint16_t iconSize = 12;  // Icon text size 2 ~12px wide
+    const uint16_t textSize = 1;   // Compact text size 1 for labels
+    const uint16_t iconTextSize = 2;  // Icon uses size 2
+    const uint16_t spacing = 2;    // Space between icon and text
+    
+    // Calculate positions
+    uint16_t iconX = x + 2;  // Small padding from left
+    uint16_t iconY = y + (height - 16) / 2;  // Center icon vertically (text size 2 ~16px tall)
+    
+    uint16_t textX = iconX + iconSize + spacing;
+    uint16_t textY = y + (height - 8) / 2;  // Center text vertically (text size 1 ~8px tall)
+    
+    // Draw icon
+    tft->setTextColor(color, bgColor);
+    tft->setTextSize(iconTextSize);
+    tft->setCursor(iconX, iconY);
+    tft->print(icon);
+    
+    // Draw text label
+    tft->setTextColor(color, bgColor);
+    tft->setTextSize(textSize);
+    tft->setCursor(textX, textY);
+    tft->print(label);
+}
+
+// drawConfirmationPopup() removed - now using generic ConfirmationDialog class
 
 void ChatScreen::drawTitleBarDecor() {
     // Vẽ gradient hoặc pattern cho title bar
@@ -286,6 +410,8 @@ void ChatScreen::recalculateLayout() {
     const uint16_t minChatHeight = 40;  // Đảm bảo luôn có không gian hiển thị
     
     chatAreaWidth = screenWidth;
+    
+    // Chat Area starts immediately after Title Bar (maximizing vertical space)
     chatAreaY = titleBarHeight;
     
     uint16_t keyboardHeight = keyboardVisible ? computeKeyboardHeight() : 0;
@@ -330,6 +456,11 @@ void ChatScreen::recalculateLayout() {
         computedChatHeight = screenHeight - chatAreaY;
     }
     chatAreaHeight = static_cast<uint16_t>(computedChatHeight);
+    
+    // Constraint check: Ensure chatAreaHeight doesn't drop below min when keyboard is visible
+    if (keyboardVisible && chatAreaHeight < minChatHeight) {
+        // Ensure minimum chat height is maintained
+    }
     
     // Đảm bảo scrollOffset hợp lệ khi chiều cao thay đổi
     clampScrollOffset();
@@ -834,7 +965,7 @@ void ChatScreen::draw() {
     }
     
     // BƯỚC 3: Vẽ các element lên trên nền đã vẽ
-    // Vẽ tiêu đề (text và dot trạng thái)
+    // Vẽ tiêu đề (text, dot trạng thái, và action buttons)
     drawTitle();
     
     // Vẽ tin nhắn
@@ -853,6 +984,11 @@ void ChatScreen::draw() {
         // Vẽ lại viền sau khi bàn phím vẽ
         tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
         tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
+    }
+    
+    // Vẽ Confirmation Dialog nếu đang hiển thị (vẽ sau cùng để ở trên cùng)
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->draw();
     }
     
     // Reset tất cả dirty flags sau khi vẽ xong
@@ -948,12 +1084,30 @@ void ChatScreen::sendMessage() {
 }
 
 void ChatScreen::handleUp() {
-    // Cuộn lên (xem tin nhắn cũ hơn) - scroll theo từng dòng
-    // Tính tổng số dòng
+    // If confirmation dialog is showing, do nothing (dialog blocks navigation)
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        return;
+    }
+    
+    // If Title Bar is focused, do nothing (can't go up further)
+    if (titleBarFocus > 0) {
+        return;
+    }
+    
+    // If at top of chat (scrollOffset at max), move focus to Title Bar
     int totalLines = calculateTotalLines();
     int maxLines = getVisibleLines();
     int maxScroll = (totalLines > maxLines) ? (totalLines - maxLines) : 0;
     
+    if (scrollOffset >= maxScroll) {
+        // Move focus to Title Bar (Invite button - rightmost default)
+        titleBarFocus = 1;
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
+    // Cuộn lên (xem tin nhắn cũ hơn) - scroll theo từng dòng
     // SMOOTH LOADING: Load incrementally (1-2 messages) for progressive, smooth experience
     // Reduced threshold and debounce for more responsive loading
     const int PREFETCH_THRESHOLD = 5;  // Load when 5 lines from top (reduced from 7 for earlier trigger)
@@ -997,6 +1151,20 @@ void ChatScreen::handleUp() {
 }
 
 void ChatScreen::handleDown() {
+    // If confirmation dialog is showing, do nothing (dialog blocks navigation)
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        return;
+    }
+    
+    // If Title Bar is focused, move focus to Chat Area (latest message)
+    if (titleBarFocus > 0) {
+        titleBarFocus = 0;
+        scrollToLatest();  // Scroll to latest message
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
     // Cuộn xuống (xem tin nhắn mới hơn) - scroll theo từng dòng
     if (scrollOffset > 0) {
         scrollOffset--;  // Giảm 1 dòng
@@ -1007,8 +1175,89 @@ void ChatScreen::handleDown() {
     }
 }
 
+void ChatScreen::handleLeft() {
+    // If confirmation dialog is showing, navigate dialog buttons
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->handleLeft();
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
+    // Only works when Title Bar is focused
+    if (titleBarFocus == 2) {
+        // Move from Unfriend to Invite
+        titleBarFocus = 1;
+        needsRedraw = true;
+        draw();
+    }
+}
+
+void ChatScreen::handleRight() {
+    // If confirmation dialog is showing, navigate dialog buttons
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->handleRight();
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
+    // Only works when Title Bar is focused
+    if (titleBarFocus == 1) {
+        // Move from Invite to Unfriend
+        titleBarFocus = 2;
+        needsRedraw = true;
+        draw();
+    }
+}
+
 void ChatScreen::handleSelect() {
-    // Toggle keyboard visibility
+    // If confirmation dialog is showing, handle dialog selection
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->handleSelect();
+        // Handle pending action after dialog closes
+        if (pendingDialogAction == 1 && !confirmationDialog->isVisible()) {
+            // Check which button was selected (we'll handle this in the callback)
+            pendingDialogAction = 0;
+        }
+        titleBarFocus = 0;  // Return focus to chat area
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
+    // If Title Bar is focused, trigger action
+    if (titleBarFocus > 0) {
+        if (titleBarFocus == 1) {
+            // Invite action - send game invite message
+            Serial.println("Chat: Invite to Game triggered");
+            String inviteMsg = "🎮 " + ownerNickname + " invited you to play a game!";
+            addMessage(inviteMsg, true);
+            // Also add a response message (simulated)
+            delay(500);
+            String responseMsg = friendNickname + " received your game invite";
+            addMessage(responseMsg, false);
+        } else if (titleBarFocus == 2) {
+            // Unfriend action - show confirmation dialog
+            Serial.println("Chat: Unfriend triggered - showing dialog");
+            if (confirmationDialog != nullptr) {
+                pendingDialogAction = 1;  // Mark as unfriend action
+                String message = "Unfriend " + friendNickname + "?";
+                confirmationDialog->show(message, "YES", "NO", 
+                    staticOnUnfriendConfirm, staticOnUnfriendCancel, 0xF81F);  // Neon Pink/Red border
+                needsRedraw = true;
+                draw();
+            }
+            return;
+        }
+        // Return focus to chat area after action (if popup not shown)
+        titleBarFocus = 0;
+        needsRedraw = true;
+        draw();
+        return;
+    }
+    
+    // Toggle keyboard visibility (when not in Title Bar and not in popup)
     keyboardVisible = !keyboardVisible;
     // Bố cục thay đổi -> đánh dấu cần vẽ lại toàn bộ
     needsRedraw = true;
@@ -1063,6 +1312,32 @@ String ChatScreen::getChatHistoryFileName() {
     fileName.replace("|", "_");
     
     return fileName;
+}
+
+// Static callback wrappers for ConfirmationDialog
+void ChatScreen::staticOnUnfriendConfirm() {
+    if (instanceForCallback != nullptr) {
+        instanceForCallback->onUnfriendConfirm();
+    }
+}
+
+void ChatScreen::staticOnUnfriendCancel() {
+    if (instanceForCallback != nullptr) {
+        instanceForCallback->onUnfriendCancel();
+    }
+}
+
+// Instance callback methods for ConfirmationDialog
+void ChatScreen::onUnfriendConfirm() {
+    String unfriendMsg = "You unfriended " + friendNickname;
+    addMessage(unfriendMsg, true);
+    Serial.print("Chat: Unfriended ");
+    Serial.println(friendNickname);
+    // TODO: Actually remove friend from buddy list (requires callback to main)
+}
+
+void ChatScreen::onUnfriendCancel() {
+    Serial.println("Chat: Unfriend cancelled");
 }
 
 // Helper: Calculate total lines for a set of messages

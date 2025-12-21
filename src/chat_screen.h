@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include "keyboard.h"
+#include "confirmation_dialog.h"
 #include <FS.h>
 #include <SPIFFS.h>
 
@@ -28,6 +29,13 @@ private:
     uint16_t inputBoxHeight;
     uint16_t inputBoxWidth;
     uint16_t maxMessageLength;
+    
+    // Title Bar button state (inline with title)
+    uint8_t titleBarFocus;  // 0 = none, 1 = Invite, 2 = Unfriend
+    
+    // Confirmation Dialog (reusable)
+    ConfirmationDialog* confirmationDialog;
+    uint8_t pendingDialogAction;  // 0 = none, 1 = unfriend
     
     // Danh sách tin nhắn
     static const int MAX_MESSAGES = 50;
@@ -92,6 +100,11 @@ private:
     
     // Vẽ tiêu đề
     void drawTitle();
+    
+    // Helper to draw icon buttons in title bar with text labels
+    void drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color, bool focused, char icon, const String& label);
+    
+    // Confirmation Dialog is handled by ConfirmationDialog class
     
     // Vẽ vùng chat
     void drawChatArea();
@@ -185,7 +198,25 @@ public:
     // Navigation
     void handleUp();
     void handleDown();
-    void handleSelect();  // Toggle keyboard visibility
+    void handleLeft();
+    void handleRight();
+    void handleSelect();  // Toggle keyboard visibility or trigger action
+    
+    // Title Bar button navigation
+    bool isTitleBarFocused() const { return titleBarFocus > 0; }
+    uint8_t getTitleBarFocus() const { return titleBarFocus; }
+    void setTitleBarFocus(uint8_t focus) { titleBarFocus = focus; }
+    
+    // Callback methods for ConfirmationDialog (static wrappers)
+    static void staticOnUnfriendConfirm();
+    static void staticOnUnfriendCancel();
+    
+    // Instance methods (called by static wrappers)
+    void onUnfriendConfirm();
+    void onUnfriendCancel();
+    
+    // Static instance pointer for callbacks
+    static ChatScreen* instanceForCallback;
     
     // Xóa tất cả tin nhắn
     void clearMessages();

@@ -58,6 +58,38 @@ bool BuddyListScreen::addFriend(String name, bool online) {
     return true;
 }
 
+bool BuddyListScreen::removeFriend(uint8_t index) {
+    if (index >= buddyCount) {
+        return false;  // Invalid index
+    }
+    
+    // Shift all buddies after the removed one to the left
+    for (uint8_t i = index; i < buddyCount - 1; i++) {
+        buddies[i] = buddies[i + 1];
+    }
+    buddyCount--;
+    
+    // Adjust selectedIndex if needed
+    if (selectedIndex >= buddyCount && selectedIndex != MAX_BUDDIES) {
+        selectedIndex = buddyCount > 0 ? buddyCount - 1 : 0;
+    }
+    
+    // Ensure selection is visible
+    ensureSelectionVisible();
+    
+    return true;
+}
+
+bool BuddyListScreen::removeFriendByName(const String& name) {
+    // Find the friend by name
+    for (uint8_t i = 0; i < buddyCount; i++) {
+        if (buddies[i].name == name) {
+            return removeFriend(i);
+        }
+    }
+    return false;  // Friend not found
+}
+
 uint8_t BuddyListScreen::getVisibleRows() const {
     const uint16_t headerHeight = 30;
     const uint16_t rowHeight = 24;  // Updated to 24px as per requirements
@@ -102,19 +134,30 @@ void BuddyListScreen::drawHeader() {
     const uint16_t buttonY = 5;
     const uint16_t buttonHeight = headerHeight - 10;  // 5px margin top and bottom
     
-    // Draw button background if selected
+    // Draw button background (always draw, but different color when selected)
+    tft->fillRect(buttonX, buttonY, buttonWidth, buttonHeight, buttonBg);
+    
+    // Draw Cyan border when selected (glow effect for better visibility)
     if (isSelected) {
-        tft->fillRect(buttonX, buttonY, buttonWidth, buttonHeight, buttonBg);
+        const uint16_t borderWidth = 2;
+        // Top border
+        tft->drawFastHLine(buttonX, buttonY, buttonWidth, separatorColor);
+        // Bottom border
+        tft->drawFastHLine(buttonX, buttonY + buttonHeight - 1, buttonWidth, separatorColor);
+        // Left border
+        tft->drawFastVLine(buttonX, buttonY, buttonHeight, separatorColor);
+        // Right border
+        tft->drawFastVLine(buttonX + buttonWidth - 1, buttonY, buttonHeight, separatorColor);
     }
     
-    // Draw [+] icon
+    // Draw [+] icon (always Cyan for visibility)
     const uint16_t iconSize = 14;
     const uint16_t iconX = buttonX + 5;
     const uint16_t iconY = buttonY + (buttonHeight - iconSize) / 2;
-    uint16_t iconColor = isSelected ? separatorColor : actionButtonColor;  // Cyan
+    uint16_t iconColor = separatorColor;  // Always Cyan (#00FFFF) for visibility
     drawAddFriendIcon(iconX, iconY, iconSize, iconColor);
     
-    // Draw "Add Friend" text
+    // Draw "Add Friend" text (always Cyan for visibility)
     tft->setTextColor(iconColor, buttonBg);
     tft->setTextSize(1);
     uint16_t textX = iconX + iconSize + 4;

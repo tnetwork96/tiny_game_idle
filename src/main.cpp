@@ -64,9 +64,11 @@ void onKeyboardKeySelected(String key) {
             if (savedNickname.length() > 0) {
                 Serial.print("Main: Nickname saved: ");
                 Serial.println(savedNickname);
-                // Có thể cập nhật nickname vào chat screen ở đây
+                // Cập nhật nickname vào chat screen
                 if (chatScreen != nullptr) {
-                    // chatScreen->setOwnerNickname(savedNickname);
+                    chatScreen->setOwnerNickname(savedNickname);
+                    Serial.print("Main: Updated chat screen nickname to: ");
+                    Serial.println(savedNickname);
                 }
             }
             nicknameScreen->reset();
@@ -658,6 +660,130 @@ void runChatScrollPreview() {
     }
 }
 
+// Hàm tự động unfriend một vài người ngẫu nhiên
+void autoUnfriendRandomBuddies() {
+    if (buddyListScreen == nullptr || chatScreen == nullptr) return;
+    
+    uint8_t buddyCount = buddyListScreen->getBuddyCount();
+    if (buddyCount == 0) {
+        Serial.println("Auto Unfriend: No buddies to unfriend");
+        return;
+    }
+    
+    // Chọn số lượng người để unfriend (2-4 người, hoặc ít hơn nếu không đủ)
+    uint8_t numToUnfriend = min((uint8_t)(2 + (random(0, 3))), buddyCount);
+    Serial.print("Auto Unfriend: Will unfriend ");
+    Serial.print(numToUnfriend);
+    Serial.println(" random buddies");
+    
+    // Tạo danh sách indices ngẫu nhiên
+    uint8_t indices[30];
+    for (uint8_t i = 0; i < buddyCount; i++) {
+        indices[i] = i;
+    }
+    
+    // Shuffle indices
+    for (uint8_t i = 0; i < buddyCount; i++) {
+        uint8_t j = random(0, buddyCount);
+        uint8_t temp = indices[i];
+        indices[i] = indices[j];
+        indices[j] = temp;
+    }
+    
+    // Unfriend từng người
+    for (uint8_t i = 0; i < numToUnfriend; i++) {
+        uint8_t buddyIndex = indices[i];
+        
+        // Chọn buddy này trong list
+        Serial.print("Auto Unfriend: Selecting buddy at index ");
+        Serial.println(buddyIndex);
+        
+        // Di chuyển đến buddy này (từ đầu list)
+        // Reset về đầu list trước
+        while (buddyListScreen->getSelectedIndex() > 0) {
+            buddyListScreen->handleUp();
+            delay(100);
+        }
+        
+        // Di chuyển xuống đến buddyIndex
+        for (uint8_t j = 0; j < buddyIndex; j++) {
+            buddyListScreen->handleDown();
+            delay(150);
+        }
+        delay(500);
+        
+        // Lấy thông tin buddy trước khi chọn
+        BuddyEntry selectedBuddy = buddyListScreen->getSelectedBuddy();
+        if (selectedBuddy.name.length() == 0) {
+            Serial.println("Auto Unfriend: Skipping - buddy name is empty");
+            continue;
+        }
+        
+        // Chọn buddy để vào chat
+        buddyListScreen->handleSelect();
+        delay(800);
+        
+        // Set friend nickname trong chat screen và vào chat mode
+        if (selectedBuddy.name.length() > 0) {
+            inGame = true;
+            currentGame = 4;  // Chat mode
+            chatScreen->setFriendNickname(selectedBuddy.name);
+            chatScreen->setFriendStatus(selectedBuddy.online ? 1 : 0);
+            chatScreen->draw();
+            delay(1000);
+            
+            Serial.print("Auto Unfriend: Entered chat with ");
+            Serial.println(selectedBuddy.name);
+            
+            // Di chuyển focus lên Title Bar (Invite button)
+            chatScreen->handleUp();
+            delay(500);
+            
+            // Di chuyển sang KICK button (Unfriend)
+            chatScreen->handleRight();
+            delay(500);
+            
+            // Trigger unfriend (Enter)
+            Serial.print("Auto Unfriend: Triggering unfriend for ");
+            Serial.println(selectedBuddy.name);
+            chatScreen->handleSelect();
+            delay(1000);  // Wait for dialog to appear
+            
+            // Dialog mặc định focus vào NO, cần chuyển sang YES
+            chatScreen->handleLeft();
+            delay(500);
+            
+            // Confirm unfriend (Enter)
+            Serial.print("Auto Unfriend: Confirming unfriend for ");
+            Serial.println(selectedBuddy.name);
+            chatScreen->handleSelect();
+            delay(1500);  // Wait for dialog to close and action to complete
+            
+            // Xóa bạn khỏi buddy list
+            String buddyName = selectedBuddy.name;
+            if (buddyListScreen->removeFriendByName(buddyName)) {
+                Serial.print("Auto Unfriend: Removed ");
+                Serial.print(buddyName);
+                Serial.println(" from buddy list");
+            }
+            
+            // Quay lại buddy list
+            inGame = false;
+            currentGame = 0;
+            if (buddyListScreen != nullptr) {
+                buddyListScreen->draw();
+            }
+            delay(1000);
+        }
+    }
+    
+    Serial.println("Auto Unfriend: Completed unfriending random buddies");
+    if (buddyListScreen != nullptr) {
+        buddyListScreen->draw();
+    }
+    delay(2000);
+}
+
 // Bắt đầu màn hình chat sau khi login thành công
 void startChatAfterLogin() {
     if (chatScreen == nullptr || postLoginFlowStarted) return;
@@ -675,103 +801,19 @@ void startChatAfterLogin() {
         buddyListScreen->draw();
         delay(1000);  // Hiển thị danh sách ban đầu
         
-        // TỰ ĐỘNG ADD FRIEND - Demo chức năng Add Friend với màn hình nhập tên
-        Serial.println("Buddy List: Auto-adding friends with Add Friend screen...");
+        // TỰ ĐỘNG UNFRIEND - Chỉ chạy flow tự động xóa bạn
+        Serial.println("Buddy List: Starting auto-unfriend demo...");
+        delay(1000);
+        autoUnfriendRandomBuddies();
         
-        // Di chuyển lên header button "Add Friend"
-        while (!buddyListScreen->shouldShowAddFriendScreen()) {
-            buddyListScreen->handleUp();
-            delay(200);  // Delay để thấy animation
-        }
-        delay(500);  // Delay để thấy header button được chọn
-        
-        // Trigger Add Friend screen bằng cách simulate Enter key
-        Serial.println("Buddy List: Opening Add Friend screen...");
-        onKeyboardKeySelected("|e");  // Simulate Enter để mở Add Friend screen
-        delay(1000);  // Hiển thị màn hình Add Friend
-        
-        // Tự động điền tên và add friend
-        const char* testNames[] = { "Alex", "Mai", "Bob", "Lan", "Charlie" };
-        for (int i = 0; i < 5; i++) {
-            String testName = String(testNames[i]);
-            Serial.print("Buddy List: Auto-typing name: ");
-            Serial.println(testName);
-            
-            // Sử dụng keyboard->typeString() để tự động điền tên (giống login screen)
-            // typeString() sẽ tự động trigger callback onKeyboardKeySelected() cho từng ký tự
-            if (inAddFriendScreen && addFriendScreen != nullptr && keyboard != nullptr) {
-                keyboard->typeString(testName);
-                delay(600);  // Delay sau khi gõ xong để thấy text
-                
-                // Confirm (Enter) - sử dụng keyboard navigation
-                // Enter sẽ trigger callback và xử lý confirm trong callback
-                keyboard->moveCursorTo(2, 8);  // Enter key position
-                delay(200);
-                keyboard->moveCursorByCommand("select", 0, 0);
-                delay(500);  // Delay để callback xử lý confirm
-                
-                // Vẽ lại buddy list để xem bạn bè mới (callback đã xử lý add friend)
-                if (buddyListScreen != nullptr) {
-                    buddyListScreen->draw();
-                    delay(1000);  // Delay để xem bạn bè mới
-                }
-                
-                // Di chuyển lại lên header button để add tiếp
-                if (i < 4) {  // Không cần di chuyển lần cuối
-                    while (!buddyListScreen->shouldShowAddFriendScreen()) {
-                        buddyListScreen->handleUp();
-                        delay(200);
-                    }
-                    delay(300);
-                    // Mở lại Add Friend screen
-                    onKeyboardKeySelected("|e");
-                    delay(800);
-                }
-            }
-        }
-        
-        // Quay lại buddy list
-        inAddFriendScreen = false;
+        // Hiển thị buddy list cuối cùng sau khi unfriend xong
         if (buddyListScreen != nullptr) {
             buddyListScreen->draw();
         }
-        delay(1500);  // Giữ màn hình để xem kết quả
-        
-        // Điều hướng lên/xuống rồi chọn ngẫu nhiên một bạn để chat
-        for (int i = 0; i < 3; i++) buddyListScreen->handleDown();
-        for (int i = 0; i < 2; i++) buddyListScreen->handleUp();
-        buddyListScreen->handleSelectRandom();
-        BuddyEntry chosen = buddyListScreen->getSelectedBuddy();
-        if (chosen.name.length() > 0) {
-            chatScreen->setFriendNickname(chosen.name);
-            chatScreen->setFriendStatus(chosen.online ? 1 : 0);
-            Serial.print("Chat: selected buddy -> ");
-            Serial.println(chosen.name);
-        }
-        delay(1200);  // Giữ màn hình danh sách bạn bè một chút
+        delay(2000);  // Giữ màn hình để xem kết quả
     }
-
-    Serial.println("Login success: starting Chat Screen...");
     
-    // BƯỚC 1: Vẽ màn hình chat trước (trống, không có messages)
-    // Chỉ hiển thị khung chat và box nhập chat
-    Serial.println("Chat Screen: Drawing empty chat screen (frame and input box only)...");
-    chatScreen->draw();
-    
-    Serial.println("Chat Screen: Displaying chat frame and input box, waiting 10 seconds...");
-    delay(10000);  // Sleep 10 giây
-    
-    // BƯỚC 2: Sau đó mới tạo và thêm random messages
-    // Tăng lên 50 messages để test lazy loading behavior (initial load 1, còn lại load khi scroll up)
-    Serial.println("Chat Screen: Generating random chat history...");
-    generateRandomChatHistory(chatScreen, 50);  // Tạo 50 tin nhắn random để test lazy loading
-    
-    // BƯỚC 3: Sau khi có messages, tự động nhấn vào ô nhập chat (bật keyboard)
-    Serial.println("Chat Screen: Activating input box (showing keyboard)...");
-    chatScreen->handleSelect();
-    
-    inGame = true;
-    currentGame = 4;  // Chat mode
+    // Flow kết thúc ở buddy list (không vào chat screen)
     menuShown = true;
     postLoginFlowStarted = true;
 }

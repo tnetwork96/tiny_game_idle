@@ -18,6 +18,8 @@ public:
     void setBuddies(const BuddyEntry* entries, uint8_t count);
     void updateStatus(uint8_t index, bool online);
     bool addFriend(String name, bool online = false);  // Add a new friend to the list
+    bool removeFriend(uint8_t index);  // Remove a friend by index
+    bool removeFriendByName(const String& name);  // Remove a friend by name
 
     // Render
     void draw();
