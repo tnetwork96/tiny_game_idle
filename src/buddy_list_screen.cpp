@@ -237,7 +237,44 @@ void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
     tft->print(displayName);
 }
 
-void BuddyListScreen::drawList() {
+void BuddyListScreen::drawScrollbar() {
+    if (tft == nullptr) return;
+    
+    const uint16_t headerHeight = 30;
+    const uint16_t startY = headerHeight;
+    const uint8_t visibleRows = getVisibleRows();
+    
+    // Only draw scrollbar if there are more buddies than visible rows
+    if (buddyCount <= visibleRows) {
+        // Clear scrollbar area if it was previously visible
+        uint16_t barWidth = 4;
+        uint16_t barX = 320 - barWidth;
+        uint16_t scrollbarHeight = 240 - startY;
+        tft->fillRect(barX, startY, barWidth, scrollbarHeight, bgColor);
+        return;
+    }
+    
+    uint16_t barWidth = 4;
+    uint16_t barX = 320 - barWidth;
+    uint16_t scrollbarHeight = 240 - startY;  // Full height from header to bottom
+    
+    // Dark track (darker than background) - use slightly darker midnight blue
+    tft->fillRect(barX, startY, barWidth, scrollbarHeight, 0x0021);  // Very dark midnight blue track
+
+    float ratio = (float)visibleRows / (float)buddyCount;
+    uint16_t thumbHeight = scrollbarHeight * ratio;
+    if (thumbHeight < 8) thumbHeight = 8;
+
+    float scrollPercent = (float)scrollOffset / (float)(buddyCount - visibleRows);
+    if (scrollPercent < 0.0f) scrollPercent = 0.0f;
+    if (scrollPercent > 1.0f) scrollPercent = 1.0f;
+    uint16_t thumbY = startY + (scrollbarHeight - thumbHeight) * scrollPercent;
+
+    // Cyan thumb for scrollbar (Tron-like accent)
+    tft->fillRect(barX, thumbY, barWidth, thumbHeight, 0x07FF);  // Cyan #00FFFF
+}
+
+void BuddyListScreen::drawList(bool clearBackground) {
     if (tft == nullptr) return;
 
     const uint16_t headerHeight = 30;
@@ -246,35 +283,26 @@ void BuddyListScreen::drawList() {
     const uint8_t visibleRows = getVisibleRows();
     const uint16_t listHeight = visibleRows * rowHeight;
 
-    // Clear list area (from header to bottom)
-    tft->fillRect(0, startY, 320, 240 - startY, bgColor);
+    // Only clear list area if explicitly requested (for initial draw or scroll changes)
+    if (clearBackground) {
+        tft->fillRect(0, startY, 320, 240 - startY, bgColor);
+    }
 
+    // Draw all visible rows
     for (uint8_t row = 0; row < visibleRows; row++) {
         uint8_t buddyIdx = scrollOffset + row;
-        if (buddyIdx >= buddyCount) break;
+        if (buddyIdx >= buddyCount) {
+            // Clear remaining rows if there are fewer buddies than visible rows
+            if (clearBackground) {
+                tft->fillRect(0, startY + row * rowHeight, 320, (visibleRows - row) * rowHeight, bgColor);
+            }
+            break;
+        }
         drawBuddyRow(row, buddyIdx);
     }
 
-    // Simple scrollbar on the right (Deep Space theme)
-    if (buddyCount > visibleRows) {
-        uint16_t barWidth = 4;
-        uint16_t barX = 320 - barWidth;
-        uint16_t scrollbarHeight = 240 - startY;  // Full height from header to bottom
-        // Dark track (darker than background) - use slightly darker midnight blue
-        tft->fillRect(barX, startY, barWidth, scrollbarHeight, 0x0021);  // Very dark midnight blue track
-
-        float ratio = (float)visibleRows / (float)buddyCount;
-        uint16_t thumbHeight = scrollbarHeight * ratio;
-        if (thumbHeight < 8) thumbHeight = 8;
-
-        float scrollPercent = (float)scrollOffset / (float)(buddyCount - visibleRows);
-        if (scrollPercent < 0.0f) scrollPercent = 0.0f;
-        if (scrollPercent > 1.0f) scrollPercent = 1.0f;
-        uint16_t thumbY = startY + (scrollbarHeight - thumbHeight) * scrollPercent;
-
-        // Cyan thumb for scrollbar (Tron-like accent)
-        tft->fillRect(barX, thumbY, barWidth, thumbHeight, 0x07FF);  // Cyan #00FFFF
-    }
+    // Draw scrollbar (always redraw when list is redrawn)
+    drawScrollbar();
 }
 
 bool BuddyListScreen::isHeaderButtonSelected() const {
@@ -301,7 +329,7 @@ void BuddyListScreen::draw() {
     if (tft == nullptr) return;
     tft->fillScreen(bgColor);
     drawHeader();
-    drawList();
+    drawList(true);  // Full draw with background clear for initial screen entry
 }
 
 void BuddyListScreen::handleUp() {
@@ -404,10 +432,12 @@ void BuddyListScreen::redrawSelectionChange(uint8_t previousIndex, uint8_t previ
     
     // If scroll window changed, redraw the list area to keep alignment
     if (previousScroll != scrollOffset) {
-        drawList();
+        // Full redraw needed when scroll changes (new rows visible)
+        drawList(true);  // Clear background for scroll changes
         return;
     }
 
+    // Normal selection change without scrolling - only redraw affected rows
     uint8_t visibleRows = getVisibleRows();
 
     // Redraw previous selected row to remove highlight (only if it was a buddy, not header)
@@ -425,5 +455,8 @@ void BuddyListScreen::redrawSelectionChange(uint8_t previousIndex, uint8_t previ
         uint8_t row = selectedIndex - scrollOffset;
         drawBuddyRow(row, selectedIndex);
     }
+    
+    // Note: Scrollbar doesn't need redraw during normal selection changes
+    // (it only changes when scrollOffset changes, which triggers full drawList())
 }
 

@@ -1189,8 +1189,7 @@ void ChatScreen::handleLeft() {
     // If confirmation dialog is showing, navigate dialog buttons
     if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
         confirmationDialog->handleLeft();
-        needsRedraw = true;
-        draw();
+        // No need to redraw entire screen - handleLeft() calls drawButtonSelection() internally
         return;
     }
     
@@ -1207,8 +1206,7 @@ void ChatScreen::handleRight() {
     // If confirmation dialog is showing, navigate dialog buttons
     if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
         confirmationDialog->handleRight();
-        needsRedraw = true;
-        draw();
+        // No need to redraw entire screen - handleRight() calls drawButtonSelection() internally
         return;
     }
     

@@ -63,7 +63,8 @@ private:
     uint8_t getVisibleRows() const;
     void ensureSelectionVisible();
     void drawHeader();
-    void drawList();
+    void drawList(bool clearBackground = true);  // Allow partial redraw without clearing
+    void drawScrollbar();  // Draw scrollbar independently
     void drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx);
     void drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t size, uint16_t color);
     uint16_t statusColor(bool online) const;

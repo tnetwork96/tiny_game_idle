@@ -7,6 +7,7 @@ ConfirmationDialog::ConfirmationDialog(Adafruit_ST7789* tft) {
     this->onConfirmCallback = nullptr;
     this->onCancelCallback = nullptr;
     this->borderColor = 0xF81F;  // Default Neon Pink/Red
+    this->buttonPositionsCached = false;
 }
 
 void ConfirmationDialog::show(const String& message, 
@@ -23,6 +24,7 @@ void ConfirmationDialog::show(const String& message,
     this->borderColor = borderColor;
     this->selectedButton = 1;  // Default to Cancel (NO) for safety
     this->visible = true;
+    this->buttonPositionsCached = false;  // Reset cache - will be set on first draw()
 }
 
 void ConfirmationDialog::hide() {
@@ -65,14 +67,22 @@ void ConfirmationDialog::draw() {
     uint16_t buttonWidth = (popupWidth - (POPUP_PADDING * 2) - BUTTON_SPACING) / 2;
     uint16_t buttonStartX = popupX + POPUP_PADDING;
     
+    // Cache button positions for partial redraw
+    confirmButtonX = buttonStartX;
+    confirmButtonY = buttonY;
+    confirmButtonWidth = buttonWidth;
+    cancelButtonX = buttonStartX + buttonWidth + BUTTON_SPACING;
+    cancelButtonY = buttonY;
+    cancelButtonWidth = buttonWidth;
+    buttonPositionsCached = true;
+    
     // Confirm button (left)
     bool confirmSelected = (selectedButton == 0);
-    drawButton(buttonStartX, buttonY, buttonWidth, confirmLabel, CONFIRM_COLOR, confirmSelected);
+    drawButton(confirmButtonX, confirmButtonY, confirmButtonWidth, confirmLabel, CONFIRM_COLOR, confirmSelected);
     
     // Cancel button (right)
-    uint16_t cancelX = buttonStartX + buttonWidth + BUTTON_SPACING;
     bool cancelSelected = (selectedButton == 1);
-    drawButton(cancelX, buttonY, buttonWidth, cancelLabel, CANCEL_COLOR, cancelSelected);
+    drawButton(cancelButtonX, cancelButtonY, cancelButtonWidth, cancelLabel, CANCEL_COLOR, cancelSelected);
 }
 
 void ConfirmationDialog::drawOverlay() {
@@ -172,11 +182,26 @@ uint16_t ConfirmationDialog::calculatePopupHeight() const {
     return height;
 }
 
+void ConfirmationDialog::drawButtonSelection() {
+    // Partial redraw: only update button selection states
+    // This avoids flickering by not redrawing the entire dialog
+    if (!visible || !buttonPositionsCached || tft == nullptr) return;
+    
+    // Redraw both buttons with their current selection states
+    bool confirmSelected = (selectedButton == 0);
+    bool cancelSelected = (selectedButton == 1);
+    
+    drawButton(confirmButtonX, confirmButtonY, confirmButtonWidth, confirmLabel, CONFIRM_COLOR, confirmSelected);
+    drawButton(cancelButtonX, cancelButtonY, cancelButtonWidth, cancelLabel, CANCEL_COLOR, cancelSelected);
+}
+
 void ConfirmationDialog::handleLeft() {
     if (!visible) return;
     if (selectedButton == 1) {
         // Move from Cancel to Confirm
         selectedButton = 0;
+        // Use partial redraw instead of full draw to prevent flicker
+        drawButtonSelection();
     }
 }
 
@@ -185,6 +210,8 @@ void ConfirmationDialog::handleRight() {
     if (selectedButton == 0) {
         // Move from Confirm to Cancel
         selectedButton = 1;
+        // Use partial redraw instead of full draw to prevent flicker
+        drawButtonSelection();
     }
 }
 

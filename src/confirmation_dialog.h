@@ -30,6 +30,9 @@ public:
     // Draw the dialog
     void draw();
     
+    // Partial redraw: only update button selection states (for flicker-free navigation)
+    void drawButtonSelection();
+    
     // Navigation
     void handleLeft();
     void handleRight();
@@ -50,6 +53,15 @@ private:
     CancelCallback onCancelCallback;
     uint16_t borderColor;
     uint8_t selectedButton;  // 0 = Confirm, 1 = Cancel (default)
+    
+    // Cached button positions for partial redraw (set during draw())
+    uint16_t confirmButtonX;
+    uint16_t confirmButtonY;
+    uint16_t confirmButtonWidth;
+    uint16_t cancelButtonX;
+    uint16_t cancelButtonY;
+    uint16_t cancelButtonWidth;
+    bool buttonPositionsCached;  // Track if positions are valid
     
     // Colors (Midnight Blue theme)
     static const uint16_t OVERLAY_COLOR = 0x0004;      // Very dark blue (semi-transparent effect)
