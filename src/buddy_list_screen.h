@@ -17,6 +17,7 @@ public:
     // Data
     void setBuddies(const BuddyEntry* entries, uint8_t count);
     void updateStatus(uint8_t index, bool online);
+    bool addFriend(String name, bool online = false);  // Add a new friend to the list
 
     // Render
     void draw();
@@ -24,8 +25,9 @@ public:
     // Navigation
     void handleUp();
     void handleDown();
-    void handleSelect();           // Select current highlighted friend
+    void handleSelect();           // Select current highlighted friend or trigger Add Friend screen
     void handleSelectRandom();     // Select a random friend
+    bool shouldShowAddFriendScreen() const;  // Check if Add Friend screen should be shown (header button selected)
 
     // Access
     BuddyEntry getSelectedBuddy() const;
@@ -52,6 +54,8 @@ private:
     uint16_t onlineColor;
     uint16_t offlineColor;
     uint16_t avatarColor;  // Light gray/blue for avatar
+    uint16_t separatorColor;  // Cyan separator lines
+    uint16_t actionButtonColor;  // Cyan for Add Friend button
 
     // Layout helpers
     uint8_t getVisibleRows() const;
@@ -59,8 +63,10 @@ private:
     void drawHeader();
     void drawList();
     void drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx);
+    void drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t size, uint16_t color);
     uint16_t statusColor(bool online) const;
     void redrawSelectionChange(uint8_t previousIndex, uint8_t previousScroll);
+    bool isHeaderButtonSelected() const;
 };
 
 #endif

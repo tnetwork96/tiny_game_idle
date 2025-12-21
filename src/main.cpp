@@ -12,6 +12,7 @@
 #include "chat_screen.h"
 #include "buddy_list_screen.h"
 #include "login_screen.h"
+#include "add_friend_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -30,6 +31,7 @@ BilliardGame* billiardGame;
 ChatScreen* chatScreen;
 BuddyListScreen* buddyListScreen;
 LoginScreen* loginScreen;
+AddFriendScreen* addFriendScreen;
 bool testMode = true;  // Bật chế độ test
 bool testStarted = false;
 bool menuShown = false;  // Đánh dấu đã hiển thị menu chưa
@@ -38,6 +40,7 @@ int currentGame = 0;  // 0 = none, 1 = gunny, 2 = caro, 3 = billiard, 4 = chat
 bool postLoginFlowStarted = false;
 bool autoUsernameDone = false;  // Điều hướng tự động điền username (test)
 bool autoPinDone = false;       // Điều hướng tự động điền PIN (test)
+bool inAddFriendScreen = false;  // Đánh dấu đang ở màn hình Add Friend
 
 // Callback function cho keyboard input
 void onKeyboardKeySelected(String key) {
@@ -45,6 +48,43 @@ void onKeyboardKeySelected(String key) {
     if (loginScreen != nullptr && !loginScreen->isAuthenticated()) {
         loginScreen->handleKeyPress(key);
         return;
+    }
+
+    // Xử lý input cho Add Friend Screen nếu đang ở màn hình đó
+    if (inAddFriendScreen && addFriendScreen != nullptr) {
+        addFriendScreen->handleKeyPress(key);
+        
+        // Kiểm tra nếu user đã confirm
+        if (addFriendScreen->isConfirmed()) {
+            String friendName = addFriendScreen->getFriendName();
+            if (friendName.length() > 0 && buddyListScreen != nullptr) {
+                // Random online status (70% chance online)
+                bool isOnline = (random(0, 10) < 7);
+                if (buddyListScreen->addFriend(friendName, isOnline)) {
+                    // Move selection to the newly added friend
+                    uint8_t newIndex = buddyListScreen->getBuddyCount() - 1;
+                    // Note: We can't directly set selectedIndex, so we'll just redraw
+                    buddyListScreen->draw();
+                }
+            }
+            addFriendScreen->reset();
+            inAddFriendScreen = false;
+            // Redraw buddy list to show new friend
+            if (buddyListScreen != nullptr) {
+                buddyListScreen->draw();
+            }
+        }
+        return;
+    }
+    
+    // Check if we should show Add Friend screen (when Enter is pressed on footer)
+    if (!inAddFriendScreen && buddyListScreen != nullptr && key == "|e") {
+        if (buddyListScreen->shouldShowAddFriendScreen() && addFriendScreen != nullptr) {
+            inAddFriendScreen = true;
+            addFriendScreen->reset();
+            addFriendScreen->draw();
+            return;
+        }
     }
 
     // Xử lý input cho chat nếu đang ở chế độ chat
@@ -604,6 +644,70 @@ void startChatAfterLogin() {
         };
         buddyListScreen->setBuddies(demo, sizeof(demo) / sizeof(demo[0]));
         buddyListScreen->draw();
+        delay(1000);  // Hiển thị danh sách ban đầu
+        
+        // TỰ ĐỘNG ADD FRIEND - Demo chức năng Add Friend với màn hình nhập tên
+        Serial.println("Buddy List: Auto-adding friends with Add Friend screen...");
+        
+        // Di chuyển lên header button "Add Friend"
+        while (!buddyListScreen->shouldShowAddFriendScreen()) {
+            buddyListScreen->handleUp();
+            delay(200);  // Delay để thấy animation
+        }
+        delay(500);  // Delay để thấy header button được chọn
+        
+        // Trigger Add Friend screen bằng cách simulate Enter key
+        Serial.println("Buddy List: Opening Add Friend screen...");
+        onKeyboardKeySelected("|e");  // Simulate Enter để mở Add Friend screen
+        delay(1000);  // Hiển thị màn hình Add Friend
+        
+        // Tự động điền tên và add friend
+        const char* testNames[] = { "Alex", "Mai", "Bob", "Lan", "Charlie" };
+        for (int i = 0; i < 5; i++) {
+            String testName = String(testNames[i]);
+            Serial.print("Buddy List: Auto-typing name: ");
+            Serial.println(testName);
+            
+            // Sử dụng keyboard->typeString() để tự động điền tên (giống login screen)
+            // typeString() sẽ tự động trigger callback onKeyboardKeySelected() cho từng ký tự
+            if (inAddFriendScreen && addFriendScreen != nullptr && keyboard != nullptr) {
+                keyboard->typeString(testName);
+                delay(600);  // Delay sau khi gõ xong để thấy text
+                
+                // Confirm (Enter) - sử dụng keyboard navigation
+                // Enter sẽ trigger callback và xử lý confirm trong callback
+                keyboard->moveCursorTo(2, 8);  // Enter key position
+                delay(200);
+                keyboard->moveCursorByCommand("select", 0, 0);
+                delay(500);  // Delay để callback xử lý confirm
+                
+                // Vẽ lại buddy list để xem bạn bè mới (callback đã xử lý add friend)
+                if (buddyListScreen != nullptr) {
+                    buddyListScreen->draw();
+                    delay(1000);  // Delay để xem bạn bè mới
+                }
+                
+                // Di chuyển lại lên header button để add tiếp
+                if (i < 4) {  // Không cần di chuyển lần cuối
+                    while (!buddyListScreen->shouldShowAddFriendScreen()) {
+                        buddyListScreen->handleUp();
+                        delay(200);
+                    }
+                    delay(300);
+                    // Mở lại Add Friend screen
+                    onKeyboardKeySelected("|e");
+                    delay(800);
+                }
+            }
+        }
+        
+        // Quay lại buddy list
+        inAddFriendScreen = false;
+        if (buddyListScreen != nullptr) {
+            buddyListScreen->draw();
+        }
+        delay(1500);  // Giữ màn hình để xem kết quả
+        
         // Điều hướng lên/xuống rồi chọn ngẫu nhiên một bạn để chat
         for (int i = 0; i < 3; i++) buddyListScreen->handleDown();
         for (int i = 0; i < 2; i++) buddyListScreen->handleUp();
@@ -707,6 +811,9 @@ void setup() {
     
     // Khởi tạo Buddy List Screen (kiểu Yahoo)
     buddyListScreen = new BuddyListScreen(&tft);
+    
+    // Khởi tạo Add Friend Screen
+    addFriendScreen = new AddFriendScreen(&tft, keyboard);
     
     // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
     // Serial.println("Auto-starting Billiard Game...");
