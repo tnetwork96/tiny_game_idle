@@ -170,6 +170,10 @@ public:
     // Vẽ toàn bộ màn hình
     void draw();
     
+    // Force a full screen redraw (clears screen and redraws everything)
+    // Use this when switching to Chat Screen from another screen
+    void forceRedraw();
+    
     // Xử lý khi nhấn phím
     void handleKeyPress(String key);
     

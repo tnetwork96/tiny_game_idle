@@ -932,6 +932,15 @@ void ChatScreen::drawCurrentMessage() {
     needsInputRedraw = false;
 }
 
+void ChatScreen::forceRedraw() {
+    // Force a full screen redraw by setting all dirty flags
+    needsRedraw = true;
+    needsMessagesRedraw = true;
+    needsInputRedraw = true;
+    // Call draw() which will clear the screen and redraw everything
+    draw();
+}
+
 void ChatScreen::draw() {
     // Chỉ vẽ lại khi cần thiết (optimization để tránh vẽ liên tục)
     if (!needsRedraw) return;
@@ -939,7 +948,8 @@ void ChatScreen::draw() {
     // Bố cục có thể thay đổi khi toggle keyboard -> tính lại mỗi lần vẽ
     recalculateLayout();
     
-    // BƯỚC 1: Vẽ nền full màn hình trước
+    // BƯỚC 1: Vẽ nền full màn hình trước - ALWAYS clear entire screen
+    // This ensures no artifacts from previous screen remain
     tft->fillScreen(bgColor);
     
     // BƯỚC 2: Vẽ nền cho từng vùng trước

@@ -725,11 +725,16 @@ void autoUnfriendRandomBuddies() {
         
         // Set friend nickname trong chat screen và vào chat mode
         if (selectedBuddy.name.length() > 0) {
+            // Clear screen before switching to Chat Screen to prevent artifacts
+            tft.fillScreen(ST77XX_BLACK);
+            delay(50);  // Small delay to ensure screen clear completes
+            
             inGame = true;
             currentGame = 4;  // Chat mode
             chatScreen->setFriendNickname(selectedBuddy.name);
             chatScreen->setFriendStatus(selectedBuddy.online ? 1 : 0);
-            chatScreen->draw();
+            // Force full redraw to ensure clean screen transition
+            chatScreen->forceRedraw();
             delay(1000);
             
             Serial.print("Auto Unfriend: Entered chat with ");
