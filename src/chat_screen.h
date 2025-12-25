@@ -8,6 +8,9 @@
 #include <FS.h>
 #include <SPIFFS.h>
 
+// Callback type for exiting chat screen
+typedef void (*ExitCallback)();
+
 // Cấu trúc tin nhắn
 struct ChatMessage {
     String text;
@@ -36,6 +39,9 @@ private:
     // Confirmation Dialog (reusable)
     ConfirmationDialog* confirmationDialog;
     uint8_t pendingDialogAction;  // 0 = none, 1 = unfriend
+    
+    // Exit callback for navigation
+    ExitCallback onExitCallback;
     
     // Danh sách tin nhắn
     static const int MAX_MESSAGES = 50;
@@ -221,6 +227,9 @@ public:
     
     // Static instance pointer for callbacks
     static ChatScreen* instanceForCallback;
+    
+    // Callback for exiting screen after unfriend
+    void setOnExitCallback(ExitCallback callback);
     
     // Xóa tất cả tin nhắn
     void clearMessages();

@@ -789,6 +789,19 @@ void autoUnfriendRandomBuddies() {
     delay(2000);
 }
 
+// Callback function for chat screen exit (after unfriend)
+void onChatExit() {
+    Serial.println("Main: Chat screen exit callback triggered, returning to buddy list");
+    // Navigate back to buddy list
+    inGame = false;
+    currentGame = 0;
+    // Clear screen and redraw buddy list
+    tft.fillScreen(ST77XX_BLACK);
+    if (buddyListScreen != nullptr) {
+        buddyListScreen->draw();
+    }
+}
+
 // Bắt đầu màn hình chat sau khi login thành công
 void startChatAfterLogin() {
     if (chatScreen == nullptr || postLoginFlowStarted) return;
@@ -884,6 +897,8 @@ void setup() {
     
     // Khởi tạo Chat Screen
     chatScreen = new ChatScreen(&tft, keyboard);
+    // Register exit callback for navigation after unfriend
+    chatScreen->setOnExitCallback(onChatExit);
     
     // Khởi tạo Buddy List Screen (kiểu Yahoo)
     buddyListScreen = new BuddyListScreen(&tft);
