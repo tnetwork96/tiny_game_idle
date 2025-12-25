@@ -63,16 +63,16 @@ void NicknameScreen::drawErrorMessage(const String& message, uint16_t y) {
 void NicknameScreen::updateInputArea(bool showErrorMsg) {
     // Clear input box region (accounting for header)
     const uint16_t headerHeight = 30;
-    tft->fillRect(20, headerHeight + 20, 280, 34, NICKNAME_BG_DARK);
-    drawInputBox(20, headerHeight + 20, 280, 34, nickname);
+    tft->fillRect(20, headerHeight + 10, 280, 34, NICKNAME_BG_DARK);
+    drawInputBox(20, headerHeight + 10, 280, 34, nickname);
 
     // Clear error area
-    tft->fillRect(20, headerHeight + 86, 280, 24, NICKNAME_BG_DARK);
+    tft->fillRect(20, headerHeight + 65, 280, 24, NICKNAME_BG_DARK);
     if (showErrorMsg) {
         if (showNameEmpty) {
-            drawErrorMessage("Nickname is required", headerHeight + 90);
+            drawErrorMessage("Nickname is required", headerHeight + 69);
         } else if (showNameTooLong) {
-            drawErrorMessage("Nickname too long (max 20 chars)", headerHeight + 90);
+            drawErrorMessage("Nickname too long (max 20 chars)", headerHeight + 69);
         }
     }
 }
@@ -91,12 +91,12 @@ void NicknameScreen::draw() {
     tft->setCursor(10, 8);
     tft->print("NICKNAME");
 
-    drawInputBox(20, headerHeight + 20, 280, 34, nickname);
+    drawInputBox(20, headerHeight + 10, 280, 34, nickname);
 
     // Instructions
     tft->setTextSize(1);
     tft->setTextColor(NICKNAME_TEXT, NICKNAME_BG_DARK);
-    tft->setCursor(20, headerHeight + 70);
+    tft->setCursor(20, headerHeight + 50);
     tft->print("Press Enter to save");
 
     // Show current nickname if exists
@@ -104,7 +104,7 @@ void NicknameScreen::draw() {
         String currentNick = loadNickname();
         tft->setTextSize(1);
         tft->setTextColor(NICKNAME_MUTED, NICKNAME_BG_DARK);
-        tft->setCursor(20, headerHeight + 90);
+        tft->setCursor(20, headerHeight + 65);
         tft->print("Current: ");
         tft->setTextColor(NICKNAME_SUCCESS, NICKNAME_BG_DARK);
         tft->print(currentNick);

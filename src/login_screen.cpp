@@ -68,13 +68,13 @@ void LoginScreen::drawErrorMessage(const String& message, uint16_t y) {
 void LoginScreen::updateUsernameInputArea(bool showErrorMsg) {
     // Clear input box region (accounting for header)
     const uint16_t headerHeight = 30;
-    tft->fillRect(20, headerHeight + 30, 280, 34, WIN_BG_DARK);
-    drawInputBox(20, headerHeight + 30, 280, 34, username, false);
+    tft->fillRect(20, headerHeight + 10, 280, 34, WIN_BG_DARK);
+    drawInputBox(20, headerHeight + 10, 280, 34, username, false);
 
     // Clear error area
-    tft->fillRect(20, headerHeight + 96, 280, 12, WIN_BG_DARK);
+    tft->fillRect(20, headerHeight + 65, 280, 12, WIN_BG_DARK);
     if (showErrorMsg) {
-        drawErrorMessage("Username is required", headerHeight + 100);
+        drawErrorMessage("Username is required", headerHeight + 69);
     }
 }
 
@@ -98,15 +98,15 @@ void LoginScreen::drawUsernameScreen() {
     tft->setCursor(20, headerHeight + 12);
     tft->print("Username");
 
-    drawInputBox(20, headerHeight + 30, 280, 34, username, false);
+    drawInputBox(20, headerHeight + 10, 280, 34, username, false);
 
     tft->setTextSize(1);
     tft->setTextColor(WIN_TEXT, WIN_BG_DARK);
-    tft->setCursor(20, headerHeight + 80);
+    tft->setCursor(20, headerHeight + 50);
     tft->print("Press Enter to continue");
 
     if (showUsernameEmpty) {
-        drawErrorMessage("Username is required", headerHeight + 100);
+        drawErrorMessage("Username is required", headerHeight + 69);
     }
 
     ensureAlphabetMode();

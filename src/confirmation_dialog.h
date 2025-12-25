@@ -19,7 +19,7 @@ public:
               const String& cancelLabel = "NO",
               ConfirmCallback onConfirm = nullptr,
               CancelCallback onCancel = nullptr,
-              uint16_t borderColor = 0xF81F);  // Default Neon Pink/Red for alerts
+              uint16_t borderColor = 0x07FF);  // Default Cyan accent (Deep Space theme)
     
     // Hide dialog
     void hide();
@@ -63,13 +63,20 @@ private:
     uint16_t cancelButtonWidth;
     bool buttonPositionsCached;  // Track if positions are valid
     
-    // Colors (Midnight Blue theme)
+    // Deep Space Arcade Theme (matching Login Screen)
+    static const uint16_t WIN_BG_DARK = 0x0042;       // Deep Midnight Blue #020817
+    static const uint16_t WIN_HEADER = 0x08A5;        // Header Blue #0F172A
+    static const uint16_t WIN_ACCENT = 0x07FF;        // Cyan accent
+    static const uint16_t WIN_TEXT = 0xFFFF;          // White text
+    
+    // Colors (using Deep Space theme)
     static const uint16_t OVERLAY_COLOR = 0x0004;      // Very dark blue (semi-transparent effect)
-    static const uint16_t BOX_BG_COLOR = 0x0F17;      // Deep Navy (#0F172A)
-    static const uint16_t TEXT_COLOR = 0xFFFF;        // White
-    static const uint16_t CONFIRM_COLOR = 0xF800;     // Neon Red (for destructive)
-    static const uint16_t CANCEL_COLOR = 0x07FF;      // Neon Cyan
-    static const uint16_t SELECTED_BG = 0xFE20;       // Yellow-Orange (selected background)
+    static const uint16_t BOX_BG_COLOR = WIN_BG_DARK; // Deep Midnight Blue
+    static const uint16_t TEXT_COLOR = WIN_TEXT;      // White
+    static const uint16_t CONFIRM_COLOR = WIN_ACCENT; // Cyan (for confirm)
+    static const uint16_t CANCEL_COLOR = WIN_ACCENT;  // Cyan (for cancel)
+    static const uint16_t SELECTED_BG = WIN_ACCENT;   // Cyan (selected background)
+    static const uint16_t SELECTED_TEXT = WIN_HEADER; // Header Blue (selected text)
     
     // Layout constants
     static const uint16_t POPUP_WIDTH = 200;

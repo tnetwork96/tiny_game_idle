@@ -77,13 +77,13 @@ void PinScreen::drawErrorMessage(const String& message, uint16_t y) {
 void PinScreen::updatePinInputArea(bool showErrorMsg) {
     // Clear input box region (accounting for header)
     const uint16_t headerHeight = 30;
-    tft->fillRect(20, headerHeight + 30, 280, 34, WIN_BG_DARK);
-    drawInputBox(20, headerHeight + 30, 280, 34, pinInput, true);
+    tft->fillRect(20, headerHeight + 10, 280, 34, WIN_BG_DARK);
+    drawInputBox(20, headerHeight + 10, 280, 34, pinInput, true);
 
     // Clear error area
-    tft->fillRect(20, headerHeight + 96, 280, 12, WIN_BG_DARK);
+    tft->fillRect(20, headerHeight + 65, 280, 12, WIN_BG_DARK);
     if (showErrorMsg) {
-        drawErrorMessage("PIN is required or incorrect", headerHeight + 100);
+        drawErrorMessage("PIN is required or incorrect", headerHeight + 69);
     }
 }
 
@@ -107,15 +107,15 @@ void PinScreen::drawPinScreen() {
     tft->setCursor(20, headerHeight + 12);
     tft->print("Enter your PIN");
 
-    drawInputBox(20, headerHeight + 30, 280, 34, pinInput, true);
+    drawInputBox(20, headerHeight + 10, 280, 34, pinInput, true);
 
     tft->setTextSize(1);
     tft->setTextColor(WIN_TEXT, WIN_BG_DARK);
-    tft->setCursor(20, headerHeight + 80);
+    tft->setCursor(20, headerHeight + 50);
     tft->print("Press Enter to continue");
 
     if (showError) {
-        drawErrorMessage("PIN is required or incorrect", headerHeight + 100);
+        drawErrorMessage("PIN is required or incorrect", headerHeight + 69);
     }
 
     // Draw and focus keyboard for navigation across PIN buttons

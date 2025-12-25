@@ -53,13 +53,13 @@ void AddFriendScreen::drawErrorMessage(const String& message, uint16_t y) {
 void AddFriendScreen::updateInputArea(bool showErrorMsg) {
     // Clear input box region (accounting for header)
     const uint16_t headerHeight = 30;
-    tft->fillRect(20, headerHeight + 20, 280, 34, FRIEND_BG_DARK);
-    drawInputBox(20, headerHeight + 20, 280, 34, friendName);
+    tft->fillRect(20, headerHeight + 10, 280, 34, FRIEND_BG_DARK);
+    drawInputBox(20, headerHeight + 10, 280, 34, friendName);
 
     // Clear error area
-    tft->fillRect(20, headerHeight + 86, 280, 12, FRIEND_BG_DARK);
+    tft->fillRect(20, headerHeight + 65, 280, 12, FRIEND_BG_DARK);
     if (showErrorMsg) {
-        drawErrorMessage("Friend name is required", headerHeight + 90);
+        drawErrorMessage("Friend name is required", headerHeight + 69);
     }
 }
 
@@ -77,15 +77,15 @@ void AddFriendScreen::draw() {
     tft->setCursor(10, 8);
     tft->print("ADD FRIEND");
 
-    drawInputBox(20, headerHeight + 20, 280, 34, friendName);
+    drawInputBox(20, headerHeight + 10, 280, 34, friendName);
 
     tft->setTextSize(1);
     tft->setTextColor(FRIEND_TEXT, FRIEND_BG_DARK);
-    tft->setCursor(20, headerHeight + 70);
+    tft->setCursor(20, headerHeight + 50);
     tft->print("Press Enter to add friend");
 
     if (showNameEmpty) {
-        drawErrorMessage("Friend name is required", headerHeight + 90);
+        drawErrorMessage("Friend name is required", headerHeight + 69);
     }
 
     ensureAlphabetMode();
