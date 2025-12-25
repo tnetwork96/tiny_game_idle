@@ -33,6 +33,7 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->inputBoxWidth = 300;   // Rộng ô nhập (fit màn hình 320px)
     this->maxMessageLength = 80;  // Tăng độ dài tin nhắn lên 80 ký tự
     this->titleBarFocus = 0;  // No focus initially
+    this->onExitCallback = nullptr;  // Initialize exit callback
     
     // Khởi tạo Confirmation Dialog
     this->confirmationDialog = new ConfirmationDialog(tft);
@@ -1240,8 +1241,10 @@ void ChatScreen::handleSelect() {
         confirmationDialog->handleSelect();
         // Handle pending action after dialog closes
         if (pendingDialogAction == 1 && !confirmationDialog->isVisible()) {
-            // Check which button was selected (we'll handle this in the callback)
+            // Unfriend action - callback will handle navigation, don't redraw chat
             pendingDialogAction = 0;
+            // Return immediately - let callback handle navigation away from chat screen
+            return;
         }
         titleBarFocus = 0;  // Return focus to chat area
         needsRedraw = true;
@@ -1350,12 +1353,19 @@ void ChatScreen::staticOnUnfriendCancel() {
     }
 }
 
+// Setter for exit callback
+void ChatScreen::setOnExitCallback(ExitCallback callback) {
+    onExitCallback = callback;
+}
+
 // Instance callback methods for ConfirmationDialog
 void ChatScreen::onUnfriendConfirm() {
-    String unfriendMsg = "You unfriended " + friendNickname;
-    addMessage(unfriendMsg, true);
     Serial.print("Chat: Unfriended ");
     Serial.println(friendNickname);
+    // Invoke exit callback immediately - no message, no redraw
+    if (onExitCallback != nullptr) {
+        onExitCallback();
+    }
     // TODO: Actually remove friend from buddy list (requires callback to main)
 }
 
