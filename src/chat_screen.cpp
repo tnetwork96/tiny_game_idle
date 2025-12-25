@@ -5,13 +5,16 @@
 #include <FS.h>
 #include <SPIFFS.h>
 
-// Synthwave/Vaporwave color palette
-#define NEON_PURPLE 0xD81F
-#define NEON_GREEN 0x07E0
-#define NEON_CYAN 0x07FF
-#define YELLOW_ORANGE 0xFE20
-#define SOFT_WHITE 0xFFFF
-#define NEON_PINK 0xF81F
+// Deep Space Arcade Theme (matching BuddyListScreen)
+#define BG_DEEP_MIDNIGHT 0x0042  // Deep Midnight Blue #020817
+#define HEADER_BLUE 0x08A5       // Lighter Blue #0F172A
+#define HIGHLIGHT_BLUE 0x1148    // Electric Blue tint #162845
+#define CYAN_ACCENT 0x07FF       // Cyan #00FFFF
+#define TEXT_WHITE 0xFFFF        // White
+#define ONLINE_GREEN 0x07F3      // Minty Green #00FF99
+#define OFFLINE_RED 0xF986       // Bright Red #FF3333
+#define SOFT_WHITE 0xFFFF        // White
+#define NEON_PINK 0xF81F         // Keep for error/warning states
 
 // Static member definition (must be defined in .cpp file)
 ChatScreen* ChatScreen::instanceForCallback = nullptr;
@@ -89,16 +92,16 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
         // loadMessagesFromFile();  // Disabled - messages loaded after screen is drawn
     }
     
-    // Khởi tạo màu sắc mặc định - Phong cách Synthwave/Vaporwave
-    this->bgColor = ST77XX_BLACK;
-    this->titleColor = YELLOW_ORANGE;
-    this->chatAreaBgColor = 0x0008;  // Đen nhạt
-    this->chatAreaBorderColor = NEON_PURPLE;
-    this->inputBoxBgColor = ST77XX_BLACK;
-    this->inputBoxBorderColor = NEON_CYAN;
-    this->userMessageColor = NEON_GREEN;  // Tin nhắn của user màu xanh lá
-    this->otherMessageColor = NEON_PINK;  // Tin nhắn của người khác màu hồng
-    this->textColor = SOFT_WHITE;
+    // Khởi tạo màu sắc mặc định - Deep Space Arcade Theme
+    this->bgColor = BG_DEEP_MIDNIGHT;           // Deep Midnight Blue background
+    this->titleColor = TEXT_WHITE;              // White text for title
+    this->chatAreaBgColor = BG_DEEP_MIDNIGHT;   // Same as background
+    this->chatAreaBorderColor = CYAN_ACCENT;    // Cyan borders
+    this->inputBoxBgColor = BG_DEEP_MIDNIGHT;   // Deep Midnight Blue
+    this->inputBoxBorderColor = CYAN_ACCENT;    // Cyan border
+    this->userMessageColor = ONLINE_GREEN;      // Minty Green for user messages
+    this->otherMessageColor = CYAN_ACCENT;      // Cyan for other messages
+    this->textColor = TEXT_WHITE;              // White text
     
     // Khởi tạo decor elements (mặc định tắt)
     this->showTitleBarGradient = false;
@@ -106,8 +109,8 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->showInputBoxGlow = false;
     this->showMessageBubbles = false;
     this->showScrollbarGlow = false;
-    this->decorPatternColor = NEON_PURPLE;
-    this->decorAccentColor = NEON_CYAN;
+    this->decorPatternColor = CYAN_ACCENT;  // Cyan for patterns
+    this->decorAccentColor = CYAN_ACCENT;   // Cyan for accents
     this->decorAnimationFrame = 0;
     
     // Khởi tạo dirty flags (default true để trigger initial draw)
@@ -221,10 +224,10 @@ void ChatScreen::drawTitle() {
     
     // Draw action buttons on the right
     bool unfriendFocused = (titleBarFocus == 2);
-    drawTitleBarButton(unfriendX, buttonY, kickButtonWidth, buttonHeight, NEON_PINK, unfriendFocused, 'X', "KICK");
+    drawTitleBarButton(unfriendX, buttonY, kickButtonWidth, buttonHeight, OFFLINE_RED, unfriendFocused, 'X', "KICK");
     
     bool inviteFocused = (titleBarFocus == 1);
-    drawTitleBarButton(inviteX, buttonY, inviteButtonWidth, buttonHeight, NEON_CYAN, inviteFocused, '+', "INVITE");
+    drawTitleBarButton(inviteX, buttonY, inviteButtonWidth, buttonHeight, CYAN_ACCENT, inviteFocused, '+', "INVITE");
     
     // Vẽ decor cho title bar nếu bật
     if (showTitleBarGradient) {
@@ -235,17 +238,29 @@ void ChatScreen::drawTitle() {
 void ChatScreen::drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color, bool focused, char icon, const String& label) {
     if (tft == nullptr) return;
     
-    // Draw button background
-    uint16_t bgColor = focused ? YELLOW_ORANGE : chatAreaBgColor;
+    // Deep Space theme button styling:
+    // Selected: Filled background (WIN_ACCENT/CYAN) + Dark text (WIN_BG_DARK)
+    // Unselected: Transparent background + Cyan border + Cyan text
+    uint16_t bgColor;
+    uint16_t textColor;
+    uint16_t borderColor = CYAN_ACCENT;  // Always use Cyan accent for border
+    
     if (focused) {
-        // Draw solid background when focused (pressed button effect)
+        // Selected state: Filled with Cyan accent, dark text
+        bgColor = CYAN_ACCENT;  // WIN_ACCENT
+        textColor = BG_DEEP_MIDNIGHT;  // WIN_BG_DARK
+        // Draw filled background
+        tft->fillRoundRect(x, y, width, height, 3, bgColor);
+        // Draw border (same color for consistency)
+        tft->drawRoundRect(x, y, width, height, 3, borderColor);
+    } else {
+        // Unselected state: Transparent background, Cyan border and text
+        bgColor = HEADER_BLUE;  // Use title bar background
+        textColor = CYAN_ACCENT;  // WIN_ACCENT
+        // Draw transparent background (title bar color)
         tft->fillRoundRect(x, y, width, height, 3, bgColor);
         // Draw border
-        tft->drawRoundRect(x, y, width, height, 3, color);
-    } else {
-        // Draw transparent background (use title bar background)
-        // Just draw border
-        tft->drawRoundRect(x, y, width, height, 3, color);
+        tft->drawRoundRect(x, y, width, height, 3, borderColor);
     }
     
     // Draw icon + text label
@@ -262,13 +277,13 @@ void ChatScreen::drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint
     uint16_t textY = y + (height - 8) / 2;  // Center text vertically (text size 1 ~8px tall)
     
     // Draw icon
-    tft->setTextColor(color, bgColor);
+    tft->setTextColor(textColor, bgColor);
     tft->setTextSize(iconTextSize);
     tft->setCursor(iconX, iconY);
     tft->print(icon);
     
     // Draw text label
-    tft->setTextColor(color, bgColor);
+    tft->setTextColor(textColor, bgColor);
     tft->setTextSize(textSize);
     tft->setCursor(textX, textY);
     tft->print(label);
@@ -320,11 +335,11 @@ uint16_t ChatScreen::getStatusDotColor() const {
     // 0 = offline, 1 = online, 2 = typing
     switch (friendStatus) {
         case 1: // online
-            return NEON_GREEN;
+            return ONLINE_GREEN;  // Minty Green
         case 2: // typing
-            return NEON_CYAN;
+            return CYAN_ACCENT;   // Cyan
         default: // offline
-            return 0x8410; // Gray-ish
+            return OFFLINE_RED;   // Bright Red
     }
 }
 
@@ -505,7 +520,7 @@ void ChatScreen::drawScrollbar() {
         uint16_t thumbY = scrollbarY + (scrollbarHeight - thumbHeight) * scrollPercent;
         
         // Vẽ thumb (phần có thể kéo) - màu khác
-        uint16_t thumbColor = NEON_CYAN;  // Màu cyan cho thumb
+        uint16_t thumbColor = CYAN_ACCENT;  // Cyan cho thumb
         if (showScrollbarGlow) {
             // Thêm glow effect cho scrollbar
             thumbColor = decorAccentColor;
@@ -957,8 +972,8 @@ void ChatScreen::draw() {
     const uint16_t screenHeight = 240;
     const uint16_t titleBarHeight = 25;
     
-    // Vẽ nền title bar
-    tft->fillRect(0, 0, screenWidth, titleBarHeight, chatAreaBgColor);
+    // Vẽ nền title bar với màu header (matching BuddyListScreen)
+    tft->fillRect(0, 0, screenWidth, titleBarHeight, HEADER_BLUE);
     
     // Vẽ nền vùng chat (từ title bar xuống đến input box)
     tft->fillRect(0, chatAreaY, chatAreaWidth, chatAreaHeight, chatAreaBgColor);
@@ -1076,12 +1091,12 @@ void ChatScreen::sendMessage() {
             // Xóa vùng hint cũ và vẽ thông báo
             tft->fillRect(inputBoxX, hintY, inputBoxWidth, 10, bgColor);
             tft->setTextSize(1);
-            tft->setTextColor(NEON_PINK, bgColor);
+            tft->setTextColor(OFFLINE_RED, bgColor);
             tft->setCursor(inputBoxX, hintY);
             tft->print("Add an icon to send");
             // Nhấn mạnh viền dưới ô input
-            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, NEON_PINK);
-            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, NEON_PINK);
+            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, OFFLINE_RED);
+            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, OFFLINE_RED);
             return;
         }
         addMessage(currentMessage, true);
@@ -1252,7 +1267,7 @@ void ChatScreen::handleSelect() {
                 pendingDialogAction = 1;  // Mark as unfriend action
                 String message = "Unfriend " + friendNickname + "?";
                 confirmationDialog->show(message, "YES", "NO", 
-                    staticOnUnfriendConfirm, staticOnUnfriendCancel, 0xF81F);  // Neon Pink/Red border
+                    staticOnUnfriendConfirm, staticOnUnfriendCancel, OFFLINE_RED);  // Bright Red border
                 needsRedraw = true;
                 draw();
             }
