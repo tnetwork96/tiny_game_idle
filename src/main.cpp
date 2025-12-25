@@ -14,6 +14,7 @@
 #include "login_screen.h"
 #include "add_friend_screen.h"
 #include "nickname_screen.h"
+#include "websocket_client.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -34,7 +35,16 @@ BuddyListScreen* buddyListScreen;
 LoginScreen* loginScreen;
 AddFriendScreen* addFriendScreen;
 NicknameScreen* nicknameScreen;
+WebSocketClient* websocketClient;
 bool testMode = true;  // Bật chế độ test
+bool wifiAutoConnectStarted = false;  // Track if WiFi auto-connect has been started
+bool wifiConnected = false;  // Track if WiFi is successfully connected
+bool wifiScreenShown = false;  // Track if WiFi screen has been shown
+bool wifiConnectionRequired = true;  // Flag to require WiFi before other screens
+
+// WebSocket server configuration
+const char* WS_SERVER_HOST = "192.168.1.100";  // Change to your server IP
+const int WS_SERVER_PORT = 8000;
 bool testStarted = false;
 bool menuShown = false;  // Đánh dấu đã hiển thị menu chưa
 bool inGame = false;  // Đánh dấu đang trong game
@@ -45,6 +55,14 @@ bool autoPinDone = false;       // Điều hướng tự động điền PIN (te
 bool inAddFriendScreen = false;  // Đánh dấu đang ở màn hình Add Friend
 bool inNicknameScreen = false;   // Đánh dấu đang ở màn hình Nickname
 bool nicknameChecked = false;    // Đánh dấu đã kiểm tra nickname chưa
+
+// WebSocket connection state management
+bool websocketLoginPending = false;  // Flag to track if login needs to be sent
+String pendingCredentials = "";       // Store credentials until connected
+unsigned long lastWebSocketAttempt = 0;  // Track last connection attempt
+const unsigned long WEBSOCKET_RETRY_INTERVAL = 3000;  // Retry every 3 seconds
+const int MAX_WEBSOCKET_RETRIES = 5;  // Maximum retry attempts
+int websocketRetryCount = 0;  // Current retry count
 
 // Callback function cho keyboard input
 void onKeyboardKeySelected(String key) {
@@ -876,12 +894,20 @@ void setup() {
 
     // Khởi tạo Login Screen
     loginScreen = new LoginScreen(&tft, keyboard);
-    loginScreen->draw();
+    // Don't draw login screen yet - wait for WiFi connection
+    // loginScreen->draw();  // Will be shown after WiFi connects
     
     // Khởi tạo WiFi Manager
     wifiManager = new WiFiManager(&tft, keyboard);
     
     Serial.println("WiFi Manager initialized!");
+    
+    // Start WiFi screen first - this is the first screen user sees
+    wifiManager->begin();
+    wifiScreenShown = true;
+    wifiConnectionRequired = true;
+    wifiConnected = false;
+    Serial.println("Main: WiFi screen started - waiting for connection...");
     
     // Khởi tạo Game Menu
     gameMenu = new GameMenuScreen(&tft);
@@ -909,6 +935,73 @@ void setup() {
     // Khởi tạo Nickname Screen
     nicknameScreen = new NicknameScreen(&tft, keyboard);
     
+    // Khởi tạo WebSocket Client
+    websocketClient = new WebSocketClient();
+    websocketClient->begin(WS_SERVER_HOST, WS_SERVER_PORT);
+    
+    // Set WebSocket callbacks
+    websocketClient->onConnect([]() {
+        Serial.println("WebSocket: Connected callback triggered");
+        
+        // If login is pending, send it now
+        if (websocketLoginPending && pendingCredentials.length() > 0) {
+            Serial.println("Main: WebSocket connected, sending pending login...");
+            delay(100);  // Small delay to ensure connection is stable
+            if (websocketClient != nullptr) {
+                websocketClient->sendLogin(pendingCredentials);
+                websocketLoginPending = false;  // Clear pending flag
+                websocketRetryCount = 0;  // Reset retry count on success
+            }
+        }
+    });
+    
+    websocketClient->onDisconnect([]() {
+        Serial.println("WebSocket: Disconnected callback triggered");
+    });
+    
+    websocketClient->onAuthSuccess([](String sessionId) {
+        Serial.print("WebSocket: Authentication successful, session: ");
+        Serial.println(sessionId);
+        
+        // Optionally: Request friends list or other data after successful authentication
+        // This can be extended for future features
+        Serial.println("Main: Authentication complete, ready for data requests");
+    });
+    
+    websocketClient->onAuthFailed([]() {
+        Serial.println("WebSocket: Authentication failed");
+    });
+    
+    websocketClient->onError([](String error) {
+        Serial.print("WebSocket: Error: ");
+        Serial.println(error);
+    });
+    
+    websocketClient->onMessage([](String message) {
+        Serial.print("WebSocket: Message received: ");
+        Serial.println(message);
+        // Handle custom messages here
+    });
+    
+    // Username validation callbacks
+    websocketClient->onUsernameValid([](String message) {
+        Serial.print("WebSocket: Username valid: ");
+        Serial.println(message);
+        
+        if (loginScreen != nullptr) {
+            loginScreen->onUsernameValidationResponse(true, message);
+        }
+    });
+    
+    websocketClient->onUsernameInvalid([](String errorMessage) {
+        Serial.print("WebSocket: Username invalid: ");
+        Serial.println(errorMessage);
+        
+        if (loginScreen != nullptr) {
+            loginScreen->onUsernameValidationResponse(false, errorMessage);
+        }
+    });
+    
     // TỰ ĐỘNG VÀO GAME BIDA NGAY - BỎ QUA MENU VÀ WIFI
     // Serial.println("Auto-starting Billiard Game...");
     // billiardGame->init();
@@ -923,6 +1016,38 @@ void setup() {
 }
 
 void loop() {
+    // Step 1: Handle WiFi connection first (if required)
+    if (wifiConnectionRequired && wifiManager != nullptr) {
+        wifiManager->update();
+        
+        // Test mode: tự động kết nối WiFi
+        if (testMode && !testStarted && wifiManager->getState() == WIFI_STATE_SELECT) {
+            testAutoConnect();
+        }
+        
+        // Check if WiFi is now connected
+        if (wifiManager->isConnected() && WiFi.status() == WL_CONNECTED) {
+            if (!wifiConnected) {
+                // WiFi just connected - transition to login screen
+                wifiConnected = true;
+                wifiConnectionRequired = false;
+                Serial.println("Main: WiFi connected successfully, showing login screen...");
+                
+                // Clear screen and show login screen
+                tft.fillScreen(ST77XX_BLACK);
+                if (loginScreen != nullptr) {
+                    loginScreen->draw();
+                }
+            }
+        }
+        
+        // If still waiting for WiFi, don't process other screens
+        if (!wifiConnected) {
+            return;  // Exit early, wait for WiFi connection
+        }
+    }
+    
+    // Step 2: Continue with normal flow (only after WiFi is connected)
     bool loggedIn = (loginScreen == nullptr) || loginScreen->isAuthenticated();
 
     // Tự động điều hướng để điền username ở màn hình login (chỉ trong test mode)
@@ -930,9 +1055,92 @@ void loop() {
         autoFillUsernameByNavigation("player1");
         autoFillPinByNavigation("4321");
     }
+    
+    // Handle username validation request (only after WiFi is connected)
+    if (loginScreen != nullptr && !loggedIn && websocketClient != nullptr && wifiConnected) {
+        if (loginScreen->needsUsernameValidation()) {
+            String username = loginScreen->getUsername();
+            if (username.length() > 0) {
+                // WiFi is already connected at this point, proceed with WebSocket
+                if (!websocketClient->isConnected()) {
+                    // Connect first if not connected
+                    Serial.println("Main: WebSocket not connected, attempting connection for username validation...");
+                    websocketClient->connect();
+                } else {
+                    // Send username validation request (only once)
+                    Serial.print("Main: Sending username validation for: ");
+                    Serial.println(username);
+                    websocketClient->sendUsernameValidation(username);
+                    loginScreen->markUsernameValidationSent();  // Mark as sent to prevent duplicate sends
+                }
+            }
+        }
+    }
 
-    if (loggedIn && !postLoginFlowStarted) {
+    if (loggedIn && !postLoginFlowStarted && wifiConnected) {
         startChatAfterLogin();
+        
+        // Prepare WebSocket connection and login (WiFi is already connected at this point)
+        if (loginScreen != nullptr && websocketClient != nullptr) {
+            String credentials = loginScreen->getLoginCredentials();
+            if (credentials.length() > 0) {
+                // WiFi is already connected, proceed with WebSocket
+                // Store credentials for sending after connection
+                pendingCredentials = credentials;
+                websocketLoginPending = true;
+                websocketRetryCount = 0;  // Reset retry count
+                
+                Serial.print("Main: Preparing WebSocket login with credentials: ");
+                Serial.println(credentials);
+                
+                // Attempt to connect
+                if (!websocketClient->isConnected()) {
+                    Serial.println("Main: WebSocket not connected, attempting connection...");
+                    websocketClient->connect();
+                    lastWebSocketAttempt = millis();
+                } else {
+                    // Already connected, send login immediately
+                    Serial.println("Main: WebSocket already connected, sending login...");
+                    websocketClient->sendLogin(credentials);
+                    websocketLoginPending = false;
+                }
+            } else {
+                Serial.println("Main: Cannot connect WebSocket - no credentials");
+            }
+        }
+        
+        postLoginFlowStarted = true;  // Mark as started
+    }
+    
+    // Retry WebSocket connection if pending and not connected
+    if (websocketLoginPending && WiFi.status() == WL_CONNECTED) {
+        unsigned long now = millis();
+        
+        if (!websocketClient->isConnected()) {
+            // Check if it's time to retry
+            if (now - lastWebSocketAttempt >= WEBSOCKET_RETRY_INTERVAL) {
+                if (websocketRetryCount < MAX_WEBSOCKET_RETRIES) {
+                    websocketRetryCount++;
+                    Serial.print("Main: Retrying WebSocket connection (");
+                    Serial.print(websocketRetryCount);
+                    Serial.print("/");
+                    Serial.print(MAX_WEBSOCKET_RETRIES);
+                    Serial.println(")");
+                    
+                    websocketClient->connect();
+                    lastWebSocketAttempt = now;
+                } else {
+                    Serial.println("Main: WebSocket connection failed after max retries");
+                    websocketLoginPending = false;  // Give up
+                    pendingCredentials = "";  // Clear credentials
+                }
+            }
+        }
+    }
+    
+    // Call WebSocket loop to process events
+    if (websocketClient != nullptr) {
+        websocketClient->loop();
     }
 
     // Kiểm tra và hiển thị màn hình nickname nếu chưa có
@@ -946,25 +1154,18 @@ void loop() {
         }
     }
 
-    if (loggedIn) {
-        // Cập nhật trạng thái WiFi Manager (kiểm tra kết nối)
-        if (wifiManager != nullptr) {
-            wifiManager->update();
-            
-            // Test mode: tự động chọn WiFi "Hai Dung" và nhập password
-            if (testMode && !testStarted && wifiManager->getState() == WIFI_STATE_SELECT) {
-                testAutoConnect();
-            }
-            
-            // Chuyển sang màn hình menu game sau khi kết nối WiFi thành công
-            if (wifiManager->isConnected() && !menuShown && !inGame) {
-                Serial.println("Main: WiFi connected, showing game menu...");
-                delay(1000);  // Đợi một chút để thấy thông báo "Connected"
-                if (gameMenu != nullptr) {
-                    gameMenu->draw();
-                    menuShown = true;
-                    Serial.println("Main: Game menu displayed!");
-                }
+    if (loggedIn && wifiConnected) {
+        // WiFi is already connected at this point, so we don't need to check again
+        // Note: WiFi Manager was updated at the beginning of loop() if wifiConnectionRequired was true
+        
+        // Chuyển sang màn hình menu game sau khi login thành công
+        if (!menuShown && !inGame) {
+            Serial.println("Main: Showing game menu after login...");
+            delay(1000);  // Đợi một chút
+            if (gameMenu != nullptr) {
+                gameMenu->draw();
+                menuShown = true;
+                Serial.println("Main: Game menu displayed!");
             }
         }
         
@@ -1248,6 +1449,11 @@ void loop() {
                 runChatKeyboardToggleTypingTest();
             }
         }
+    }
+    
+    // WebSocket loop - must be called regularly
+    if (websocketClient != nullptr && WiFi.status() == WL_CONNECTED) {
+        websocketClient->loop();
     }
     
     delay(100);

@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: esp32_game_db
+    environment:
+      POSTGRES_DB: esp32_game_db
+      POSTGRES_USER: gameuser
+      POSTGRES_PASSWORD: gamepass123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gameuser -d esp32_game_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - esp32_game_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: esp32_game_api
+    environment:
+      # Server settings
+      HOST: "0.0.0.0"
+      PORT: 8000
+      DEBUG: "True"
+      
+      # Database connection (use service name)
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: esp32_game_db
+      DB_USER: gameuser
+      DB_PASSWORD: gamepass123
+      
+      # Or use full DATABASE_URL
+      # DATABASE_URL: postgresql://gameuser:gamepass123@postgres:5432/esp32_game_db
+      
+      # Security
+      SECRET_KEY: "your-secret-key-change-in-production"
+      
+      # WebSocket
+      WS_MAX_CONNECTIONS: 100
+      WS_HEARTBEAT_INTERVAL: 30
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - esp32_game_network
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --log-level info --use-colors false
+
+volumes:
+  postgres_data:
+
+networks:
+  esp32_game_network:
+    driver: bridge
+

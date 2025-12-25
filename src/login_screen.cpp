@@ -19,6 +19,10 @@ LoginScreen::LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->showUsernameEmpty = false;
     this->usernameCursorRow = 0;
     this->usernameCursorCol = 0;
+    this->usernameValidated = false;
+    this->usernameValidationError = false;
+    this->usernameValidationErrorMsg = "";
+    this->usernameValidationSent = false;
 }
 
 void LoginScreen::drawBackground() {
@@ -74,7 +78,11 @@ void LoginScreen::updateUsernameInputArea(bool showErrorMsg) {
     // Clear error area
     tft->fillRect(20, headerHeight + 65, 280, 12, WIN_BG_DARK);
     if (showErrorMsg) {
-        drawErrorMessage("Username is required", headerHeight + 69);
+        if (usernameValidationError && usernameValidationErrorMsg.length() > 0) {
+            drawErrorMessage(usernameValidationErrorMsg, headerHeight + 69);
+        } else {
+            drawErrorMessage("Username is required", headerHeight + 69);
+        }
     }
 }
 
@@ -150,6 +158,18 @@ void LoginScreen::draw() {
         case LOGIN_USERNAME:
             drawUsernameScreen();
             break;
+        case LOGIN_USERNAME_VALIDATING:
+            drawUsernameScreen();
+            // Show "Validating..." message
+            {
+                const uint16_t headerHeight = 30;
+                tft->fillRect(20, headerHeight + 65, 280, 12, WIN_BG_DARK);
+                tft->setTextSize(1);
+                tft->setTextColor(WIN_ACCENT, WIN_BG_DARK);
+                tft->setCursor(20, headerHeight + 69);
+                tft->print("Validating username...");
+            }
+            break;
         case LOGIN_PIN:
             pinScreen->draw();
             break;
@@ -171,6 +191,9 @@ void LoginScreen::ensureAlphabetMode() {
 void LoginScreen::goToUsernameStep() {
     state = LOGIN_USERNAME;
     showUsernameEmpty = false;
+    usernameValidated = false;
+    usernameValidationError = false;
+    usernameValidationErrorMsg = "";
     drawUsernameScreen();
 }
 
@@ -189,7 +212,8 @@ void LoginScreen::handleUsernameKey(const String& key) {
             showUsernameEmpty = true;
             updateUsernameInputArea(true);
         } else {
-            goToPinStep();
+            // Trigger username validation instead of going directly to PIN
+            validateUsernameWithServer();
         }
         return;
     }
@@ -214,8 +238,62 @@ void LoginScreen::handleUsernameKey(const String& key) {
     }
 }
 
+String LoginScreen::getLoginCredentials() const {
+    String credentials = "username:";
+    credentials += username;
+    credentials += "-pin:";
+    if (pinScreen != nullptr) {
+        credentials += pinScreen->getPinInput();
+    } else {
+        credentials += "";  // Empty if pinScreen not available
+    }
+    return credentials;
+}
+
+void LoginScreen::validateUsernameWithServer() {
+    if (username.length() == 0) {
+        return;
+    }
+    
+    // Change state to validating
+    state = LOGIN_USERNAME_VALIDATING;
+    usernameValidated = false;
+    usernameValidationError = false;
+    usernameValidationErrorMsg = "";
+    usernameValidationSent = false;  // Reset flag to allow sending
+    
+    // Redraw to show "Validating..." message
+    draw();
+    
+    // The actual WebSocket send will be handled in main.cpp
+    // This method just sets the state
+}
+
+void LoginScreen::onUsernameValidationResponse(bool isValid, const String& message) {
+    usernameValidationSent = false;  // Reset flag after receiving response
+    
+    if (isValid) {
+        usernameValidated = true;
+        usernameValidationError = false;
+        usernameValidationErrorMsg = "";
+        // Proceed to PIN screen
+        goToPinStep();
+    } else {
+        usernameValidated = false;
+        usernameValidationError = true;
+        usernameValidationErrorMsg = message;
+        // Stay on username screen and show error
+        state = LOGIN_USERNAME;
+        updateUsernameInputArea(true);
+    }
+}
+
 void LoginScreen::handleKeyPress(const String& key) {
-    if (state == LOGIN_USERNAME) {
+    if (state == LOGIN_USERNAME || state == LOGIN_USERNAME_VALIDATING) {
+        // Don't allow input while validating
+        if (state == LOGIN_USERNAME_VALIDATING) {
+            return;  // Ignore input during validation
+        }
         handleUsernameKey(key);
     } else if (state == LOGIN_PIN) {
         // Forward to PIN screen; PIN is assumed valid on Enter
