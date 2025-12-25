@@ -238,17 +238,29 @@ void ChatScreen::drawTitle() {
 void ChatScreen::drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color, bool focused, char icon, const String& label) {
     if (tft == nullptr) return;
     
-    // Draw button background
-    uint16_t bgColor = focused ? HIGHLIGHT_BLUE : HEADER_BLUE;
+    // Deep Space theme button styling:
+    // Selected: Filled background (WIN_ACCENT/CYAN) + Dark text (WIN_BG_DARK)
+    // Unselected: Transparent background + Cyan border + Cyan text
+    uint16_t bgColor;
+    uint16_t textColor;
+    uint16_t borderColor = CYAN_ACCENT;  // Always use Cyan accent for border
+    
     if (focused) {
-        // Draw solid background when focused (pressed button effect)
+        // Selected state: Filled with Cyan accent, dark text
+        bgColor = CYAN_ACCENT;  // WIN_ACCENT
+        textColor = BG_DEEP_MIDNIGHT;  // WIN_BG_DARK
+        // Draw filled background
+        tft->fillRoundRect(x, y, width, height, 3, bgColor);
+        // Draw border (same color for consistency)
+        tft->drawRoundRect(x, y, width, height, 3, borderColor);
+    } else {
+        // Unselected state: Transparent background, Cyan border and text
+        bgColor = HEADER_BLUE;  // Use title bar background
+        textColor = CYAN_ACCENT;  // WIN_ACCENT
+        // Draw transparent background (title bar color)
         tft->fillRoundRect(x, y, width, height, 3, bgColor);
         // Draw border
-        tft->drawRoundRect(x, y, width, height, 3, color);
-    } else {
-        // Draw transparent background (use title bar background)
-        // Just draw border
-        tft->drawRoundRect(x, y, width, height, 3, color);
+        tft->drawRoundRect(x, y, width, height, 3, borderColor);
     }
     
     // Draw icon + text label
@@ -265,13 +277,13 @@ void ChatScreen::drawTitleBarButton(uint16_t x, uint16_t y, uint16_t width, uint
     uint16_t textY = y + (height - 8) / 2;  // Center text vertically (text size 1 ~8px tall)
     
     // Draw icon
-    tft->setTextColor(color, bgColor);
+    tft->setTextColor(textColor, bgColor);
     tft->setTextSize(iconTextSize);
     tft->setCursor(iconX, iconY);
     tft->print(icon);
     
     // Draw text label
-    tft->setTextColor(color, bgColor);
+    tft->setTextColor(textColor, bgColor);
     tft->setTextSize(textSize);
     tft->setCursor(textX, textY);
     tft->print(label);
