@@ -1,10 +1,12 @@
 #include "nickname_screen.h"
 
-// Midnight Blue Arcade Theme (matching Buddy List Screen)
+// Deep Space Arcade Theme (matching Buddy List Screen)
 #define NICKNAME_BG_DARK   0x0042  // Deep Midnight Blue #020817
+#define NICKNAME_HEADER    0x08A5  // Header Blue #0F172A
 #define NICKNAME_TEXT      0xFFFF  // White text
-#define NICKNAME_MUTED     0xC618  // Muted gray text
-#define NICKNAME_ERROR     0xF800  // Red for errors
+#define NICKNAME_CYAN      0x07FF  // Cyan accent
+#define NICKNAME_MUTED     0x8410  // Muted gray text (lighter for visibility)
+#define NICKNAME_ERROR     0xF986  // Bright Red #FF3333
 #define NICKNAME_SUCCESS   0x07F3  // Minty Green for success
 
 const char* NicknameScreen::NICKNAME_FILE_PATH = "/nickname.txt";
@@ -29,24 +31,24 @@ NicknameScreen::NicknameScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
 }
 
 void NicknameScreen::drawBackground() {
-    // Deep Midnight Blue background
-    uint16_t width = 320;
-    uint16_t height = 240;
-    tft->fillRect(0, 0, width, height, NICKNAME_BG_DARK);
+    // Clear entire screen to prevent black stripe artifacts
+    tft->fillScreen(NICKNAME_BG_DARK);
 }
 
 void NicknameScreen::drawInputBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const String& value) {
-    tft->fillRoundRect(x, y, w, h, 6, ST77XX_BLACK);
-    tft->drawRoundRect(x, y, w, h, 6, NICKNAME_TEXT);
+    // Background with Deep Midnight Blue
+    tft->fillRoundRect(x, y, w, h, 6, NICKNAME_BG_DARK);
+    // Cyan border for accent
+    tft->drawRoundRect(x, y, w, h, 6, NICKNAME_CYAN);
     tft->setCursor(x + 8, y + (h / 2) - 6);
     tft->setTextSize(2);
-    tft->setTextColor(NICKNAME_TEXT, ST77XX_BLACK);
+    tft->setTextColor(NICKNAME_TEXT, NICKNAME_BG_DARK);
 
     if (value.length() == 0) {
-        tft->setTextColor(NICKNAME_MUTED, ST77XX_BLACK);
+        tft->setTextColor(NICKNAME_MUTED, NICKNAME_BG_DARK);
         tft->print("Enter your nickname");
     } else {
-        tft->setTextColor(NICKNAME_TEXT, ST77XX_BLACK);
+        tft->setTextColor(NICKNAME_TEXT, NICKNAME_BG_DARK);
         tft->print(value);
     }
 }
@@ -59,17 +61,18 @@ void NicknameScreen::drawErrorMessage(const String& message, uint16_t y) {
 }
 
 void NicknameScreen::updateInputArea(bool showErrorMsg) {
-    // Clear input box region
-    tft->fillRect(20, 30, 280, 34, NICKNAME_BG_DARK);
-    drawInputBox(20, 30, 280, 34, nickname);
+    // Clear input box region (accounting for header)
+    const uint16_t headerHeight = 30;
+    tft->fillRect(20, headerHeight + 20, 280, 34, NICKNAME_BG_DARK);
+    drawInputBox(20, headerHeight + 20, 280, 34, nickname);
 
     // Clear error area
-    tft->fillRect(20, 96, 280, 24, NICKNAME_BG_DARK);
+    tft->fillRect(20, headerHeight + 86, 280, 24, NICKNAME_BG_DARK);
     if (showErrorMsg) {
         if (showNameEmpty) {
-            drawErrorMessage("Nickname is required", 100);
+            drawErrorMessage("Nickname is required", headerHeight + 90);
         } else if (showNameTooLong) {
-            drawErrorMessage("Nickname too long (max 20 chars)", 100);
+            drawErrorMessage("Nickname too long (max 20 chars)", headerHeight + 90);
         }
     }
 }
@@ -77,18 +80,23 @@ void NicknameScreen::updateInputArea(bool showErrorMsg) {
 void NicknameScreen::draw() {
     drawBackground();
 
-    // Title
+    // Header bar matching BuddyListScreen style
+    const uint16_t headerHeight = 30;
+    tft->fillRect(0, 0, 320, headerHeight, NICKNAME_HEADER);
+    tft->drawFastHLine(0, headerHeight - 1, 320, NICKNAME_CYAN);
+    
+    // Title in header
     tft->setTextSize(2);
-    tft->setTextColor(NICKNAME_TEXT, NICKNAME_BG_DARK);
-    tft->setCursor(20, 12);
-    tft->print("Create Nickname");
+    tft->setTextColor(NICKNAME_TEXT, NICKNAME_HEADER);
+    tft->setCursor(10, 8);
+    tft->print("NICKNAME");
 
-    drawInputBox(20, 50, 280, 34, nickname);
+    drawInputBox(20, headerHeight + 20, 280, 34, nickname);
 
     // Instructions
     tft->setTextSize(1);
     tft->setTextColor(NICKNAME_TEXT, NICKNAME_BG_DARK);
-    tft->setCursor(20, 100);
+    tft->setCursor(20, headerHeight + 70);
     tft->print("Press Enter to save");
 
     // Show current nickname if exists
@@ -96,7 +104,7 @@ void NicknameScreen::draw() {
         String currentNick = loadNickname();
         tft->setTextSize(1);
         tft->setTextColor(NICKNAME_MUTED, NICKNAME_BG_DARK);
-        tft->setCursor(20, 120);
+        tft->setCursor(20, headerHeight + 90);
         tft->print("Current: ");
         tft->setTextColor(NICKNAME_SUCCESS, NICKNAME_BG_DARK);
         tft->print(currentNick);
