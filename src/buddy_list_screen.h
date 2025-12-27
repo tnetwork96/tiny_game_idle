@@ -38,6 +38,11 @@ public:
     // Utility for external consumers (e.g., chat)
     uint8_t getSelectedIndex() const { return selectedIndex; }
     uint8_t getBuddyCount() const { return buddyCount; }
+    
+    // Notifications
+    void setNotificationCount(uint8_t count);
+    void setUnreadCount(uint8_t count);
+    uint8_t getUnreadCount() const { return unreadCount; }
 
 private:
     Adafruit_ST7789* tft;
@@ -47,6 +52,8 @@ private:
     uint8_t buddyCount;
     uint8_t selectedIndex;
     uint8_t scrollOffset;
+    uint8_t notificationCount;
+    uint8_t unreadCount;
 
     // Colors
     uint16_t bgColor;

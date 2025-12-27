@@ -39,6 +39,18 @@ class FriendsListResponse(BaseModel):
     friends: list[FriendResponse]
     message: Optional[str] = None
 
+class NotificationEntry(BaseModel):
+    id: int
+    type: str
+    message: str
+    timestamp: str
+    read: bool
+
+class NotificationsResponse(BaseModel):
+    success: bool
+    notifications: list[NotificationEntry]
+    message: str
+
 # Database connection string from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
 
@@ -305,6 +317,69 @@ async def get_sent_requests(user_id: int):
         import traceback
         error_trace = traceback.format_exc()
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get sent requests error: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@router.get("/notifications/{user_id}", response_model=NotificationsResponse)
+async def get_notifications(user_id: int):
+    """
+    Get notifications for a user (pending friend requests)
+    Returns JSON format with notifications array
+    Each notification represents a pending friend request sent TO this user
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get pending friend requests sent TO this user
+        cursor.execute('''
+            SELECT fr.id, fr.created_at, u.username
+            FROM friend_requests fr
+            JOIN users u ON fr.from_user_id = u.id
+            WHERE fr.to_user_id = %s AND fr.status = 'pending'
+            ORDER BY fr.created_at DESC
+            LIMIT 50
+        ''', (user_id,))
+        
+        notifications = []
+        for row in cursor.fetchall():
+            notification_id = row['id']
+            sender_username = row['username']
+            created_at = row['created_at']
+            
+            # Format timestamp as ISO 8601
+            if isinstance(created_at, datetime):
+                # Convert to ISO format with Z suffix for UTC
+                timestamp_str = created_at.isoformat() + 'Z'
+            else:
+                # Fallback for string or other types
+                timestamp_str = str(created_at) + 'Z' if not str(created_at).endswith('Z') else str(created_at)
+            
+            # Create notification entry
+            notification = NotificationEntry(
+                id=notification_id,
+                type="friend_request",
+                message=f"User '{sender_username}' sent you a friend request",
+                timestamp=timestamp_str,
+                read=False
+            )
+            notifications.append(notification)
+        
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Notifications for user_id {user_id}: {len(notifications)} notifications")
+        return NotificationsResponse(
+            success=True,
+            notifications=notifications,
+            message="Notifications retrieved successfully"
+        )
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get notifications error: {str(e)}")
         print(f"Traceback: {error_trace}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:

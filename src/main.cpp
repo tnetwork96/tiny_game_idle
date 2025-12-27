@@ -53,6 +53,17 @@ void onFriendsLoadedString(const String& friendsString) {
     }
 }
 
+// Callback when notifications are loaded
+void onNotificationsLoaded(uint8_t count) {
+    if (buddyListScreen != nullptr) {
+        Serial.print("Main: Received notification count: ");
+        Serial.println(count);
+        buddyListScreen->setNotificationCount(count);
+    } else {
+        Serial.println("Main: BuddyListScreen not initialized!");
+    }
+}
+
 // Callback function for keyboard input - routes to appropriate screen
 void onKeyboardKeySelected(String key) {
     // Route to LoginScreen if WiFi is connected and login screen is active
@@ -264,6 +275,9 @@ void setup() {
     
     // Set callback for friends loaded (string format)
     loginScreen->setFriendsLoadedStringCallback(onFriendsLoadedString);
+    
+    // Set callback for notifications loaded
+    loginScreen->setNotificationsLoadedCallback(onNotificationsLoaded);
     
     Serial.println("WiFi Manager initialized!");
     Serial.println("Login Screen initialized!");
