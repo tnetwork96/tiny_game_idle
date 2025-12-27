@@ -26,6 +26,7 @@ const unsigned char PROGMEM iconPlus[] = {
 
 // Deep Space Arcade Theme
 #define SOCIAL_BG_DARK   0x0042  // Deep Midnight Blue #020817
+#define SOCIAL_SIDEBAR_BG 0x0021  // Darker Blue for sidebar
 #define SOCIAL_HEADER    0x08A5  // Header Blue #0F172A
 #define SOCIAL_ACCENT    0x07FF  // Cyan accent
 #define SOCIAL_TEXT      0xFFFF  // White text
@@ -79,28 +80,42 @@ void SocialScreen::drawBackground() {
 
 void SocialScreen::drawTab(int tabIndex, bool isSelected) {
     uint16_t y = tabIndex * TAB_HEIGHT;
-    uint16_t bgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
     
-    // Draw tab background
+    // Draw tab background - inactive tabs use darker background
+    uint16_t bgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_SIDEBAR_BG;
     tft->fillRect(0, y, SIDEBAR_WIDTH, TAB_HEIGHT, bgColor);
     
-    // Draw left border if selected
+    // Draw glowing left border for selected tab (3px wide cyan bar)
     if (isSelected) {
         tft->fillRect(0, y, 3, TAB_HEIGHT, SOCIAL_ACCENT);
+        // Add subtle glow effect with a lighter line
+        tft->drawFastVLine(3, y, TAB_HEIGHT, SOCIAL_HIGHLIGHT);
     }
     
     // Draw focus indicator: right border when sidebar has focus and this tab is selected
     if (isSelected && focusMode == FOCUS_SIDEBAR) {
-        // Draw right border to indicate sidebar focus
+        // Draw right border to indicate sidebar focus (bright)
         tft->drawFastVLine(SIDEBAR_WIDTH - 2, y, TAB_HEIGHT, SOCIAL_ACCENT);
         tft->drawFastVLine(SIDEBAR_WIDTH - 1, y, TAB_HEIGHT, SOCIAL_ACCENT);
+    } else if (isSelected && focusMode == FOCUS_CONTENT) {
+        // Dimmed right border when content has focus
+        tft->drawFastVLine(SIDEBAR_WIDTH - 1, y, TAB_HEIGHT, SOCIAL_MUTED);
     }
     
     // Calculate icon position (centered in tab)
     uint16_t iconSize = 16;  // Bitmap is 16x16
     uint16_t iconX = (SIDEBAR_WIDTH - iconSize) / 2;
     uint16_t iconY = y + (TAB_HEIGHT - iconSize) / 2;
-    uint16_t iconColor = isSelected ? SOCIAL_ACCENT : SOCIAL_TEXT;
+    
+    // Icon color: bright when selected and sidebar focused, muted when inactive
+    uint16_t iconColor;
+    if (isSelected && focusMode == FOCUS_SIDEBAR) {
+        iconColor = SOCIAL_TEXT;  // White when active and focused
+    } else if (isSelected) {
+        iconColor = SOCIAL_ACCENT;  // Cyan when active but not focused
+    } else {
+        iconColor = SOCIAL_MUTED;  // Muted when inactive
+    }
     
     // Draw icon based on tab using bitmap
     switch (tabIndex) {
@@ -132,11 +147,11 @@ void SocialScreen::drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t color) {
 }
 
 void SocialScreen::drawSidebar() {
-    // Draw sidebar background
-    tft->fillRect(0, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, SOCIAL_HEADER);
+    // Draw sidebar background with darker color
+    tft->fillRect(0, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, SOCIAL_SIDEBAR_BG);
     
-    // Draw divider line
-    tft->drawFastVLine(SIDEBAR_WIDTH - 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
+    // Draw divider line (subtle)
+    tft->drawFastVLine(SIDEBAR_WIDTH - 1, 0, SCREEN_HEIGHT, SOCIAL_MUTED);
     
     // Draw all tabs
     for (int i = 0; i < 3; i++) {
@@ -154,51 +169,91 @@ void SocialScreen::drawFriendsList() {
         tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
     }
     
-    // Draw header
+    // Draw modern header with count
+    const uint16_t headerHeight = 35;
     tft->setTextSize(2);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
-    tft->setCursor(CONTENT_X + 10, 10);
+    tft->setCursor(CONTENT_X + 10, 8);
     tft->print("FRIENDS");
     
-    // Draw friends list
+    // Draw count if available
+    if (friendsCount > 0) {
+        tft->setTextSize(1);
+        tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
+        tft->setCursor(CONTENT_X + 10, 24);
+        tft->print("[ ");
+        tft->print(friendsCount);
+        tft->print(" ]");
+    }
+    
+    // Draw header line
+    tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
+    
+    // Draw friends list as cards
     if (friendsCount == 0) {
         tft->setTextSize(1);
         tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-        tft->setCursor(CONTENT_X + 10, 50);
+        tft->setCursor(CONTENT_X + 10, 60);
         tft->print("No friends yet");
     } else {
-        const uint16_t itemHeight = 24;
-        const uint16_t startY = 40;
-        const int visibleItems = (SCREEN_HEIGHT - startY) / itemHeight;
+        const uint16_t cardHeight = 32;
+        const uint16_t cardSpacing = 4;  // 2px padding on each side = 4px total
+        const uint16_t startY = headerHeight + 4;
+        const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
         
         // Calculate which items to show
         int startIndex = friendsScrollOffset;
         int endIndex = (startIndex + visibleItems < friendsCount) ? (startIndex + visibleItems) : friendsCount;
         
         for (int i = startIndex; i < endIndex; i++) {
-            uint16_t y = startY + (i - startIndex) * itemHeight;
+            uint16_t y = startY + (i - startIndex) * (cardHeight + cardSpacing);
             bool isSelected = (i == selectedFriendIndex);
             
-            // Draw item background if selected
-            if (isSelected) {
-                tft->fillRect(CONTENT_X, y, CONTENT_WIDTH, itemHeight, SOCIAL_HIGHLIGHT);
-                tft->fillRect(CONTENT_X, y, 2, itemHeight, SOCIAL_ACCENT);
+            // Card dimensions
+            uint16_t cardX = CONTENT_X + 8;
+            uint16_t cardY = y;
+            uint16_t cardW = CONTENT_WIDTH - 16;
+            uint16_t cardR = 4;  // Rounded corner radius
+            
+            // Draw card background
+            uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
+            tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
+            
+            // Draw card border based on selection and focus
+            if (isSelected && focusMode == FOCUS_CONTENT) {
+                // Bright cyan border when selected and content focused
+                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
+            } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
+                // Dimmed border when selected but sidebar focused
+                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
             }
+            // No border for unselected cards
             
-            // Draw online/offline indicator
+            // Draw online/offline indicator (larger, 6px radius)
             uint16_t statusColor = friends[i].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
-            tft->fillCircle(CONTENT_X + 15, y + itemHeight / 2, 4, statusColor);
+            uint16_t dotX = cardX + 12;
+            uint16_t dotY = cardY + cardHeight / 2;
+            tft->fillCircle(dotX, dotY, 6, statusColor);
+            tft->drawCircle(dotX, dotY, 6, statusColor);
             
-            // Draw username
+            // Draw username (truncate if too long)
             tft->setTextSize(1);
-            tft->setTextColor(SOCIAL_TEXT, isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_BG_DARK);
-            tft->setCursor(CONTENT_X + 25, y + 8);
-            tft->print(friends[i].username);
+            tft->setTextColor(SOCIAL_TEXT, cardBgColor);
+            tft->setCursor(cardX + 25, cardY + 8);
+            String username = friends[i].username;
+            // Calculate max width (card width - indicator - padding)
+            int maxWidth = (cardW - 25 - 8) / 6;  // Approximate chars (6px per char)
+            if (username.length() > maxWidth) {
+                username = username.substring(0, maxWidth - 3) + "...";
+            }
+            tft->print(username);
             
-            // Draw online status text
-            tft->setTextColor(SOCIAL_MUTED, isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_BG_DARK);
-            tft->setCursor(CONTENT_X + 25, y + 16);
-            tft->print(friends[i].online ? "Online" : "Offline");
+            // Draw online status text (right-aligned)
+            tft->setTextColor(SOCIAL_MUTED, cardBgColor);
+            String statusText = friends[i].online ? "Online" : "Offline";
+            int statusWidth = statusText.length() * 6;  // Approximate width
+            tft->setCursor(cardX + cardW - statusWidth - 8, cardY + 20);
+            tft->print(statusText);
         }
     }
 }
@@ -213,61 +268,114 @@ void SocialScreen::drawNotificationsList() {
         tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
     }
     
-    // Draw header
+    // Draw modern header with count
+    const uint16_t headerHeight = 35;
     tft->setTextSize(2);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
-    tft->setCursor(CONTENT_X + 10, 10);
+    tft->setCursor(CONTENT_X + 10, 8);
     tft->print("THONG BAO");
     
-    // Draw notifications list
+    // Draw count if available
+    if (notificationsCount > 0) {
+        tft->setTextSize(1);
+        tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
+        tft->setCursor(CONTENT_X + 10, 24);
+        tft->print("[ ");
+        tft->print(notificationsCount);
+        tft->print(" ]");
+    }
+    
+    // Draw header line
+    tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
+    
+    // Draw notifications list as cards
     if (notificationsCount == 0) {
         tft->setTextSize(1);
         tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-        tft->setCursor(CONTENT_X + 10, 50);
+        tft->setCursor(CONTENT_X + 10, 60);
         tft->print("No notifications");
     } else {
-        const uint16_t itemHeight = 40;
-        const uint16_t startY = 40;
-        const int visibleItems = (SCREEN_HEIGHT - startY) / itemHeight;
+        const uint16_t cardHeight = 48;
+        const uint16_t cardSpacing = 4;
+        const uint16_t startY = headerHeight + 4;
+        const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
         
         // Calculate which items to show
         int startIndex = notificationsScrollOffset;
         int endIndex = (startIndex + visibleItems < notificationsCount) ? (startIndex + visibleItems) : notificationsCount;
         
         for (int i = startIndex; i < endIndex; i++) {
-            uint16_t y = startY + (i - startIndex) * itemHeight;
+            uint16_t y = startY + (i - startIndex) * (cardHeight + cardSpacing);
             bool isSelected = (i == selectedNotificationIndex);
             
-            // Draw item background if selected
-            if (isSelected) {
-                tft->fillRect(CONTENT_X, y, CONTENT_WIDTH, itemHeight, SOCIAL_HIGHLIGHT);
-                tft->fillRect(CONTENT_X, y, 2, itemHeight, SOCIAL_ACCENT);
+            // Card dimensions
+            uint16_t cardX = CONTENT_X + 8;
+            uint16_t cardY = y;
+            uint16_t cardW = CONTENT_WIDTH - 16;
+            uint16_t cardR = 4;  // Rounded corner radius
+            
+            // Draw card background
+            uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
+            tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
+            
+            // Draw card border based on selection and focus
+            if (isSelected && focusMode == FOCUS_CONTENT) {
+                // Bright cyan border when selected and content focused
+                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
+            } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
+                // Dimmed border when selected but sidebar focused
+                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
             }
             
-            // Draw notification type indicator
+            // Draw notification type indicator (icon on left)
             uint16_t typeColor = SOCIAL_ACCENT;
-            tft->fillCircle(CONTENT_X + 15, y + itemHeight / 2, 4, typeColor);
+            uint16_t iconX = cardX + 12;
+            uint16_t iconY = cardY + cardHeight / 2;
+            tft->fillCircle(iconX, iconY, 5, typeColor);
+            tft->drawCircle(iconX, iconY, 5, typeColor);
             
-            // Draw message
+            // Draw message (truncate if too long, can wrap to two lines)
             tft->setTextSize(1);
-            tft->setTextColor(SOCIAL_TEXT, isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_BG_DARK);
-            tft->setCursor(CONTENT_X + 25, y + 6);
+            tft->setTextColor(SOCIAL_TEXT, cardBgColor);
+            tft->setCursor(cardX + 25, cardY + 8);
             
-            // Truncate message if too long
             String message = notifications[i].message;
-            if (message.length() > 25) {
-                message = message.substring(0, 22) + "...";
-            }
-            tft->print(message);
-            
-            // Draw timestamp if available
-            if (notifications[i].timestamp.length() > 0) {
-                tft->setTextColor(SOCIAL_MUTED, isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_BG_DARK);
-                tft->setCursor(CONTENT_X + 25, y + 18);
-                String timestamp = notifications[i].timestamp;
-                if (timestamp.length() > 20) {
-                    timestamp = timestamp.substring(0, 17) + "...";
+            // Calculate max width for message
+            int maxWidth = (cardW - 25 - 8) / 6;  // Approximate chars
+            if (message.length() > maxWidth * 2) {
+                // Truncate if too long for two lines
+                message = message.substring(0, maxWidth * 2 - 3) + "...";
+            } else if (message.length() > maxWidth) {
+                // Try to wrap at space if possible
+                int spacePos = message.lastIndexOf(' ', maxWidth);
+                if (spacePos > 0) {
+                    // Draw first line
+                    tft->print(message.substring(0, spacePos));
+                    // Draw second line
+                    tft->setCursor(cardX + 25, cardY + 20);
+                    String secondLine = message.substring(spacePos + 1);
+                    if (secondLine.length() > maxWidth) {
+                        secondLine = secondLine.substring(0, maxWidth - 3) + "...";
+                    }
+                    tft->print(secondLine);
+                    message = "";  // Already printed
                 }
+            }
+            if (message.length() > 0) {
+                tft->print(message);
+            }
+            
+            // Draw timestamp (right-aligned, bottom corner)
+            if (notifications[i].timestamp.length() > 0) {
+                tft->setTextColor(SOCIAL_MUTED, cardBgColor);
+                String timestamp = notifications[i].timestamp;
+                // Truncate timestamp if needed
+                int maxTimestampWidth = (cardW - 25) / 6;
+                if (timestamp.length() > maxTimestampWidth) {
+                    timestamp = timestamp.substring(0, maxTimestampWidth - 3) + "...";
+                }
+                int timestampWidth = timestamp.length() * 6;
+                tft->setCursor(cardX + cardW - timestampWidth - 8, cardY + cardHeight - 10);
                 tft->print(timestamp);
             }
         }
@@ -284,47 +392,70 @@ void SocialScreen::drawAddFriendContent() {
         tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
     }
     
-    // Draw AddFriendScreen content manually (adapted for smaller area)
-    const uint16_t headerHeight = 30;
-    
     // Draw header
-    tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, headerHeight, SOCIAL_HEADER);
-    tft->drawFastHLine(CONTENT_X, headerHeight - 1, CONTENT_WIDTH, SOCIAL_ACCENT);
-    
-    // Title in header
+    const uint16_t headerHeight = 35;
     tft->setTextSize(2);
-    tft->setTextColor(SOCIAL_TEXT, SOCIAL_HEADER);
+    tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("ADD FRIEND");
     
-    // Draw input box (scaled for content area)
-    uint16_t inputX = CONTENT_X + 10;
-    uint16_t inputY = headerHeight + 10;
-    uint16_t inputW = CONTENT_WIDTH - 20;
-    uint16_t inputH = 34;
+    // Draw header line
+    tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
+    
+    // Center the input box vertically and horizontally
+    uint16_t inputW = CONTENT_WIDTH - 40;
+    uint16_t inputH = 40;
+    uint16_t inputX = CONTENT_X + (CONTENT_WIDTH - inputW) / 2;
+    uint16_t inputY = (SCREEN_HEIGHT - inputH) / 2;
     
     String friendName = addFriendScreen->getFriendName();
     
-    // Background with Deep Midnight Blue
-    tft->fillRoundRect(inputX, inputY, inputW, inputH, 6, SOCIAL_BG_DARK);
-    // Cyan border for accent
-    tft->drawRoundRect(inputX, inputY, inputW, inputH, 6, SOCIAL_ACCENT);
-    tft->setCursor(inputX + 8, inputY + (inputH / 2) - 6);
-    tft->setTextSize(2);
+    // Draw terminal-style input box
+    // Background (card style)
+    tft->fillRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_HEADER);
     
-    if (friendName.length() == 0) {
-        tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-        tft->print("Enter name");
+    // Border - bright cyan when content focused
+    if (focusMode == FOCUS_CONTENT) {
+        tft->drawRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_ACCENT);
     } else {
-        tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
-        tft->print(friendName);
+        tft->drawRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_MUTED);
     }
     
-    // Instructions
+    // Draw terminal prompt "> "
+    tft->setTextSize(2);
+    tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
+    tft->setCursor(inputX + 8, inputY + (inputH / 2) - 6);
+    tft->print("> ");
+    
+    // Draw input text or placeholder
+    uint16_t textX = inputX + 24;  // After "> "
+    tft->setCursor(textX, inputY + (inputH / 2) - 6);
+    
+    if (friendName.length() == 0) {
+        tft->setTextColor(SOCIAL_MUTED, SOCIAL_HEADER);
+        tft->print("Enter Username");
+    } else {
+        tft->setTextColor(SOCIAL_TEXT, SOCIAL_HEADER);
+        // Truncate if too long
+        String displayName = friendName;
+        int maxChars = (inputW - 24 - 16) / 12;  // Approximate chars for text size 2
+        if (displayName.length() > maxChars) {
+            displayName = displayName.substring(0, maxChars - 3) + "...";
+        }
+        tft->print(displayName);
+        
+        // Draw blinking cursor (simple underscore)
+        if ((millis() / 500) % 2 == 0) {  // Blink every 500ms
+            tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
+            tft->print("_");
+        }
+    }
+    
+    // Instructions (centered below input)
     tft->setTextSize(1);
-    tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
-    tft->setCursor(inputX, inputY + inputH + 10);
-    tft->print("Press Enter to add");
+    tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
+    tft->setCursor(inputX, inputY + inputH + 12);
+    tft->print("Press Enter to add friend");
 }
 
 void SocialScreen::drawContentArea() {
@@ -361,6 +492,145 @@ void SocialScreen::handleTabNavigation(const String& key) {
     }
 }
 
+void SocialScreen::redrawFriendCard(int index, bool isSelected) {
+    if (index < 0 || index >= friendsCount) return;
+    
+    const uint16_t cardHeight = 32;
+    const uint16_t cardSpacing = 4;
+    const uint16_t headerHeight = 35;
+    const uint16_t startY = headerHeight + 4;
+    const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+    
+    // Check if item is visible
+    if (index < friendsScrollOffset || index >= friendsScrollOffset + visibleItems) {
+        return;  // Not visible, no need to redraw
+    }
+    
+    uint16_t y = startY + (index - friendsScrollOffset) * (cardHeight + cardSpacing);
+    
+    // Card dimensions
+    uint16_t cardX = CONTENT_X + 8;
+    uint16_t cardY = y;
+    uint16_t cardW = CONTENT_WIDTH - 16;
+    uint16_t cardR = 4;
+    
+    // Draw card background
+    uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
+    tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
+    
+    // Draw card border based on selection and focus
+    if (isSelected && focusMode == FOCUS_CONTENT) {
+        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
+    } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
+        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
+    }
+    
+    // Draw online/offline indicator
+    uint16_t statusColor = friends[index].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
+    uint16_t dotX = cardX + 12;
+    uint16_t dotY = cardY + cardHeight / 2;
+    tft->fillCircle(dotX, dotY, 6, statusColor);
+    tft->drawCircle(dotX, dotY, 6, statusColor);
+    
+    // Draw username
+    tft->setTextSize(1);
+    tft->setTextColor(SOCIAL_TEXT, cardBgColor);
+    tft->setCursor(cardX + 25, cardY + 8);
+    String username = friends[index].username;
+    int maxWidth = (cardW - 25 - 8) / 6;
+    if (username.length() > maxWidth) {
+        username = username.substring(0, maxWidth - 3) + "...";
+    }
+    tft->print(username);
+    
+    // Draw online status text
+    tft->setTextColor(SOCIAL_MUTED, cardBgColor);
+    String statusText = friends[index].online ? "Online" : "Offline";
+    int statusWidth = statusText.length() * 6;
+    tft->setCursor(cardX + cardW - statusWidth - 8, cardY + 20);
+    tft->print(statusText);
+}
+
+void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
+    if (index < 0 || index >= notificationsCount) return;
+    
+    const uint16_t cardHeight = 48;
+    const uint16_t cardSpacing = 4;
+    const uint16_t headerHeight = 35;
+    const uint16_t startY = headerHeight + 4;
+    const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+    
+    // Check if item is visible
+    if (index < notificationsScrollOffset || index >= notificationsScrollOffset + visibleItems) {
+        return;  // Not visible, no need to redraw
+    }
+    
+    uint16_t y = startY + (index - notificationsScrollOffset) * (cardHeight + cardSpacing);
+    
+    // Card dimensions
+    uint16_t cardX = CONTENT_X + 8;
+    uint16_t cardY = y;
+    uint16_t cardW = CONTENT_WIDTH - 16;
+    uint16_t cardR = 4;
+    
+    // Draw card background
+    uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
+    tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
+    
+    // Draw card border based on selection and focus
+    if (isSelected && focusMode == FOCUS_CONTENT) {
+        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
+    } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
+        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
+    }
+    
+    // Draw notification type indicator
+    uint16_t typeColor = SOCIAL_ACCENT;
+    uint16_t iconX = cardX + 12;
+    uint16_t iconY = cardY + cardHeight / 2;
+    tft->fillCircle(iconX, iconY, 5, typeColor);
+    tft->drawCircle(iconX, iconY, 5, typeColor);
+    
+    // Draw message
+    tft->setTextSize(1);
+    tft->setTextColor(SOCIAL_TEXT, cardBgColor);
+    tft->setCursor(cardX + 25, cardY + 8);
+    
+    String message = notifications[index].message;
+    int maxWidth = (cardW - 25 - 8) / 6;
+    if (message.length() > maxWidth * 2) {
+        message = message.substring(0, maxWidth * 2 - 3) + "...";
+    } else if (message.length() > maxWidth) {
+        int spacePos = message.lastIndexOf(' ', maxWidth);
+        if (spacePos > 0) {
+            tft->print(message.substring(0, spacePos));
+            tft->setCursor(cardX + 25, cardY + 20);
+            String secondLine = message.substring(spacePos + 1);
+            if (secondLine.length() > maxWidth) {
+                secondLine = secondLine.substring(0, maxWidth - 3) + "...";
+            }
+            tft->print(secondLine);
+            message = "";
+        }
+    }
+    if (message.length() > 0) {
+        tft->print(message);
+    }
+    
+    // Draw timestamp
+    if (notifications[index].timestamp.length() > 0) {
+        tft->setTextColor(SOCIAL_MUTED, cardBgColor);
+        String timestamp = notifications[index].timestamp;
+        int maxTimestampWidth = (cardW - 25) / 6;
+        if (timestamp.length() > maxTimestampWidth) {
+            timestamp = timestamp.substring(0, maxTimestampWidth - 3) + "...";
+        }
+        int timestampWidth = timestamp.length() * 6;
+        tft->setCursor(cardX + cardW - timestampWidth - 8, cardY + cardHeight - 10);
+        tft->print(timestamp);
+    }
+}
+
 void SocialScreen::handleContentNavigation(const String& key) {
     if (currentTab == TAB_ADD_FRIEND) {
         // Forward to AddFriendScreen
@@ -388,40 +658,84 @@ void SocialScreen::handleContentNavigation(const String& key) {
         // Redraw content area
         drawContentArea();
     } else if (currentTab == TAB_FRIENDS) {
-        // Navigate friends list
+        // Navigate friends list with partial redraw
+        int oldIndex = selectedFriendIndex;
         if (key == "|u" && selectedFriendIndex > 0) {
             selectedFriendIndex--;
             // Adjust scroll if needed
+            const uint16_t cardHeight = 32;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = 35;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
             if (selectedFriendIndex < friendsScrollOffset) {
                 friendsScrollOffset = selectedFriendIndex;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawFriendCard(oldIndex, false);
+                redrawFriendCard(selectedFriendIndex, true);
             }
-            drawContentArea();
         } else if (key == "|d" && selectedFriendIndex < friendsCount - 1) {
             selectedFriendIndex++;
             // Adjust scroll if needed
-            const int visibleItems = (SCREEN_HEIGHT - 40) / 24;
+            const uint16_t cardHeight = 32;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = 35;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
             if (selectedFriendIndex >= friendsScrollOffset + visibleItems) {
                 friendsScrollOffset = selectedFriendIndex - visibleItems + 1;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawFriendCard(oldIndex, false);
+                redrawFriendCard(selectedFriendIndex, true);
             }
-            drawContentArea();
         }
     } else if (currentTab == TAB_NOTIFICATIONS) {
-        // Navigate notifications list
+        // Navigate notifications list with partial redraw
+        int oldIndex = selectedNotificationIndex;
         if (key == "|u" && selectedNotificationIndex > 0) {
             selectedNotificationIndex--;
             // Adjust scroll if needed
+            const uint16_t cardHeight = 48;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = 35;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
             if (selectedNotificationIndex < notificationsScrollOffset) {
                 notificationsScrollOffset = selectedNotificationIndex;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawNotificationCard(oldIndex, false);
+                redrawNotificationCard(selectedNotificationIndex, true);
             }
-            drawContentArea();
         } else if (key == "|d" && selectedNotificationIndex < notificationsCount - 1) {
             selectedNotificationIndex++;
             // Adjust scroll if needed
-            const int visibleItems = (SCREEN_HEIGHT - 40) / 40;
+            const uint16_t cardHeight = 48;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = 35;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
             if (selectedNotificationIndex >= notificationsScrollOffset + visibleItems) {
                 notificationsScrollOffset = selectedNotificationIndex - visibleItems + 1;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawNotificationCard(oldIndex, false);
+                redrawNotificationCard(selectedNotificationIndex, true);
             }
-            drawContentArea();
         }
     }
 }
@@ -455,14 +769,31 @@ void SocialScreen::handleKeyPress(const String& key) {
         // Left: Move focus to sidebar
         if (focusMode == FOCUS_CONTENT) {
             focusMode = FOCUS_SIDEBAR;
-            draw();  // Redraw to show focus change
+            // Redraw sidebar tabs to show focus change
+            drawSidebar();
+            // Redraw selected card with dimmed border
+            if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+                redrawFriendCard(selectedFriendIndex, true);
+            } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+                redrawNotificationCard(selectedNotificationIndex, true);
+            }
         }
         return;
     } else if (key == "|r") {
         // Right: Move focus to content
         if (focusMode == FOCUS_SIDEBAR) {
             focusMode = FOCUS_CONTENT;
-            draw();  // Redraw to show focus change
+            // Redraw sidebar tabs to show focus change
+            drawSidebar();
+            // Redraw selected card with bright border
+            if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+                redrawFriendCard(selectedFriendIndex, true);
+            } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+                redrawNotificationCard(selectedNotificationIndex, true);
+            } else {
+                // Redraw content area if no selection
+                drawContentArea();
+            }
         }
         return;
     }
