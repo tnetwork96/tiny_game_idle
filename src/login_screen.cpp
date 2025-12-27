@@ -262,6 +262,10 @@ void LoginScreen::handleKeyPress(const String& key) {
                 state = LOGIN_SUCCESS;
                 drawSuccessScreen();
                 Serial.println("Login Screen: API verification successful!");
+                Serial.print("Login Screen: User ID saved: ");
+                Serial.println(userId);
+                Serial.print("Login Screen: Username: ");
+                Serial.println(username);
                 
                 // Load friends list
                 loadFriends();
@@ -421,10 +425,14 @@ void LoginScreen::update() {
 void LoginScreen::loadFriends() {
     if (userId <= 0) {
         Serial.println("Login Screen: Cannot load friends - invalid user ID");
+        Serial.print("Login Screen: Current userId: ");
+        Serial.println(userId);
         return;
     }
     
     Serial.println("Login Screen: Loading friends list from database (string format)...");
+    Serial.print("Login Screen: Using user_id: ");
+    Serial.println(userId);
     String friendsString = ApiClient::getFriendsList(userId, "192.168.1.7", 8080);
     
     if (friendsString.length() > 0) {
