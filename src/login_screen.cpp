@@ -32,6 +32,8 @@ LoginScreen::LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->userId = -1;
     this->friendsLoadedCallback = nullptr;
     this->friendsLoadedStringCallback = nullptr;
+    this->notificationsLoadedCallback = nullptr;
+    this->onLoginSuccessCallback = nullptr;
     
     // Set static instance for callbacks
     instanceForCallback = this;
@@ -279,6 +281,11 @@ void LoginScreen::handleKeyPress(const String& key) {
                 
                 // Load notifications
                 loadNotifications();
+                
+                // Call login success callback
+                if (onLoginSuccessCallback != nullptr) {
+                    onLoginSuccessCallback();
+                }
             } else {
                 // Login failed
                 if (!loginResult.accountExists) {
@@ -350,6 +357,11 @@ void LoginScreen::handleKeyPress(const String& key) {
                             
                             // Load notifications
                             loadNotifications();
+                            
+                            // Call login success callback
+                            if (onLoginSuccessCallback != nullptr) {
+                                onLoginSuccessCallback();
+                            }
                         } else {
                             Serial.println("Login Screen: Failed to login after account creation!");
                             // Still show success screen even if login fails
