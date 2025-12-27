@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include "api_client.h"
 
 struct BuddyEntry {
     String name;
@@ -60,6 +61,15 @@ public:
     void setNotificationCount(uint8_t count);
     void setUnreadCount(uint8_t count);
     uint8_t getUnreadCount() const { return unreadCount; }
+    void setNotifications(const ApiClient::NotificationEntry* entries, uint8_t count);
+    bool shouldShowNotificationsScreen() const { return shouldShowNotifications; }
+    
+    // Callbacks for loading data
+    typedef void (*LoadFriendsCallback)(int userId);
+    typedef void (*LoadNotificationsCallback)(int userId);
+    void setLoadFriendsCallback(LoadFriendsCallback callback);
+    void setLoadNotificationsCallback(LoadNotificationsCallback callback);
+    void setUserId(int userId);
 
 private:
     Adafruit_ST7789* tft;
@@ -80,9 +90,19 @@ private:
     // Sidebar state
     SidebarTab currentTab;
     bool isSidebarActive;
+    bool shouldShowNotifications;  // Flag to show notifications view
     
     // Auto-navigation timing
     unsigned long drawTime;  // Time when screen was last drawn
+    
+    // Callbacks for loading data
+    LoadFriendsCallback loadFriendsCallback;
+    LoadNotificationsCallback loadNotificationsCallback;
+    int userId;  // User ID for API calls
+    
+    // Notifications data
+    ApiClient::NotificationEntry* notifications;
+    uint8_t selectedNotificationIndex;
 
     // Colors
     uint16_t bgColor;
@@ -104,6 +124,8 @@ private:
     void drawList(bool clearBackground = true);  // Allow partial redraw without clearing
     void drawScrollbar();  // Draw scrollbar independently
     void drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx);
+    void drawNotificationsList(bool clearBackground = true);  // Draw notifications list
+    void drawNotificationRow(uint8_t visibleRow, uint8_t notificationIdx);
     void drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t size, uint16_t color);
     uint16_t statusColor(bool online) const;
     void redrawSelectionChange(uint8_t previousIndex, uint8_t previousScroll);

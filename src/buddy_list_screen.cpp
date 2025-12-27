@@ -33,7 +33,13 @@ BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
     unreadCount = 0;
     currentTab = TAB_CHATS;
     isSidebarActive = false;  // Start with focus on list
+    shouldShowNotifications = false;
     drawTime = 0;
+    loadFriendsCallback = nullptr;
+    loadNotificationsCallback = nullptr;
+    userId = 0;
+    notifications = nullptr;
+    selectedNotificationIndex = 0;
 
     // Deep Space Arcade Theme - Midnight Blue
     // Background: Deep Midnight Blue #020817 (RGB: 2, 8, 23) -> RGB565: 0x0042
@@ -215,10 +221,13 @@ void BuddyListScreen::ensureSelectionVisible() {
     }
     
     uint8_t visible = getVisibleRows();
-    if (selectedIndex < scrollOffset) {
-        scrollOffset = selectedIndex;
-    } else if (selectedIndex >= scrollOffset + visible) {
-        scrollOffset = selectedIndex - visible + 1;
+    uint8_t currentIndex = shouldShowNotifications ? selectedNotificationIndex : selectedIndex;
+    uint8_t currentCount = shouldShowNotifications ? notificationCount : buddyCount;
+    
+    if (currentIndex < scrollOffset) {
+        scrollOffset = currentIndex;
+    } else if (currentIndex >= scrollOffset + visible) {
+        scrollOffset = currentIndex - visible + 1;
     }
 }
 
@@ -434,6 +443,90 @@ void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
     tft->print(displayName);
 }
 
+void BuddyListScreen::drawNotificationsList(bool clearBackground) {
+    if (tft == nullptr) return;
+    
+    const uint16_t rowHeight = 24;
+    const uint16_t startX = SIDEBAR_WIDTH;
+    const uint16_t startY = 0;
+    const uint8_t visibleRows = getVisibleRows();
+    const uint16_t listWidth = CONTENT_WIDTH;
+    
+    if (clearBackground) {
+        tft->fillRect(startX, startY, listWidth, SCREEN_HEIGHT, bgColor);
+    }
+    
+    if (notificationCount == 0 || notifications == nullptr) {
+        // Empty state: Show "No notifications" message
+        tft->setTextColor(listTextColor, bgColor);
+        tft->setTextSize(2);
+        String emptyMsg = "No notifications";
+        uint16_t textX = startX + (listWidth - emptyMsg.length() * 12) / 2;
+        uint16_t textY = SCREEN_HEIGHT / 2 - 8;
+        tft->setCursor(textX, textY);
+        tft->print(emptyMsg);
+        return;
+    }
+    
+    // Draw all visible notification rows
+    for (uint8_t row = 0; row < visibleRows; row++) {
+        uint8_t notificationIdx = scrollOffset + row;
+        if (notificationIdx >= notificationCount) {
+            if (clearBackground) {
+                tft->fillRect(startX, startY + row * rowHeight, listWidth, 
+                             (visibleRows - row) * rowHeight, bgColor);
+            }
+            break;
+        }
+        drawNotificationRow(row, notificationIdx);
+    }
+    
+    // Draw scrollbar
+    drawScrollbar();
+}
+
+void BuddyListScreen::drawNotificationRow(uint8_t visibleRow, uint8_t notificationIdx) {
+    if (tft == nullptr || notifications == nullptr || notificationIdx >= notificationCount) return;
+    
+    const uint16_t rowHeight = 24;
+    const uint16_t startX = SIDEBAR_WIDTH;
+    const uint16_t y = visibleRow * rowHeight;
+    
+    bool isSelected = (notificationIdx == selectedNotificationIndex && !isSidebarActive);
+    uint16_t rowBg = isSelected ? highlightColor : bgColor;
+    
+    tft->fillRect(startX, y, CONTENT_WIDTH, rowHeight, rowBg);
+    
+    if (isSelected) {
+        const uint16_t accentBarWidth = 2;
+        const uint16_t accentBarColor = 0x07FF;
+        tft->fillRect(startX, y, accentBarWidth, rowHeight, accentBarColor);
+    }
+    
+    // Draw notification icon (bell) - small icon on left
+    const uint16_t iconSize = 16;
+    const uint16_t iconX = startX + 2;
+    const uint16_t iconY = y + (rowHeight - iconSize) / 2;
+    uint16_t iconColor = notifications[notificationIdx].read ? 0x8410 : 0x07FF;  // Grey if read, Cyan if unread
+    tft->drawBitmap(iconX, iconY, iconBell, iconSize, iconSize, iconColor);
+    
+    // Draw notification message
+    tft->setTextColor(listTextColor, rowBg);
+    tft->setTextSize(1);  // Smaller text to fit more
+    uint16_t textX = iconX + iconSize + 4;
+    uint16_t textY = y + (rowHeight - 8) / 2;
+    tft->setCursor(textX, textY);
+    
+    String displayMsg = notifications[notificationIdx].message;
+    const uint8_t charWidth = 6;  // Approx for text size 1
+    const uint16_t rightMargin = 4;
+    uint8_t maxChars = (CONTENT_WIDTH - (textX - startX) - rightMargin) / charWidth;
+    if (displayMsg.length() > maxChars && maxChars > 3) {
+        displayMsg = displayMsg.substring(0, maxChars - 3) + "...";
+    }
+    tft->print(displayMsg);
+}
+
 void BuddyListScreen::drawScrollbar() {
     if (tft == nullptr) return;
     
@@ -441,8 +534,11 @@ void BuddyListScreen::drawScrollbar() {
     const uint16_t startX = SIDEBAR_WIDTH + CONTENT_WIDTH;  // Right edge of content area (320px)
     const uint8_t visibleRows = getVisibleRows();
     
-    // Only draw scrollbar if there are more buddies than visible rows
-    if (buddyCount <= visibleRows) {
+    // Get current count based on view mode
+    uint8_t currentCount = shouldShowNotifications ? notificationCount : buddyCount;
+    
+    // Only draw scrollbar if there are more items than visible rows
+    if (currentCount <= visibleRows) {
         // Clear scrollbar area if it was previously visible
         uint16_t barWidth = 4;
         uint16_t barX = startX;
@@ -458,11 +554,11 @@ void BuddyListScreen::drawScrollbar() {
     // Dark track (darker than background) - use slightly darker midnight blue
     tft->fillRect(barX, startY, barWidth, scrollbarHeight, 0x0021);  // Very dark midnight blue track
 
-    float ratio = (float)visibleRows / (float)buddyCount;
+    float ratio = (float)visibleRows / (float)currentCount;
     uint16_t thumbHeight = scrollbarHeight * ratio;
     if (thumbHeight < 8) thumbHeight = 8;
 
-    float scrollPercent = (float)scrollOffset / (float)(buddyCount - visibleRows);
+    float scrollPercent = (float)scrollOffset / (float)(currentCount - visibleRows);
     if (scrollPercent < 0.0f) scrollPercent = 0.0f;
     if (scrollPercent > 1.0f) scrollPercent = 1.0f;
     uint16_t thumbY = startY + (scrollbarHeight - thumbHeight) * scrollPercent;
@@ -535,8 +631,47 @@ void BuddyListScreen::setUnreadCount(uint8_t count) {
     unreadCount = count;
     Serial.print("Buddy List Screen: Unread count set to: ");
     Serial.println(count);
-    // Redraw header to update badge
-    drawHeader();
+    // Redraw sidebar to update badge
+    drawSidebar();
+}
+
+void BuddyListScreen::setLoadFriendsCallback(LoadFriendsCallback callback) {
+    loadFriendsCallback = callback;
+}
+
+void BuddyListScreen::setLoadNotificationsCallback(LoadNotificationsCallback callback) {
+    loadNotificationsCallback = callback;
+}
+
+void BuddyListScreen::setUserId(int userId) {
+    this->userId = userId;
+}
+
+void BuddyListScreen::setNotifications(const ApiClient::NotificationEntry* entries, uint8_t count) {
+    // Free old notifications if any
+    if (notifications != nullptr) {
+        delete[] notifications;
+        notifications = nullptr;
+    }
+    
+    notificationCount = min(count, (uint8_t)50);  // Max 50 notifications
+    if (notificationCount > 0 && entries != nullptr) {
+        notifications = new ApiClient::NotificationEntry[notificationCount];
+        for (uint8_t i = 0; i < notificationCount; i++) {
+            notifications[i] = entries[i];
+        }
+    } else {
+        notifications = nullptr;
+        notificationCount = 0;
+    }
+    
+    selectedNotificationIndex = 0;
+    scrollOffset = 0;
+    
+    // Redraw notifications list if we're currently showing notifications
+    if (shouldShowNotifications) {
+        drawNotificationsList(true);
+    }
 }
 
 
@@ -548,6 +683,7 @@ void BuddyListScreen::draw() {
     // When drawing buddy list, always default to TAB_CHATS
     // This ensures the User List icon is always highlighted when showing the buddy list
     currentTab = TAB_CHATS;
+    shouldShowNotifications = false;  // Default to buddy list
     
     drawSidebar();   // Draw vertical sidebar on the left
     drawList(true);  // Full draw with background clear for initial screen entry
@@ -581,6 +717,8 @@ void BuddyListScreen::handleUp() {
 
 void BuddyListScreen::handleDown() {
     if (isSidebarActive) {
+        SidebarTab prevTab = currentTab;
+        
         // Cycle through sidebar tabs (down = next tab)
         if (currentTab == TAB_CHATS) {
             currentTab = TAB_NOTIFICATIONS;
@@ -589,18 +727,42 @@ void BuddyListScreen::handleDown() {
         } else {  // TAB_ADD_FRIEND
             currentTab = TAB_CHATS;  // Wrap to top
         }
-        // Change currentTab and immediately drawSidebar() to update the Cyan color
-        drawSidebar();  // Redraw sidebar to update Cyan color for new active tab
+        
+        // If switching to a list tab, trigger load
+        if (currentTab == TAB_CHATS && prevTab != TAB_CHATS) {
+            shouldShowNotifications = false;
+            if (loadFriendsCallback != nullptr && userId > 0) {
+                Serial.println("Buddy List: Switching to Chats - loading friends...");
+                loadFriendsCallback(userId);
+            }
+            drawList(true);
+        } else if (currentTab == TAB_NOTIFICATIONS && prevTab != TAB_NOTIFICATIONS) {
+            shouldShowNotifications = true;
+            if (loadNotificationsCallback != nullptr && userId > 0) {
+                Serial.println("Buddy List: Switching to Notifications - loading notifications...");
+                loadNotificationsCallback(userId);
+            }
+            drawNotificationsList(true);
+        }
+        
+        drawSidebar();
     } else {
         // Normal navigation: move down in list
-        // Icon remains Cyan, but no border
-        if (selectedIndex + 1 >= buddyCount) return;  // Can't go down from last buddy
-        
-        uint8_t prevIndex = selectedIndex;
-        uint8_t prevScroll = scrollOffset;
-        selectedIndex++;
-        ensureSelectionVisible();
-        redrawSelectionChange(prevIndex, prevScroll);
+        if (shouldShowNotifications) {
+            if (selectedNotificationIndex + 1 >= notificationCount) return;
+            uint8_t prevIndex = selectedNotificationIndex;
+            uint8_t prevScroll = scrollOffset;
+            selectedNotificationIndex++;
+            ensureSelectionVisible();
+            redrawSelectionChange(prevIndex, prevScroll);
+        } else {
+            if (selectedIndex + 1 >= buddyCount) return;
+            uint8_t prevIndex = selectedIndex;
+            uint8_t prevScroll = scrollOffset;
+            selectedIndex++;
+            ensureSelectionVisible();
+            redrawSelectionChange(prevIndex, prevScroll);
+        }
     }
 }
 
@@ -635,17 +797,41 @@ void BuddyListScreen::handleSelect() {
             // Signal that Add Friend screen should be shown
             // The actual screen display is handled in main.cpp
             // (main.cpp will check shouldShowAddFriendScreen())
+            Serial.println("Buddy List: Add Friend tab selected");
         } else if (currentTab == TAB_NOTIFICATIONS) {
-            // TODO: Switch to notifications screen/view
-            // For now, just log
-            Serial.println("Buddy List: Notifications tab selected");
+            Serial.println("Buddy List: Notifications tab selected - loading notifications...");
+            shouldShowNotifications = true;
+            
+            // Call API to load notifications
+            if (loadNotificationsCallback != nullptr && userId > 0) {
+                loadNotificationsCallback(userId);
+            }
+            
+            // Redraw to show notifications list (or empty state)
+            drawSidebar();
+            drawNotificationsList(true);
         } else {  // TAB_CHATS
-            // Already on chats view, do nothing or refresh
-            Serial.println("Buddy List: Chats tab selected");
+            Serial.println("Buddy List: Chats tab selected - loading friends...");
+            shouldShowNotifications = false;
+            
+            // Call API to reload friends
+            if (loadFriendsCallback != nullptr && userId > 0) {
+                loadFriendsCallback(userId);
+            }
+            
+            // Redraw to show buddy list
+            drawSidebar();
+            drawList(true);
         }
     } else {
-        // List is active: Select the buddy
-        // Selection is handled by consumers via getSelectedBuddy()
+        // List is active: Select the buddy or notification
+        if (shouldShowNotifications) {
+            // Handle notification selection
+            Serial.print("Notification selected: ");
+            Serial.println(selectedNotificationIndex);
+        } else {
+            // Handle buddy selection (existing logic)
+        }
     }
 }
 
