@@ -110,6 +110,13 @@ void onNotificationsLoaded(uint8_t count) {
 
 // Callback function for keyboard input - routes to appropriate screen
 void onKeyboardKeySelected(String key) {
+    // Route to Add Friend view if it's active
+    if (buddyListScreen != nullptr && buddyListScreen->shouldShowAddFriendScreen() && 
+        !buddyListScreen->shouldShowNotificationsScreen()) {
+        buddyListScreen->handleAddFriendKey(key);
+        return;
+    }
+    
     // Route to LoginScreen if WiFi is connected and login screen is active
     if (wifiManager != nullptr && wifiManager->isConnected() && loginScreen != nullptr) {
         loginScreen->handleKeyPress(key);

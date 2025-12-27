@@ -75,7 +75,12 @@ def run_migration(migration_file):
 
 def main():
     """Main migration runner"""
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 🚀 Starting database migrations...")
+    import sys
+    import io
+    # Fix encoding for Windows console
+    if sys.platform == 'win32':
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting database migrations...")
     
     database_url = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Database URL: {database_url.split('@')[1] if '@' in database_url else 'local'}")
