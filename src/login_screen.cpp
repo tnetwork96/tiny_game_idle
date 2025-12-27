@@ -19,6 +19,7 @@ LoginScreen::LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->keyboard = keyboard;
     this->pinScreen = new PinScreen(tft, keyboard);
     this->confirmationDialog = new ConfirmationDialog(tft);
+    this->nicknameScreen = new NicknameScreen(tft, keyboard);
     this->state = LOGIN_USERNAME;
     this->username = "";
     this->showUsernameEmpty = false;
@@ -27,6 +28,7 @@ LoginScreen::LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->pendingUsername = "";
     this->pendingPin = "";
     this->dialogShowTime = 0;
+    this->nicknameAutoSubmitTime = 0;
     this->userId = -1;
     this->friendsLoadedCallback = nullptr;
     this->friendsLoadedStringCallback = nullptr;
@@ -167,6 +169,11 @@ void LoginScreen::draw() {
         case LOGIN_PIN:
             pinScreen->draw();
             break;
+        case LOGIN_NICKNAME:
+            if (nicknameScreen) {
+                nicknameScreen->draw();
+            }
+            break;
         case LOGIN_SUCCESS:
             drawSuccessScreen();
             break;
@@ -303,6 +310,66 @@ void LoginScreen::handleKeyPress(const String& key) {
         } else if (pinScreen->wantsUsernameStep()) {
             goToUsernameStep();
         }
+    } else if (state == LOGIN_NICKNAME) {
+        // Forward to nickname screen
+        if (nicknameScreen != nullptr) {
+            nicknameScreen->handleKeyPress(key);
+            
+            // Check if nickname was confirmed
+            if (nicknameScreen->isConfirmed()) {
+                String enteredNickname = nicknameScreen->getNickname();
+                Serial.println("Login Screen: Nickname confirmed, creating account...");
+                Serial.print("Login Screen: Nickname: ");
+                Serial.println(enteredNickname);
+                
+                // Create account with pending username and PIN
+                if (pendingUsername.length() > 0 && pendingPin.length() > 0) {
+                    if (ApiClient::createAccount(pendingUsername, pendingPin, enteredNickname, "192.168.1.7", 8080)) {
+                        Serial.println("Login Screen: Account created successfully!");
+                        
+                        // Save nickname
+                        if (nicknameScreen->saveNickname(enteredNickname)) {
+                            Serial.println("Login Screen: Nickname saved successfully!");
+                        } else {
+                            Serial.println("Login Screen: Failed to save nickname!");
+                        }
+                        
+                        // Login to get user ID
+                        ApiClient::LoginResult loginResult = ApiClient::checkLogin(pendingUsername, pendingPin, "192.168.1.7", 8080);
+                        if (loginResult.success) {
+                            userId = loginResult.user_id;
+                            username = pendingUsername;
+                            state = LOGIN_SUCCESS;
+                            drawSuccessScreen();
+                            Serial.println("Login Screen: Auto-login successful after account creation!");
+                            Serial.print("Login Screen: User ID: ");
+                            Serial.println(userId);
+                            
+                            // Load friends list
+                            loadFriends();
+                            
+                            // Load notifications
+                            loadNotifications();
+                        } else {
+                            Serial.println("Login Screen: Failed to login after account creation!");
+                            // Still show success screen even if login fails
+                            username = pendingUsername;
+                            state = LOGIN_SUCCESS;
+                            drawSuccessScreen();
+                        }
+                    } else {
+                        Serial.println("Login Screen: Account creation failed!");
+                        // Reset nickname screen and go back to username step
+                        nicknameScreen->reset();
+                        goToUsernameStep();
+                    }
+                } else {
+                    Serial.println("Login Screen: No pending account info!");
+                    nicknameScreen->reset();
+                    goToUsernameStep();
+                }
+            }
+        }
     } else if (state == LOGIN_SHOWING_DIALOG) {
         // Handle dialog navigation
         if (confirmationDialog && confirmationDialog->isVisible()) {
@@ -336,32 +403,52 @@ void LoginScreen::staticOnCreateAccountCancel() {
     }
 }
 
+// Helper function to generate nickname from username
+String LoginScreen::generateNicknameFromUsername(const String& username) {
+    if (username.length() == 0) {
+        return "Player";
+    }
+    
+    String nickname = "";
+    // Capitalize first letter
+    if (username.length() > 0) {
+        char firstChar = username.charAt(0);
+        if (firstChar >= 'a' && firstChar <= 'z') {
+            nickname += (char)(firstChar - 32);  // Convert to uppercase
+        } else {
+            nickname += firstChar;
+        }
+        
+        // Add rest of username
+        for (int i = 1; i < username.length(); i++) {
+            nickname += username.charAt(i);
+        }
+    }
+    
+    return nickname;
+}
+
 // Instance callback methods for account creation
 void LoginScreen::onCreateAccountConfirm() {
     Serial.println("Login Screen: User confirmed account creation");
     
     if (pendingUsername.length() > 0 && pendingPin.length() > 0) {
-        // Call API to create account
-        Serial.println("Login Screen: Creating account...");
-        Serial.print("Login Screen: Username: ");
-        Serial.println(pendingUsername);
-        Serial.print("Login Screen: PIN: ");
-        Serial.println(pendingPin);
+        // Hide dialog
+        confirmationDialog->hide();
         
-        if (ApiClient::createAccount(pendingUsername, pendingPin, "192.168.1.7", 8080)) {
-            Serial.println("Login Screen: Account created successfully!");
-            // Update username to the newly created account
-            username = pendingUsername;
-            // Hide dialog
-            confirmationDialog->hide();
-            // Auto-login with new account
-            state = LOGIN_SUCCESS;
-            drawSuccessScreen();
-            Serial.println("Login Screen: Showing success screen for new account!");
+        // Reset nickname screen and transition to nickname input
+        Serial.println("Login Screen: Showing nickname screen for new account...");
+        if (nicknameScreen != nullptr) {
+            nicknameScreen->reset();
+            
+            // Don't auto-fill nickname - let user enter it themselves
+            state = LOGIN_NICKNAME;
+            nicknameScreen->draw();
+            
+            // Set timestamp for auto-submit (after 1.5 seconds)
+            nicknameAutoSubmitTime = millis() + 1500;
         } else {
-            Serial.println("Login Screen: Account creation failed!");
-            // Show error and go back to username step
-            confirmationDialog->hide();
+            Serial.println("Login Screen: NicknameScreen not initialized!");
             goToUsernameStep();
         }
     } else {

@@ -43,7 +43,7 @@ public:
     };
     
     static LoginResult checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port);
-    static bool createAccount(const String& username, const String& pin, const String& serverHost, uint16_t port);
+    static bool createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port);
     static FriendsListResult getFriends(int userId, const String& serverHost, uint16_t port);
     static String getFriendsList(int userId, const String& serverHost, uint16_t port);  // Returns simple string format: "user1,0|user2,1|..."
     static NotificationsResult getNotifications(int userId, const String& serverHost, uint16_t port);

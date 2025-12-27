@@ -32,6 +32,7 @@ BuddyListScreen* buddyListScreen;
     // Flag to track if auto-connect has been executed
 bool autoConnectExecuted = false;
 bool autoLoginExecuted = false;
+bool autoNicknameExecuted = false;
 
 // Callback when friends are loaded from database (string format)
 void onFriendsLoadedString(const String& friendsString) {
@@ -283,6 +284,55 @@ void autoLogin() {
     }
 }
 
+// Function to automatically type a random nickname
+void autoNickname() {
+    if (loginScreen == nullptr || keyboard == nullptr) return;
+    if (autoNicknameExecuted) return;
+    
+    // Check if we're on nickname screen
+    if (loginScreen->isOnNicknameStep()) {
+        Serial.println("Auto-nickname: Nickname screen ready, typing random nickname...");
+        
+        // Đợi một chút để màn hình sẵn sàng
+        delay(1000);
+        
+        // List of random nicknames
+        const char* nicknames[] = {
+            "CoolPlayer",
+            "GameMaster",
+            "ProGamer",
+            "StarPlayer",
+            "Champion",
+            "Hero",
+            "Warrior",
+            "Legend",
+            "Ace",
+            "Elite"
+        };
+        
+        // Select a random nickname (using millis() for pseudo-random)
+        int nicknameCount = sizeof(nicknames) / sizeof(nicknames[0]);
+        int randomIndex = millis() % nicknameCount;
+        String selectedNickname = String(nicknames[randomIndex]);
+        
+        Serial.print("Auto-nickname: Selected nickname: ");
+        Serial.println(selectedNickname);
+        
+        // Type the nickname
+        keyboard->typeString(selectedNickname);
+        
+        Serial.println("Auto-nickname: Nickname typed, waiting before pressing Enter...");
+        delay(1000);
+        
+        // Press Enter to confirm
+        Serial.println("Auto-nickname: Pressing Enter to confirm...");
+        keyboard->pressEnter();
+        
+        autoNicknameExecuted = true;
+        Serial.println("Auto-nickname: Nickname confirmed!");
+    }
+}
+
 void setup() {
     Serial.begin(115200);
     delay(200);
@@ -370,6 +420,22 @@ void loop() {
             
             // Bắt đầu auto login
             autoLogin();
+        }
+    }
+    
+    // Auto-nickname when nickname screen appears (only once)
+    if (loginScreen != nullptr && loginScreen->isOnNicknameStep()) {
+        if (!autoNicknameExecuted) {
+            // Đợi một chút để màn hình nickname sẵn sàng
+            delay(1000);
+            
+            // Bắt đầu auto nickname
+            autoNickname();
+        }
+    } else {
+        // Reset flag when nickname screen is no longer active
+        if (autoNicknameExecuted) {
+            autoNicknameExecuted = false;
         }
     }
     

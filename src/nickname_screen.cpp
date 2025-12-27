@@ -199,6 +199,19 @@ void NicknameScreen::reset() {
     cursorCol = 0;
 }
 
+void NicknameScreen::setNickname(const String& name) {
+    // Limit to 20 characters
+    if (name.length() > 20) {
+        nickname = name.substring(0, 20);
+    } else {
+        nickname = name;
+    }
+    showNameEmpty = false;
+    showNameTooLong = false;
+    // Update display
+    updateInputArea(false);
+}
+
 bool NicknameScreen::hasNickname() const {
     return SPIFFS.exists(NICKNAME_FILE_PATH);
 }

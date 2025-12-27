@@ -7,6 +7,7 @@
 #include "keyboard.h"
 #include "pin_screen.h"
 #include "confirmation_dialog.h"
+#include "nickname_screen.h"
 #include "api_client.h"
 
 // Two-step login screen: username then PIN (Windows 10–like)
@@ -16,7 +17,8 @@ public:
         LOGIN_USERNAME,
         LOGIN_PIN,
         LOGIN_SUCCESS,
-        LOGIN_SHOWING_DIALOG  // Showing confirmation dialog for account creation
+        LOGIN_SHOWING_DIALOG,  // Showing confirmation dialog for account creation
+        LOGIN_NICKNAME  // Showing nickname input screen for new account
     };
 
     LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard);
@@ -34,6 +36,7 @@ public:
     // State helpers
     bool isAuthenticated() const { return state == LOGIN_SUCCESS; }
     bool isOnPinStep() const { return state == LOGIN_PIN; }
+    bool isOnNicknameStep() const { return state == LOGIN_NICKNAME; }
     
     // Check if confirmation dialog is showing (for auto-confirm in main loop)
     bool isShowingDialog() const { 
@@ -85,6 +88,7 @@ private:
     Keyboard* keyboard;
     PinScreen* pinScreen;
     ConfirmationDialog* confirmationDialog;
+    NicknameScreen* nicknameScreen;
 
     LoginState state;
     String username;
@@ -96,6 +100,7 @@ private:
     String pendingUsername;
     String pendingPin;
     unsigned long dialogShowTime;  // Timestamp when dialog was shown
+    unsigned long nicknameAutoSubmitTime;  // Timestamp for auto-submit nickname
     static const unsigned long AUTO_CONFIRM_DELAY = 3000;  // Auto-confirm after 3 seconds
     
     // User ID and friends loading
@@ -126,6 +131,9 @@ private:
     // Instance methods for account creation
     void onCreateAccountConfirm();
     void onCreateAccountCancel();
+    
+    // Helper methods
+    String generateNicknameFromUsername(const String& username);
     
     // Static instance pointer for callbacks
     static LoginScreen* instanceForCallback;

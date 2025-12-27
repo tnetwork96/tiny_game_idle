@@ -23,6 +23,7 @@ class LoginResponse(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     pin: str
+    nickname: Optional[str] = None
 
 class RegisterResponse(BaseModel):
     success: bool
@@ -160,10 +161,10 @@ async def register(request: RegisterRequest):
         
         # Insert new user into database
         cursor.execute('''
-            INSERT INTO users (username, pin) 
-            VALUES (%s, %s)
+            INSERT INTO users (username, pin, nickname) 
+            VALUES (%s, %s, %s)
             RETURNING id
-        ''', (request.username, pin_hash))
+        ''', (request.username, pin_hash, request.nickname))
         
         user_id = cursor.fetchone()[0]
         conn.commit()

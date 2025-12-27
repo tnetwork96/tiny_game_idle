@@ -160,7 +160,7 @@ ApiClient::LoginResult ApiClient::checkLogin(const String& username, const Strin
     }
 }
 
-bool ApiClient::createAccount(const String& username, const String& pin, const String& serverHost, uint16_t port) {
+bool ApiClient::createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port) {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("API Client: WiFi not connected!");
         return false;
@@ -177,6 +177,8 @@ bool ApiClient::createAccount(const String& username, const String& pin, const S
     Serial.println(username);
     Serial.print("  PIN: ");
     Serial.println("****");  // Security: Don't log PIN plaintext
+    Serial.print("  Nickname: ");
+    Serial.println(nickname.length() > 0 ? nickname : "(empty)");
     Serial.println("========================================");
     
     http.begin(url);
@@ -187,6 +189,8 @@ bool ApiClient::createAccount(const String& username, const String& pin, const S
     payload += username;
     payload += "\",\"pin\":\"";
     payload += pin;
+    payload += "\",\"nickname\":\"";
+    payload += nickname;  // Always include nickname, even if empty
     payload += "\"}";
     
     Serial.print("API Client: Sending payload: ");

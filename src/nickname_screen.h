@@ -24,6 +24,7 @@ public:
     bool isConfirmed() const { return confirmed; }
     bool isCancelled() const { return cancelled; }
     void reset();
+    void setNickname(const String& name);  // Set nickname programmatically
 
     // File operations
     bool hasNickname() const;  // Check if nickname file exists
