@@ -364,6 +364,8 @@ String ApiClient::getFriendsList(int userId, const String& serverHost, uint16_t 
     int httpCode = http.GET();
     Serial.print("API Client: HTTP response code: ");
     Serial.println(httpCode);
+    Serial.print("API Client: Request URL: ");
+    Serial.println(url);
     
     if (httpCode == HTTP_CODE_OK) {
         result = http.getString();
@@ -371,6 +373,8 @@ String ApiClient::getFriendsList(int userId, const String& serverHost, uint16_t 
         Serial.println(result);
         Serial.print("API Client: String length: ");
         Serial.println(result.length());
+        Serial.print("API Client: Is empty? ");
+        Serial.println(result.length() == 0 ? "YES" : "NO");
     } else {
         String error = http.getString();
         Serial.print("API Client: Get friends list failed: ");

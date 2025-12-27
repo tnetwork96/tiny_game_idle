@@ -183,18 +183,19 @@ async def get_friends_list(user_id: int):
     Format: "username1,online1|username2,online2|..."
     Example: "user123,0|admin,0|test,1|"
     online: 0 = offline, 1 = online
+    Note: friends table only contains accepted friendships (no status column)
     """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get all accepted friends for this user
+        # Get all friends for this user (all records in friends table are accepted)
         cursor.execute('''
             SELECT u.username 
             FROM friends f
             JOIN users u ON f.friend_id = u.id
-            WHERE f.user_id = %s AND f.status = 'accepted'
+            WHERE f.user_id = %s
             ORDER BY u.username
         ''', (user_id,))
         
@@ -216,6 +217,94 @@ async def get_friends_list(user_id: int):
         import traceback
         error_trace = traceback.format_exc()
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get friends list error: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@router.get("/friend-requests/{user_id}/pending")
+async def get_pending_requests(user_id: int):
+    """
+    Get pending friend requests sent TO this user
+    Format: "username1|username2|..."
+    Example: "user123|admin|test|"
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get pending requests sent TO this user
+        cursor.execute('''
+            SELECT u.username 
+            FROM friend_requests fr
+            JOIN users u ON fr.from_user_id = u.id
+            WHERE fr.to_user_id = %s AND fr.status = 'pending'
+            ORDER BY fr.created_at DESC
+        ''', (user_id,))
+        
+        requests_list = []
+        for row in cursor.fetchall():
+            username = row['username']
+            requests_list.append(username)
+        
+        # Join with | separator
+        result_string = "|".join(requests_list)
+        if result_string:
+            result_string += "|"  # Add trailing | for easier parsing
+        
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Pending requests for user_id {user_id}: {result_string}")
+        return result_string
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get pending requests error: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+@router.get("/friend-requests/{user_id}/sent")
+async def get_sent_requests(user_id: int):
+    """
+    Get friend requests sent BY this user (pending status)
+    Format: "username1|username2|..."
+    Example: "user123|admin|test|"
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Get pending requests sent BY this user
+        cursor.execute('''
+            SELECT u.username 
+            FROM friend_requests fr
+            JOIN users u ON fr.to_user_id = u.id
+            WHERE fr.from_user_id = %s AND fr.status = 'pending'
+            ORDER BY fr.created_at DESC
+        ''', (user_id,))
+        
+        requests_list = []
+        for row in cursor.fetchall():
+            username = row['username']
+            requests_list.append(username)
+        
+        # Join with | separator
+        result_string = "|".join(requests_list)
+        if result_string:
+            result_string += "|"  # Add trailing | for easier parsing
+        
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Sent requests for user_id {user_id}: {result_string}")
+        return result_string
+            
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get sent requests error: {str(e)}")
         print(f"Traceback: {error_trace}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:

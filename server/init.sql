@@ -17,16 +17,26 @@ CREATE TABLE IF NOT EXISTS migrations (
     applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create friends table
+-- Create friends table (only accepted friendships, no status column)
 CREATE TABLE IF NOT EXISTS friends (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     friend_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'blocked')),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, friend_id),
     CHECK (user_id != friend_id)
+);
+
+-- Create friend_requests table (for pending, accepted, rejected requests)
+CREATE TABLE IF NOT EXISTS friend_requests (
+    id SERIAL PRIMARY KEY,
+    from_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'rejected')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(from_user_id, to_user_id),
+    CHECK (from_user_id != to_user_id)
 );
 
 -- Create index on username for faster lookups
@@ -35,4 +45,8 @@ CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 -- Create indexes on friends for faster lookups
 CREATE INDEX IF NOT EXISTS idx_friends_user_id ON friends(user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_friend_id ON friends(friend_id);
-CREATE INDEX IF NOT EXISTS idx_friends_status ON friends(status);
+
+-- Create indexes on friend_requests for faster lookups
+CREATE INDEX IF NOT EXISTS idx_friend_requests_from_user ON friend_requests(from_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_to_user ON friend_requests(to_user_id);
+CREATE INDEX IF NOT EXISTS idx_friend_requests_status ON friend_requests(status);

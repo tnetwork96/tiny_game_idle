@@ -189,7 +189,7 @@ void autoLogin() {
         delay(1000);
         
         // Type username (không tồn tại để test flow tạo account mới)
-        keyboard->typeString("newuser1222");
+        keyboard->typeString("player2");
         
         Serial.println("Auto-login: Username typed, waiting before pressing Enter...");
         delay(1000);
@@ -206,8 +206,8 @@ void autoLogin() {
     if (loginScreen->isOnPinStep()) {
         Serial.println("Auto-login: PIN screen ready, typing PIN...");
         
-        // Type PIN (ví dụ: "1234")
-        keyboard->typeString("1234");
+        // Type PIN for player2: "2222"
+        keyboard->typeString("2222");
         
         Serial.println("Auto-login: PIN typed, waiting before pressing Enter...");
         delay(1000);

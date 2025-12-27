@@ -30,13 +30,21 @@ def up():
         
         # Define friendships (bidirectional - both users are friends)
         # Format: (user1_username, user2_username, status)
+        # Adding more friends for testing - all accepted to show in buddy list
         friendships = [
+            # user123's friends (7 total accepted friends)
             ("user123", "admin", "accepted"),
             ("user123", "test", "accepted"),
-            ("user123", "player1", "pending"),
+            ("user123", "player1", "accepted"),  # Changed from pending to accepted
+            ("user123", "player2", "accepted"),  # New
+            # admin's friends
             ("admin", "test", "accepted"),
             ("admin", "player1", "accepted"),
+            ("admin", "player2", "accepted"),  # New
+            # test's friends
             ("test", "player2", "accepted"),
+            ("test", "player1", "accepted"),  # New
+            # player1's friends
             ("player1", "player2", "accepted"),
         ]
         
@@ -54,24 +62,26 @@ def up():
             user2_id = user_ids[user2_name]
             
             try:
-                # Insert friendship (user1 -> user2)
-                cursor.execute('''
-                    INSERT INTO friends (user_id, friend_id, status) 
-                    VALUES (%s, %s, %s)
-                ''', (user1_id, user2_id, status))
-                
-                # Insert reverse friendship (user2 -> user1) if accepted
-                # This makes the friendship bidirectional
+                # Only insert accepted friendships (friends table no longer has status column)
                 if status == 'accepted':
+                    # Insert friendship (user1 -> user2)
                     cursor.execute('''
-                        INSERT INTO friends (user_id, friend_id, status) 
-                        VALUES (%s, %s, %s)
-                    ''', (user2_id, user1_id, status))
-                
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [OK] Created friendship: {user1_name} -> {user2_name} ({status})")
-                if status == 'accepted':
-                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [OK] Created reverse friendship: {user2_name} -> {user1_name} ({status})")
-                inserted_count += 1
+                        INSERT INTO friends (user_id, friend_id) 
+                        VALUES (%s, %s)
+                    ''', (user1_id, user2_id))
+                    
+                    # Insert reverse friendship (user2 -> user1) - bidirectional
+                    cursor.execute('''
+                        INSERT INTO friends (user_id, friend_id) 
+                        VALUES (%s, %s)
+                    ''', (user2_id, user1_id))
+                    
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [OK] Created friendship: {user1_name} <-> {user2_name} (accepted)")
+                    inserted_count += 1
+                else:
+                    # Skip non-accepted statuses (they should go to friend_requests table)
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [SKIP] Non-accepted status '{status}' - should use friend_requests table")
+                    skipped_count += 1
             except psycopg2.IntegrityError:
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [SKIP] Friendship already exists: {user1_name} -> {user2_name}")
                 skipped_count += 1
@@ -114,9 +124,12 @@ def down():
             ("user123", "admin"),
             ("user123", "test"),
             ("user123", "player1"),
+            ("user123", "player2"),
             ("admin", "test"),
             ("admin", "player1"),
+            ("admin", "player2"),
             ("test", "player2"),
+            ("test", "player1"),
             ("player1", "player2"),
         ]
         
