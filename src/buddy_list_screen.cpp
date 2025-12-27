@@ -1,11 +1,27 @@
 #include "buddy_list_screen.h"
 
-// 16x16 Bell Icon Bitmap
-const unsigned char PROGMEM bellBitmap[] = {
-    0x01, 0x80, 0x02, 0x40, 0x04, 0x20, 0x04, 0x20, 
-    0x08, 0x10, 0x08, 0x10, 0x08, 0x10, 0x10, 0x08, 
-    0x10, 0x08, 0x20, 0x04, 0x3f, 0xfc, 0x40, 0x02, 
-    0x40, 0x02, 0x3f, 0xfc, 0x03, 0xc0, 0x01, 0x80
+// 16x16 "User List" (Friends/Buddy List)
+const unsigned char PROGMEM iconUserList[] = {
+    0x00, 0x00, 0x07, 0xe0, 0x18, 0x18, 0x20, 0x04, 
+    0x20, 0x04, 0x18, 0x18, 0x07, 0xe0, 0x00, 0x00, 
+    0x0f, 0xf0, 0x18, 0x18, 0x20, 0x04, 0x20, 0x04, 
+    0x20, 0x04, 0x20, 0x04, 0x18, 0x18, 0x0f, 0xf0
+};
+
+// 16x16 "Bell" (Notifications)
+const unsigned char PROGMEM iconBell[] = {
+    0x00, 0x00, 0x01, 0x80, 0x02, 0x40, 0x04, 0x20, 
+    0x08, 0x10, 0x08, 0x10, 0x08, 0x10, 0x08, 0x10, 
+    0x10, 0x08, 0x10, 0x08, 0x20, 0x04, 0x3f, 0xfc, 
+    0x40, 0x02, 0x40, 0x02, 0x3f, 0xfc, 0x00, 0x00
+};
+
+// 16x16 "Plus" (Add Friend)
+const unsigned char PROGMEM iconPlus[] = {
+    0x00, 0x00, 0x00, 0x00, 0x01, 0x80, 0x01, 0x80, 
+    0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 0x7f, 0xfe, 
+    0x7f, 0xfe, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 
+    0x01, 0x80, 0x01, 0x80, 0x00, 0x00, 0x00, 0x00
 };
 
 BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
@@ -15,6 +31,9 @@ BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
     scrollOffset = 0;
     notificationCount = 0;
     unreadCount = 0;
+    currentTab = TAB_CHATS;
+    isSidebarActive = false;  // Start with focus on list
+    drawTime = 0;
 
     // Deep Space Arcade Theme - Midnight Blue
     // Background: Deep Midnight Blue #020817 (RGB: 2, 8, 23) -> RGB565: 0x0042
@@ -182,17 +201,16 @@ void BuddyListScreen::parseFriendsString(const String& friendsString) {
 }
 
 uint8_t BuddyListScreen::getVisibleRows() const {
-    const uint16_t headerHeight = 30;
     const uint16_t rowHeight = 24;  // Updated to 24px as per requirements
-    // Available space = screen height - header (no footer)
-    uint16_t available = (240 > headerHeight) ? (240 - headerHeight) : 0;
+    // Available space = full screen height (no header in sidebar layout)
+    uint16_t available = SCREEN_HEIGHT;
     uint8_t rows = available / rowHeight;
     return rows < 1 ? 1 : rows;
 }
 
 void BuddyListScreen::ensureSelectionVisible() {
-    // If header button is selected, no need to scroll
-    if (isHeaderButtonSelected()) {
+    // If sidebar is active, no need to scroll
+    if (isSidebarActive) {
         return;
     }
     
@@ -201,6 +219,59 @@ void BuddyListScreen::ensureSelectionVisible() {
         scrollOffset = selectedIndex;
     } else if (selectedIndex >= scrollOffset + visible) {
         scrollOffset = selectedIndex - visible + 1;
+    }
+}
+
+void BuddyListScreen::drawSidebar() {
+    if (tft == nullptr) return;
+    
+    // Draw sidebar background
+    tft->fillRect(0, 0, SIDEBAR_WIDTH, SCREEN_HEIGHT, headerColor);
+    
+    // Color constants - Strict coloring rules
+    const uint16_t ICON_ACTIVE_COLOR = 0x07FF;    // Cyan - Active Tab
+    const uint16_t ICON_INACTIVE_COLOR = 0x8410;  // Dark Grey - Inactive Tab
+    const uint16_t FOCUS_BORDER_COLOR = 0xFFFF;   // White - Selection Box
+    
+    // Icon size constant
+    const uint16_t iconSize = 16;
+    
+    // Position constants - Shared Y-coordinates for perfect alignment
+    const uint16_t POS_X = 12;  // Center icon horizontally in 40px width: (40 - 16) / 2 = 12
+    const uint16_t POS_Y_TAB0 = 30;  // User List (Tab 0)
+    const uint16_t POS_Y_TAB1 = 80;  // Notifications (Tab 1)
+    const uint16_t POS_Y_TAB2 = 130; // Add Friend (Tab 2)
+    
+    // Draw Tab 0 (User List)
+    uint16_t tab0Color = (currentTab == TAB_CHATS) ? ICON_ACTIVE_COLOR : ICON_INACTIVE_COLOR;
+    tft->drawBitmap(POS_X, POS_Y_TAB0, iconUserList, iconSize, iconSize, tab0Color);
+    // Selection border if selected & active
+    if (isSidebarActive && currentTab == TAB_CHATS) {
+        tft->drawRect(POS_X - 4, POS_Y_TAB0 - 4, 24, 24, FOCUS_BORDER_COLOR);
+    }
+    
+    // Draw Tab 1 (Bell/Notifications)
+    uint16_t tab1Color = (currentTab == TAB_NOTIFICATIONS) ? ICON_ACTIVE_COLOR : ICON_INACTIVE_COLOR;
+    tft->drawBitmap(POS_X, POS_Y_TAB1, iconBell, iconSize, iconSize, tab1Color);
+    // Selection border if selected & active
+    if (isSidebarActive && currentTab == TAB_NOTIFICATIONS) {
+        tft->drawRect(POS_X - 4, POS_Y_TAB1 - 4, 24, 24, FOCUS_BORDER_COLOR);
+    }
+    // Red Dot Fix: Perfectly aligned with top-right of Bell icon
+    if (unreadCount > 0) {
+        const uint16_t badgeX = POS_X + 14;  // Top-right corner: 12 + 14 = 26 (right edge of 16px icon)
+        const uint16_t badgeY = POS_Y_TAB1 + 2;  // Slightly below top edge
+        const uint16_t badgeRadius = 2;  // Small dot
+        const uint16_t badgeColor = 0xF800;  // Red
+        tft->fillCircle(badgeX, badgeY, badgeRadius, badgeColor);
+    }
+    
+    // Draw Tab 2 (Plus/Add Friend)
+    uint16_t tab2Color = (currentTab == TAB_ADD_FRIEND) ? ICON_ACTIVE_COLOR : ICON_INACTIVE_COLOR;
+    tft->drawBitmap(POS_X, POS_Y_TAB2, iconPlus, iconSize, iconSize, tab2Color);
+    // Selection border if selected & active
+    if (isSidebarActive && currentTab == TAB_ADD_FRIEND) {
+        tft->drawRect(POS_X - 4, POS_Y_TAB2 - 4, 24, 24, FOCUS_BORDER_COLOR);
     }
 }
 
@@ -219,7 +290,7 @@ void BuddyListScreen::drawHeader() {
     const uint16_t bellX = 80;
     const uint16_t bellY = 7;
     const uint16_t bellColor = 0x07FF;  // Cyan/Neon Blue
-    tft->drawBitmap(bellX, bellY, bellBitmap, 16, 16, bellColor);
+    tft->drawBitmap(bellX, bellY, iconBell, 16, 16, bellColor);
 
     // Draw Badge (if unreadCount > 0)
     if (unreadCount > 0) {
@@ -302,25 +373,25 @@ uint16_t BuddyListScreen::statusColor(bool online) const {
 void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
     if (tft == nullptr || buddyIdx >= buddyCount) return;
 
-    const uint16_t headerHeight = 30;
     const uint16_t rowHeight = 24;  // Updated to 24px
-    const uint16_t y = headerHeight + visibleRow * rowHeight;
+    const uint16_t startX = SIDEBAR_WIDTH;  // Start after sidebar
+    const uint16_t y = visibleRow * rowHeight;  // No header offset
 
-    bool isSelected = (buddyIdx == selectedIndex);
+    bool isSelected = (buddyIdx == selectedIndex && !isSidebarActive);
     uint16_t rowBg = isSelected ? highlightColor : bgColor;
 
-    tft->fillRect(0, y, 320, rowHeight, rowBg);
+    tft->fillRect(startX, y, CONTENT_WIDTH, rowHeight, rowBg);
     
     // Draw Cyan accent bar on left edge for selected row (Neon Glow effect)
     if (isSelected) {
         const uint16_t accentBarWidth = 2;  // Thin vertical bar
         const uint16_t accentBarColor = 0x07FF;  // Cyan #00FFFF (RGB: 0, 255, 255)
-        tft->fillRect(0, y, accentBarWidth, rowHeight, accentBarColor);
+        tft->fillRect(startX, y, accentBarWidth, rowHeight, accentBarColor);
     }
 
     // Avatar: 20x20px circle, Dark Slate Blue color, no text
     const uint16_t avatarSize = 20;
-    const uint16_t avatarX = 2;  // Left margin
+    const uint16_t avatarX = startX + 2;  // Left margin (after sidebar)
     const uint16_t avatarY = y + (rowHeight - avatarSize) / 2;  // Vertically centered
     const uint16_t avatarCenterX = avatarX + avatarSize / 2;
     const uint16_t avatarCenterY = avatarY + avatarSize / 2;
@@ -356,7 +427,7 @@ void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
     String displayName = buddies[buddyIdx].name;
     const uint8_t charWidth = 12;  // Approx for text size 2
     const uint16_t rightMargin = 4;
-    uint8_t maxChars = (320 - textX - rightMargin) / charWidth;
+    uint8_t maxChars = (CONTENT_WIDTH - (textX - startX) - rightMargin) / charWidth;
     if (displayName.length() > maxChars && maxChars > 3) {
         displayName = displayName.substring(0, maxChars - 3) + "...";
     }
@@ -366,23 +437,23 @@ void BuddyListScreen::drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx) {
 void BuddyListScreen::drawScrollbar() {
     if (tft == nullptr) return;
     
-    const uint16_t headerHeight = 30;
-    const uint16_t startY = headerHeight;
+    const uint16_t startY = 0;  // No header in sidebar layout
+    const uint16_t startX = SIDEBAR_WIDTH + CONTENT_WIDTH;  // Right edge of content area (320px)
     const uint8_t visibleRows = getVisibleRows();
     
     // Only draw scrollbar if there are more buddies than visible rows
     if (buddyCount <= visibleRows) {
         // Clear scrollbar area if it was previously visible
         uint16_t barWidth = 4;
-        uint16_t barX = 320 - barWidth;
-        uint16_t scrollbarHeight = 240 - startY;
+        uint16_t barX = startX;
+        uint16_t scrollbarHeight = SCREEN_HEIGHT;
         tft->fillRect(barX, startY, barWidth, scrollbarHeight, bgColor);
         return;
     }
     
     uint16_t barWidth = 4;
-    uint16_t barX = 320 - barWidth;
-    uint16_t scrollbarHeight = 240 - startY;  // Full height from header to bottom
+    uint16_t barX = startX;
+    uint16_t scrollbarHeight = SCREEN_HEIGHT;  // Full height
     
     // Dark track (darker than background) - use slightly darker midnight blue
     tft->fillRect(barX, startY, barWidth, scrollbarHeight, 0x0021);  // Very dark midnight blue track
@@ -403,15 +474,16 @@ void BuddyListScreen::drawScrollbar() {
 void BuddyListScreen::drawList(bool clearBackground) {
     if (tft == nullptr) return;
 
-    const uint16_t headerHeight = 30;
     const uint16_t rowHeight = 24;  // Updated to 24px
-    const uint16_t startY = headerHeight;
+    const uint16_t startX = SIDEBAR_WIDTH;  // Start after sidebar
+    const uint16_t startY = 0;  // Start at top (no header)
     const uint8_t visibleRows = getVisibleRows();
     const uint16_t listHeight = visibleRows * rowHeight;
+    const uint16_t listWidth = CONTENT_WIDTH;  // 280px width
 
     // Only clear list area if explicitly requested (for initial draw or scroll changes)
     if (clearBackground) {
-        tft->fillRect(0, startY, 320, 240 - startY, bgColor);
+        tft->fillRect(startX, startY, listWidth, SCREEN_HEIGHT, bgColor);
     }
 
     // Draw all visible rows
@@ -420,7 +492,7 @@ void BuddyListScreen::drawList(bool clearBackground) {
         if (buddyIdx >= buddyCount) {
             // Clear remaining rows if there are fewer buddies than visible rows
             if (clearBackground) {
-                tft->fillRect(0, startY + row * rowHeight, 320, (visibleRows - row) * rowHeight, bgColor);
+                tft->fillRect(startX, startY + row * rowHeight, listWidth, (visibleRows - row) * rowHeight, bgColor);
             }
             break;
         }
@@ -471,81 +543,131 @@ void BuddyListScreen::setUnreadCount(uint8_t count) {
 void BuddyListScreen::draw() {
     if (tft == nullptr) return;
     tft->fillScreen(bgColor);
-    drawHeader();
+    
+    // Ensure currentTab matches the current screen view
+    // When drawing buddy list, always default to TAB_CHATS
+    // This ensures the User List icon is always highlighted when showing the buddy list
+    currentTab = TAB_CHATS;
+    
+    drawSidebar();   // Draw vertical sidebar on the left
     drawList(true);  // Full draw with background clear for initial screen entry
+    drawTime = millis();  // Record draw time for auto-navigation
 }
 
 void BuddyListScreen::handleUp() {
-    // If header button is selected, can't go up further
-    if (isHeaderButtonSelected()) return;
-    
-    // If at first buddy (index 0), move to header button
-    if (selectedIndex == 0) {
+    if (isSidebarActive) {
+        // Cycle through sidebar tabs (up = previous tab)
+        if (currentTab == TAB_CHATS) {
+            currentTab = TAB_ADD_FRIEND;  // Wrap to bottom
+        } else if (currentTab == TAB_NOTIFICATIONS) {
+            currentTab = TAB_CHATS;
+        } else {  // TAB_ADD_FRIEND
+            currentTab = TAB_NOTIFICATIONS;
+        }
+        // Change currentTab and immediately drawSidebar() to update the Cyan color
+        drawSidebar();  // Redraw sidebar to update Cyan color for new active tab
+    } else {
+        // Normal navigation: move up in list
+        // Icon remains Cyan, but no border
+        if (selectedIndex == 0) return;  // Can't go up from first buddy
+        
         uint8_t prevIndex = selectedIndex;
         uint8_t prevScroll = scrollOffset;
-        selectedIndex = MAX_BUDDIES;  // Special value for header button
+        selectedIndex--;
+        ensureSelectionVisible();
         redrawSelectionChange(prevIndex, prevScroll);
-        drawHeader();  // Redraw header to show selection
-        return;
     }
-    
-    // Normal navigation: move up in list
-    uint8_t prevIndex = selectedIndex;
-    uint8_t prevScroll = scrollOffset;
-    selectedIndex--;
-    ensureSelectionVisible();
-    redrawSelectionChange(prevIndex, prevScroll);
 }
 
 void BuddyListScreen::handleDown() {
-    // If header button is selected, move to first buddy
-    if (isHeaderButtonSelected()) {
-        if (buddyCount > 0) {
-            uint8_t prevIndex = selectedIndex;
-            uint8_t prevScroll = scrollOffset;
-            selectedIndex = 0;
-            ensureSelectionVisible();
-            redrawSelectionChange(prevIndex, prevScroll);
-            drawHeader();  // Redraw header to remove selection
+    if (isSidebarActive) {
+        // Cycle through sidebar tabs (down = next tab)
+        if (currentTab == TAB_CHATS) {
+            currentTab = TAB_NOTIFICATIONS;
+        } else if (currentTab == TAB_NOTIFICATIONS) {
+            currentTab = TAB_ADD_FRIEND;
+        } else {  // TAB_ADD_FRIEND
+            currentTab = TAB_CHATS;  // Wrap to top
         }
-        return;
+        // Change currentTab and immediately drawSidebar() to update the Cyan color
+        drawSidebar();  // Redraw sidebar to update Cyan color for new active tab
+    } else {
+        // Normal navigation: move down in list
+        // Icon remains Cyan, but no border
+        if (selectedIndex + 1 >= buddyCount) return;  // Can't go down from last buddy
+        
+        uint8_t prevIndex = selectedIndex;
+        uint8_t prevScroll = scrollOffset;
+        selectedIndex++;
+        ensureSelectionVisible();
+        redrawSelectionChange(prevIndex, prevScroll);
     }
-    
-    // Normal navigation: move down in list
-    if (selectedIndex + 1 >= buddyCount) return;  // Can't go down from last buddy
-    
-    uint8_t prevIndex = selectedIndex;
-    uint8_t prevScroll = scrollOffset;
-    selectedIndex++;
-    ensureSelectionVisible();
-    redrawSelectionChange(prevIndex, prevScroll);
+}
+
+void BuddyListScreen::handleLeft() {
+    // If in List: Move focus to Sidebar
+    if (!isSidebarActive) {
+        isSidebarActive = true;
+        // Redraw Sidebar (Border appears on the active Cyan icon)
+        drawSidebar();  // Redraw sidebar - Border appears on active Cyan icon
+        drawList(false);  // Redraw list to remove selection highlight
+    }
+    // If already in Sidebar: Do nothing (already at edge)
+}
+
+void BuddyListScreen::handleRight() {
+    // If in Sidebar: Move focus to List
+    if (isSidebarActive) {
+        isSidebarActive = false;
+        // When moving focus to list, ensure we're on the correct tab (TAB_CHATS for buddy list)
+        currentTab = TAB_CHATS;
+        // Redraw Sidebar (Border disappears, Icon stays Cyan)
+        drawSidebar();  // Redraw sidebar - Border disappears, Icon stays Cyan
+        drawList(false);  // Redraw list to show selection highlight
+    }
+    // If already in List: Do nothing (already at edge)
 }
 
 void BuddyListScreen::handleSelect() {
-    // If header button is selected, signal that Add Friend screen should be shown
-    // The actual screen display is handled in main.cpp
-    if (isHeaderButtonSelected()) {
-        // Do nothing here - main.cpp will check shouldShowAddFriendScreen() and show AddFriendScreen
-        return;
+    if (isSidebarActive) {
+        // Execute action for current tab
+        if (currentTab == TAB_ADD_FRIEND) {
+            // Signal that Add Friend screen should be shown
+            // The actual screen display is handled in main.cpp
+            // (main.cpp will check shouldShowAddFriendScreen())
+        } else if (currentTab == TAB_NOTIFICATIONS) {
+            // TODO: Switch to notifications screen/view
+            // For now, just log
+            Serial.println("Buddy List: Notifications tab selected");
+        } else {  // TAB_CHATS
+            // Already on chats view, do nothing or refresh
+            Serial.println("Buddy List: Chats tab selected");
+        }
+    } else {
+        // List is active: Select the buddy
+        // Selection is handled by consumers via getSelectedBuddy()
     }
-    
-    // Otherwise, selection is handled by consumers via getSelectedBuddy()
 }
 
 bool BuddyListScreen::shouldShowAddFriendScreen() const {
-    return isHeaderButtonSelected();
+    return isSidebarActive && currentTab == TAB_ADD_FRIEND;
 }
 
 void BuddyListScreen::handleSelectRandom() {
     if (buddyCount == 0) {
-        // If no buddies, select header button
-        if (!isHeaderButtonSelected()) {
-            uint8_t prevIndex = selectedIndex;
-            uint8_t prevScroll = scrollOffset;
-            selectedIndex = MAX_BUDDIES;  // Select header button
-            redrawSelectionChange(prevIndex, prevScroll);
+        // If no buddies, activate sidebar and select Add Friend tab
+        if (!isSidebarActive || currentTab != TAB_ADD_FRIEND) {
+            isSidebarActive = true;
+            currentTab = TAB_ADD_FRIEND;
+            drawSidebar();
+            drawList(false);
         }
         return;
+    }
+    // Move focus to list if in sidebar
+    if (isSidebarActive) {
+        isSidebarActive = false;
+        drawSidebar();
     }
     uint8_t prevIndex = selectedIndex;
     uint8_t prevScroll = scrollOffset;
@@ -557,42 +679,41 @@ void BuddyListScreen::handleSelectRandom() {
 
 BuddyEntry BuddyListScreen::getSelectedBuddy() const {
     BuddyEntry empty = { "", false };
-    // If header button is selected or no buddies, return empty
-    if (buddyCount == 0 || isHeaderButtonSelected()) return empty;
+    // If sidebar is active or no buddies, return empty
+    if (buddyCount == 0 || isSidebarActive) return empty;
     if (selectedIndex >= buddyCount) return empty;
     return buddies[selectedIndex];
 }
 
 void BuddyListScreen::redrawSelectionChange(uint8_t previousIndex, uint8_t previousScroll) {
-    // Handle header button selection changes
-    bool prevWasHeader = (previousIndex == MAX_BUDDIES);
-    bool currIsHeader = isHeaderButtonSelected();
-    
-    if (prevWasHeader || currIsHeader) {
-        // Header button selection changed, redraw header
-        drawHeader();
-    }
-    
-    // If scroll window changed, redraw the list area to keep alignment
+    // Handle sidebar selection changes - redraw sidebar if needed
+    // (Sidebar redraw is handled in navigation methods, so we don't need to do it here)
+    // Just redraw the list to update selection highlight
+
+    // If scroll offset changed, need full redraw
     if (previousScroll != scrollOffset) {
-        // Full redraw needed when scroll changes (new rows visible)
-        drawList(true);  // Clear background for scroll changes
+        drawList(true);  // Full redraw with background clear
         return;
     }
 
     // Normal selection change without scrolling - only redraw affected rows
+    // Only redraw if list is active (not sidebar)
+    if (isSidebarActive) {
+        return;  // Don't redraw list rows when sidebar is active
+    }
+
     uint8_t visibleRows = getVisibleRows();
 
-    // Redraw previous selected row to remove highlight (only if it was a buddy, not header)
-    if (!prevWasHeader && previousIndex < buddyCount &&
+    // Redraw previous selected row to remove highlight (only if it was a buddy)
+    if (previousIndex < buddyCount &&
         previousIndex >= scrollOffset &&
         previousIndex < scrollOffset + visibleRows) {
         uint8_t row = previousIndex - scrollOffset;
         drawBuddyRow(row, previousIndex);
     }
 
-    // Redraw new selected row to show highlight (only if it's a buddy, not header)
-    if (!currIsHeader && selectedIndex < buddyCount &&
+    // Redraw new selected row to show highlight (only if it's a buddy)
+    if (selectedIndex < buddyCount &&
         selectedIndex >= scrollOffset &&
         selectedIndex < scrollOffset + visibleRows) {
         uint8_t row = selectedIndex - scrollOffset;
@@ -601,5 +722,30 @@ void BuddyListScreen::redrawSelectionChange(uint8_t previousIndex, uint8_t previ
     
     // Note: Scrollbar doesn't need redraw during normal selection changes
     // (it only changes when scrollOffset changes, which triggers full drawList())
+}
+
+// Auto-navigation methods (for demo/testing)
+void BuddyListScreen::triggerNavigateUp() {
+    handleUp();
+}
+
+void BuddyListScreen::triggerNavigateDown() {
+    handleDown();
+}
+
+void BuddyListScreen::triggerNavigateLeft() {
+    handleLeft();
+}
+
+void BuddyListScreen::triggerNavigateRight() {
+    handleRight();
+}
+
+void BuddyListScreen::triggerSelect() {
+    handleSelect();
+}
+
+unsigned long BuddyListScreen::getDrawTime() const {
+    return drawTime;
 }
 

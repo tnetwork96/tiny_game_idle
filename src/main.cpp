@@ -362,6 +362,7 @@ void loop() {
     
     // Ensure buddy list is displayed after successful login and friends loaded
     static bool buddyListDisplayed = false;
+    static bool autoNavStarted = false;
     if (loginScreen != nullptr && loginScreen->isAuthenticated() && buddyListScreen != nullptr) {
         if (!buddyListDisplayed) {
             // Friends should already be loaded via callback
@@ -370,10 +371,49 @@ void loop() {
                 Serial.println("Main Loop: Ensuring buddy list screen is displayed...");
                 buddyListScreen->draw();
                 buddyListDisplayed = true;
+                autoNavStarted = false;  // Reset auto-nav flag
+            }
+        }
+        
+        // Auto-navigation flow: Cycle through sidebar tabs to show them
+        if (buddyListDisplayed && !autoNavStarted) {
+            unsigned long drawTime = buddyListScreen->getDrawTime();
+            if (drawTime > 0) {
+                unsigned long currentTime = millis();
+                unsigned long elapsedTime = currentTime - drawTime;
+                
+                // After 0.5s: Focus on sidebar (move left)
+                if (elapsedTime >= 500 && elapsedTime < 1000) {
+                    Serial.println("Main Loop: Auto-nav - Focusing sidebar (left)...");
+                    buddyListScreen->triggerNavigateLeft();
+                }
+                // After 1.0s: Move to Notifications tab (down)
+                else if (elapsedTime >= 1000 && elapsedTime < 1500) {
+                    Serial.println("Main Loop: Auto-nav - Moving to Notifications (down)...");
+                    buddyListScreen->triggerNavigateDown();
+                }
+                // After 1.5s: Move to Add Friend tab (down)
+                else if (elapsedTime >= 1500 && elapsedTime < 2000) {
+                    Serial.println("Main Loop: Auto-nav - Moving to Add Friend (down)...");
+                    buddyListScreen->triggerNavigateDown();
+                }
+                // After 2.0s: Move back to Chats tab (up twice)
+                else if (elapsedTime >= 2000 && elapsedTime < 2500) {
+                    Serial.println("Main Loop: Auto-nav - Moving back to Chats (up)...");
+                    buddyListScreen->triggerNavigateUp();
+                    buddyListScreen->triggerNavigateUp();  // Go back to Chats
+                }
+                // After 2.5s: Move focus to list (right)
+                else if (elapsedTime >= 2500) {
+                    Serial.println("Main Loop: Auto-nav - Moving focus to list (right)...");
+                    buddyListScreen->triggerNavigateRight();
+                    autoNavStarted = true;  // Mark as completed
+                }
             }
         }
     } else {
         buddyListDisplayed = false;
+        autoNavStarted = false;
     }
     
     // Không cần gọi socketManager->update() nữa
