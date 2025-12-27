@@ -70,6 +70,7 @@ public:
     void setLoadFriendsCallback(LoadFriendsCallback callback);
     void setLoadNotificationsCallback(LoadNotificationsCallback callback);
     void setUserId(int userId);
+    void handleAddFriendKey(const String& key);  // Handle keyboard input for Add Friend view (public for main.cpp)
 
 private:
     Adafruit_ST7789* tft;
@@ -103,6 +104,10 @@ private:
     // Notifications data
     ApiClient::NotificationEntry* notifications;
     uint8_t selectedNotificationIndex;
+    
+    // Add Friend view state
+    String addFriendInputText;
+    uint8_t addFriendFocus;  // 0 = Input Box, 1 = Send Button
 
     // Colors
     uint16_t bgColor;
@@ -126,6 +131,7 @@ private:
     void drawBuddyRow(uint8_t visibleRow, uint8_t buddyIdx);
     void drawNotificationsList(bool clearBackground = true);  // Draw notifications list
     void drawNotificationRow(uint8_t visibleRow, uint8_t notificationIdx);
+    void drawAddFriendView();  // Draw Add Friend form
     void drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t size, uint16_t color);
     uint16_t statusColor(bool online) const;
     void redrawSelectionChange(uint8_t previousIndex, uint8_t previousScroll);

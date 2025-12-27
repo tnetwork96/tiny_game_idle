@@ -40,6 +40,10 @@ BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
     userId = 0;
     notifications = nullptr;
     selectedNotificationIndex = 0;
+    addFriendInputText = "";
+    addFriendFocus = 0;  // Start with Input Box focused
+    addFriendInputText = "";
+    addFriendFocus = 0;  // Start with Input Box focused
 
     // Deep Space Arcade Theme - Midnight Blue
     // Background: Deep Midnight Blue #020817 (RGB: 2, 8, 23) -> RGB565: 0x0042
@@ -527,6 +531,112 @@ void BuddyListScreen::drawNotificationRow(uint8_t visibleRow, uint8_t notificati
     tft->print(displayMsg);
 }
 
+void BuddyListScreen::drawAddFriendView() {
+    if (tft == nullptr) return;
+    
+    // Clear content area
+    const uint16_t startX = SIDEBAR_WIDTH;
+    const uint16_t startY = 0;
+    tft->fillRect(startX, startY, CONTENT_WIDTH, SCREEN_HEIGHT, bgColor);
+    
+    // Title: "ADD NEW FRIEND" centered at top
+    tft->setTextSize(2);
+    tft->setTextColor(headerTextColor, bgColor);
+    String title = "ADD NEW FRIEND";
+    uint16_t titleX = startX + (CONTENT_WIDTH - title.length() * 12) / 2;  // Approx 12px per char for size 2
+    uint16_t titleY = 40;
+    tft->setCursor(titleX, titleY);
+    tft->print(title);
+    
+    // Input Box: Rounded rectangle at (60, 80, 240, 30)
+    const uint16_t inputX = startX + 20;  // 40 + 20 = 60
+    const uint16_t inputY = 80;
+    const uint16_t inputW = 240;
+    const uint16_t inputH = 30;
+    const uint16_t inputRadius = 6;
+    
+    // Fill background
+    tft->fillRoundRect(inputX, inputY, inputW, inputH, inputRadius, bgColor);
+    
+    // Border: Cyan if focused, else Grey
+    uint16_t inputBorderColor = (addFriendFocus == 0) ? separatorColor : 0x8410;  // Cyan or Dark Grey
+    tft->drawRoundRect(inputX, inputY, inputW, inputH, inputRadius, inputBorderColor);
+    
+    // Text inside input box
+    tft->setTextSize(2);
+    uint16_t textX = inputX + 8;
+    uint16_t textY = inputY + (inputH - 16) / 2;  // Vertically centered (text size 2 is ~16px)
+    tft->setCursor(textX, textY);
+    
+    if (addFriendInputText.length() == 0) {
+        // Placeholder text
+        tft->setTextColor(0x8410, bgColor);  // Dark Grey for placeholder
+        tft->print("Enter name...");
+    } else {
+        // User input text
+        tft->setTextColor(listTextColor, bgColor);
+        String displayText = addFriendInputText;
+        // Truncate if too long
+        const uint8_t maxChars = (inputW - 16) / 12;  // Approx 12px per char
+        if (displayText.length() > maxChars) {
+            displayText = displayText.substring(0, maxChars - 3) + "...";
+        }
+        tft->print(displayText);
+    }
+    
+    // Send Button: Rounded rectangle at (100, 130, 160, 30)
+    const uint16_t buttonX = startX + 60;  // 40 + 60 = 100
+    const uint16_t buttonY = 130;
+    const uint16_t buttonW = 160;
+    const uint16_t buttonH = 30;
+    const uint16_t buttonRadius = 6;
+    
+    // Fill: Cyan if focused, else Dark Blue
+    uint16_t buttonFillColor = (addFriendFocus == 1) ? separatorColor : highlightColor;  // Cyan or Electric Blue
+    tft->fillRoundRect(buttonX, buttonY, buttonW, buttonH, buttonRadius, buttonFillColor);
+    
+    // Border: Cyan
+    tft->drawRoundRect(buttonX, buttonY, buttonW, buttonH, buttonRadius, separatorColor);
+    
+    // Button text: "SEND REQUEST" centered
+    tft->setTextSize(1);
+    tft->setTextColor(listTextColor, buttonFillColor);
+    String buttonText = "SEND REQUEST";
+    uint16_t buttonTextX = buttonX + (buttonW - buttonText.length() * 6) / 2;  // Approx 6px per char for size 1
+    uint16_t buttonTextY = buttonY + (buttonH - 8) / 2;  // Vertically centered (text size 1 is ~8px)
+    tft->setCursor(buttonTextX, buttonTextY);
+    tft->print(buttonText);
+}
+
+void BuddyListScreen::handleAddFriendKey(const String& key) {
+    if (key == "BACKSPACE") {
+        if (addFriendInputText.length() > 0) {
+            addFriendInputText = addFriendInputText.substring(0, addFriendInputText.length() - 1);
+            // Redraw input box area
+            drawAddFriendView();
+        }
+    } else if (key == "ENTER") {
+        // If Input Box is focused, move focus to button
+        if (addFriendFocus == 0) {
+            addFriendFocus = 1;
+            drawAddFriendView();
+        } else {
+            // Button is focused, trigger send request
+            Serial.print("Add Friend: Sending request for: ");
+            Serial.println(addFriendInputText);
+            // TODO: Call API to send friend request
+            // For now, just log
+        }
+    } else if (key.length() == 1) {
+        // Regular character input
+        if (addFriendInputText.length() < 20) {  // Max 20 characters
+            addFriendInputText += key;
+            // Redraw input box area
+            drawAddFriendView();
+        }
+    }
+}
+
 void BuddyListScreen::drawScrollbar() {
     if (tft == nullptr) return;
     
@@ -692,6 +802,8 @@ void BuddyListScreen::draw() {
 
 void BuddyListScreen::handleUp() {
     if (isSidebarActive) {
+        SidebarTab prevTab = currentTab;
+        
         // Cycle through sidebar tabs (up = previous tab)
         if (currentTab == TAB_CHATS) {
             currentTab = TAB_ADD_FRIEND;  // Wrap to bottom
@@ -700,18 +812,53 @@ void BuddyListScreen::handleUp() {
         } else {  // TAB_ADD_FRIEND
             currentTab = TAB_NOTIFICATIONS;
         }
-        // Change currentTab and immediately drawSidebar() to update the Cyan color
-        drawSidebar();  // Redraw sidebar to update Cyan color for new active tab
-    } else {
-        // Normal navigation: move up in list
-        // Icon remains Cyan, but no border
-        if (selectedIndex == 0) return;  // Can't go up from first buddy
         
-        uint8_t prevIndex = selectedIndex;
-        uint8_t prevScroll = scrollOffset;
-        selectedIndex--;
-        ensureSelectionVisible();
-        redrawSelectionChange(prevIndex, prevScroll);
+        // If switching to a list tab, trigger load
+        if (currentTab == TAB_CHATS && prevTab != TAB_CHATS) {
+            shouldShowNotifications = false;
+            if (loadFriendsCallback != nullptr && userId > 0) {
+                Serial.println("Buddy List: Switching to Chats - loading friends...");
+                loadFriendsCallback(userId);
+            }
+            drawList(true);
+        } else if (currentTab == TAB_NOTIFICATIONS && prevTab != TAB_NOTIFICATIONS) {
+            shouldShowNotifications = true;
+            if (loadNotificationsCallback != nullptr && userId > 0) {
+                Serial.println("Buddy List: Switching to Notifications - loading notifications...");
+                loadNotificationsCallback(userId);
+            }
+            drawNotificationsList(true);
+        } else if (currentTab == TAB_ADD_FRIEND && prevTab != TAB_ADD_FRIEND) {
+            // Switching to Add Friend tab
+            drawAddFriendView();
+        }
+        
+        drawSidebar();
+    } else {
+        // Content area navigation
+        if (currentTab == TAB_ADD_FRIEND) {
+            // In Add Friend view: toggle focus between Input (0) and Button (1)
+            if (addFriendFocus == 1) {
+                addFriendFocus = 0;  // Move to Input Box
+            } else {
+                addFriendFocus = 1;  // Move to Button
+            }
+            drawAddFriendView();
+        } else if (shouldShowNotifications) {
+            if (selectedNotificationIndex == 0) return;
+            uint8_t prevIndex = selectedNotificationIndex;
+            uint8_t prevScroll = scrollOffset;
+            selectedNotificationIndex--;
+            ensureSelectionVisible();
+            redrawSelectionChange(prevIndex, prevScroll);
+        } else {
+            if (selectedIndex == 0) return;
+            uint8_t prevIndex = selectedIndex;
+            uint8_t prevScroll = scrollOffset;
+            selectedIndex--;
+            ensureSelectionVisible();
+            redrawSelectionChange(prevIndex, prevScroll);
+        }
     }
 }
 
@@ -743,12 +890,23 @@ void BuddyListScreen::handleDown() {
                 loadNotificationsCallback(userId);
             }
             drawNotificationsList(true);
+        } else if (currentTab == TAB_ADD_FRIEND && prevTab != TAB_ADD_FRIEND) {
+            // Switching to Add Friend tab
+            drawAddFriendView();
         }
         
         drawSidebar();
     } else {
-        // Normal navigation: move down in list
-        if (shouldShowNotifications) {
+        // Content area navigation
+        if (currentTab == TAB_ADD_FRIEND) {
+            // In Add Friend view: toggle focus between Input (0) and Button (1)
+            if (addFriendFocus == 0) {
+                addFriendFocus = 1;  // Move to Button
+            } else {
+                addFriendFocus = 0;  // Move to Input Box
+            }
+            drawAddFriendView();
+        } else if (shouldShowNotifications) {
             if (selectedNotificationIndex + 1 >= notificationCount) return;
             uint8_t prevIndex = selectedNotificationIndex;
             uint8_t prevScroll = scrollOffset;
@@ -778,16 +936,22 @@ void BuddyListScreen::handleLeft() {
 }
 
 void BuddyListScreen::handleRight() {
-    // If in Sidebar: Move focus to List
+    // If in Sidebar: Move focus to Content Area
     if (isSidebarActive) {
         isSidebarActive = false;
-        // When moving focus to list, ensure we're on the correct tab (TAB_CHATS for buddy list)
-        currentTab = TAB_CHATS;
         // Redraw Sidebar (Border disappears, Icon stays Cyan)
-        drawSidebar();  // Redraw sidebar - Border disappears, Icon stays Cyan
-        drawList(false);  // Redraw list to show selection highlight
+        drawSidebar();
+        
+        // Redraw content area based on current tab
+        if (currentTab == TAB_CHATS) {
+            drawList(false);  // Redraw list to show selection highlight
+        } else if (currentTab == TAB_NOTIFICATIONS) {
+            drawNotificationsList(false);
+        } else if (currentTab == TAB_ADD_FRIEND) {
+            drawAddFriendView();
+        }
     }
-    // If already in List: Do nothing (already at edge)
+    // If already in Content Area: Do nothing (already at edge)
 }
 
 void BuddyListScreen::handleSelect() {
@@ -824,8 +988,21 @@ void BuddyListScreen::handleSelect() {
             drawList(true);
         }
     } else {
-        // List is active: Select the buddy or notification
-        if (shouldShowNotifications) {
+        // Content area is active
+        if (currentTab == TAB_ADD_FRIEND) {
+            // In Add Friend view
+            if (addFriendFocus == 0) {
+                // Input Box is focused: Signal to open keyboard
+                Serial.println("Add Friend: Input Box selected - keyboard should open");
+                // TODO: Signal to main.cpp to show keyboard
+            } else {
+                // Button is focused: Send request
+                Serial.print("Add Friend: Sending request for: ");
+                Serial.println(addFriendInputText);
+                // TODO: Call API to send friend request
+                // For now, just log
+            }
+        } else if (shouldShowNotifications) {
             // Handle notification selection
             Serial.print("Notification selected: ");
             Serial.println(selectedNotificationIndex);
