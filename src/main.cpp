@@ -41,6 +41,11 @@ void onFriendsLoadedString(const String& friendsString) {
         Serial.print("Main: String length: ");
         Serial.println(friendsString.length());
         
+        // Set userId if not set
+        if (loginScreen != nullptr && loginScreen->getUserId() > 0) {
+            buddyListScreen->setUserId(loginScreen->getUserId());
+        }
+        
         // Parse string in BuddyListScreen
         buddyListScreen->parseFriendsString(friendsString);
         
@@ -50,6 +55,45 @@ void onFriendsLoadedString(const String& friendsString) {
         buddyListScreen->draw();
     } else {
         Serial.println("Main: BuddyListScreen not initialized!");
+    }
+}
+
+// Callback to load friends (called when switching to Chats tab)
+void onLoadFriends(int userId) {
+    Serial.print("Main: Loading friends for user_id: ");
+    Serial.println(userId);
+    
+    if (loginScreen != nullptr) {
+        // Use LoginScreen's loadFriends method which calls API
+        loginScreen->loadFriends();
+    }
+}
+
+// Callback to load notifications (called when switching to Notifications tab)
+void onLoadNotifications(int userId) {
+    Serial.print("Main: Loading notifications for user_id: ");
+    Serial.println(userId);
+    
+    if (buddyListScreen != nullptr) {
+        // Load notifications and get full data
+        ApiClient::NotificationsResult result = ApiClient::getNotifications(
+            userId, "192.168.1.7", 8080);
+        
+        if (result.success) {
+            Serial.print("Main: Loaded ");
+            Serial.print(result.count);
+            Serial.println(" notifications");
+            
+            buddyListScreen->setNotifications(result.notifications, result.count);
+            buddyListScreen->setUnreadCount(result.count);
+            
+            // Don't delete - BuddyListScreen manages memory
+        } else {
+            Serial.print("Main: Failed to load notifications: ");
+            Serial.println(result.message);
+            
+            buddyListScreen->setNotifications(nullptr, 0);
+        }
     }
 }
 
@@ -279,6 +323,10 @@ void setup() {
     // Set callback for notifications loaded
     loginScreen->setNotificationsLoadedCallback(onNotificationsLoaded);
     
+    // Set callbacks for loading friends and notifications when switching tabs
+    buddyListScreen->setLoadFriendsCallback(onLoadFriends);
+    buddyListScreen->setLoadNotificationsCallback(onLoadNotifications);
+    
     Serial.println("WiFi Manager initialized!");
     Serial.println("Login Screen initialized!");
     Serial.println("Socket Manager initialized!");
@@ -362,6 +410,7 @@ void loop() {
     
     // Ensure buddy list is displayed after successful login and friends loaded
     static bool buddyListDisplayed = false;
+    static bool autoNavStarted = false;
     if (loginScreen != nullptr && loginScreen->isAuthenticated() && buddyListScreen != nullptr) {
         if (!buddyListDisplayed) {
             // Friends should already be loaded via callback
@@ -370,10 +419,76 @@ void loop() {
                 Serial.println("Main Loop: Ensuring buddy list screen is displayed...");
                 buddyListScreen->draw();
                 buddyListDisplayed = true;
+                autoNavStarted = false;  // Reset auto-nav flag
+            }
+        }
+        
+        // Auto-navigation flow: Navigate through icons and select each one immediately
+        if (buddyListDisplayed) {
+            unsigned long drawTime = buddyListScreen->getDrawTime();
+            if (drawTime > 0) {
+                unsigned long currentTime = millis();
+                
+                // Cycle continuously every 1 second: navigate then immediately select
+                static unsigned long lastNavTime = 0;
+                static uint8_t navStep = 0;
+                
+                if (currentTime - lastNavTime >= 1000) {  // Every 1 second
+                    lastNavTime = currentTime;
+                    
+                    switch (navStep % 6) {
+                        case 0:
+                            // Step 0: Focus on sidebar (move left) then select User List tab
+                            Serial.println("Main Loop: Auto-nav [0/5] - Focusing sidebar (left) and selecting...");
+                            buddyListScreen->triggerNavigateLeft();
+                            delay(50);  // Small delay to ensure navigation completes
+                            buddyListScreen->triggerSelect();
+                            break;
+                        case 1:
+                            // Step 1: Move to Notifications tab (down) then select
+                            Serial.println("Main Loop: Auto-nav [1/5] - Moving to Notifications (down) and selecting...");
+                            buddyListScreen->triggerNavigateDown();
+                            delay(50);
+                            buddyListScreen->triggerSelect();
+                            break;
+                        case 2:
+                            // Step 2: Move to Add Friend tab (down) then select
+                            Serial.println("Main Loop: Auto-nav [2/5] - Moving to Add Friend (down) and selecting...");
+                            buddyListScreen->triggerNavigateDown();
+                            delay(50);
+                            buddyListScreen->triggerSelect();
+                            break;
+                        case 3:
+                            // Step 3: Move back to Chats tab (up twice) then select
+                            Serial.println("Main Loop: Auto-nav [3/5] - Moving back to Chats (up twice) and selecting...");
+                            buddyListScreen->triggerNavigateUp();
+                            delay(50);
+                            buddyListScreen->triggerNavigateUp();
+                            delay(50);
+                            buddyListScreen->triggerSelect();
+                            break;
+                        case 4:
+                            // Step 4: Move focus to list (right) - icon should stay Cyan
+                            Serial.println("Main Loop: Auto-nav [4/5] - Moving focus to list (right)...");
+                            buddyListScreen->triggerNavigateRight();
+                            // No select here - focus is on list, not sidebar
+                            break;
+                        case 5:
+                            // Step 5: Restart cycle - move back to sidebar
+                            Serial.println("Main Loop: Auto-nav [5/5] - Restarting cycle...");
+                            buddyListScreen->triggerNavigateLeft();
+                            delay(50);
+                            buddyListScreen->triggerSelect();
+                            break;
+                    }
+                    
+                    navStep++;
+                }
             }
         }
     } else {
         buddyListDisplayed = false;
+        autoNavStarted = false;
     }
     
     // Không cần gọi socketManager->update() nữa
