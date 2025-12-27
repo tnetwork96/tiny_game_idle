@@ -1,10 +1,20 @@
 #include "buddy_list_screen.h"
 
+// 16x16 Bell Icon Bitmap
+const unsigned char PROGMEM bellBitmap[] = {
+    0x01, 0x80, 0x02, 0x40, 0x04, 0x20, 0x04, 0x20, 
+    0x08, 0x10, 0x08, 0x10, 0x08, 0x10, 0x10, 0x08, 
+    0x10, 0x08, 0x20, 0x04, 0x3f, 0xfc, 0x40, 0x02, 
+    0x40, 0x02, 0x3f, 0xfc, 0x03, 0xc0, 0x01, 0x80
+};
+
 BuddyListScreen::BuddyListScreen(Adafruit_ST7789* tft) {
     this->tft = tft;
     buddyCount = 0;
     selectedIndex = 0;
     scrollOffset = 0;
+    notificationCount = 0;
+    unreadCount = 0;
 
     // Deep Space Arcade Theme - Midnight Blue
     // Background: Deep Midnight Blue #020817 (RGB: 2, 8, 23) -> RGB565: 0x0042
@@ -205,6 +215,41 @@ void BuddyListScreen::drawHeader() {
     tft->setCursor(10, 8);
     tft->print("CHATS");
 
+    // Draw Bell icon (notification icon) at x=80, y=7
+    const uint16_t bellX = 80;
+    const uint16_t bellY = 7;
+    const uint16_t bellColor = 0x07FF;  // Cyan/Neon Blue
+    tft->drawBitmap(bellX, bellY, bellBitmap, 16, 16, bellColor);
+
+    // Draw Badge (if unreadCount > 0)
+    if (unreadCount > 0) {
+        const uint16_t badgeX = 92;  // Top-right corner of bell (80 + 16 - 4)
+        const uint16_t badgeY = 7;
+        const uint16_t badgeRadius = 5;
+        const uint16_t badgeColor = 0xF800;  // Red
+        
+        // Draw filled red circle
+        tft->fillCircle(badgeX, badgeY, badgeRadius, badgeColor);
+        
+        // Draw number text centered in the circle
+        tft->setTextColor(0xFFFF, badgeColor);  // White text on red background
+        tft->setTextSize(1);
+        
+        String countStr;
+        if (unreadCount > 99) {
+            countStr = "99+";
+        } else {
+            countStr = String(unreadCount);
+        }
+        
+        // Center text in circle
+        uint16_t textWidth = countStr.length() * 6;  // Approximate width per character
+        uint16_t textX = badgeX - textWidth / 2;
+        uint16_t textY = badgeY - 4;  // Vertically center (text size 1 is ~8px tall)
+        tft->setCursor(textX, textY);
+        tft->print(countStr);
+    }
+
     // Draw "Add Friend" button on the right
     bool isSelected = isHeaderButtonSelected();
     uint16_t buttonBg = isSelected ? highlightColor : headerColor;
@@ -403,6 +448,23 @@ void BuddyListScreen::drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t size, u
     tft->fillRect(centerX - lineLength, centerY - lineWidth / 2, lineLength * 2, lineWidth, color);
     // Vertical line
     tft->fillRect(centerX - lineWidth / 2, centerY - lineLength, lineWidth, lineLength * 2, color);
+}
+
+void BuddyListScreen::setNotificationCount(uint8_t count) {
+    notificationCount = count;
+    unreadCount = count;  // Keep unreadCount in sync with notificationCount
+    Serial.print("Buddy List Screen: Notification count set to: ");
+    Serial.println(count);
+    // Redraw header to update badge
+    drawHeader();
+}
+
+void BuddyListScreen::setUnreadCount(uint8_t count) {
+    unreadCount = count;
+    Serial.print("Buddy List Screen: Unread count set to: ");
+    Serial.println(count);
+    // Redraw header to update badge
+    drawHeader();
 }
 
 

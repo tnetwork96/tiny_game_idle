@@ -386,3 +386,177 @@ String ApiClient::getFriendsList(int userId, const String& serverHost, uint16_t 
     http.end();
     return result;
 }
+
+ApiClient::NotificationsResult ApiClient::getNotifications(int userId, const String& serverHost, uint16_t port) {
+    NotificationsResult result;
+    result.success = false;
+    result.message = "";
+    result.notifications = nullptr;
+    result.count = 0;
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+    
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/notifications/" + String(userId);
+    Serial.print("API Client: Getting notifications from: ");
+    Serial.println(url);
+    
+    http.begin(url);
+    http.setTimeout(5000);
+    
+    int httpCode = http.GET();
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+    
+    if (httpCode == HTTP_CODE_OK) {
+        String response = http.getString();
+        Serial.print("API Client: Notifications response: ");
+        Serial.println(response);
+        
+        // Parse response manually
+        // Expected format: {"success":true,"notifications":[{"id":1,"type":"friend_request","message":"...","timestamp":"...","read":false},...],"message":"..."}
+        
+        // Check success
+        int successIdx = response.indexOf("\"success\":");
+        if (successIdx >= 0) {
+            int valueStart = response.indexOf(":", successIdx) + 1;
+            int valueEnd = response.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+            String successStr = response.substring(valueStart, valueEnd);
+            successStr.trim();
+            result.success = (successStr == "true");
+        }
+        
+        // Get message
+        int messageIdx = response.indexOf("\"message\":\"");
+        if (messageIdx >= 0) {
+            int valueStart = messageIdx + 11; // length of "message":"
+            int valueEnd = response.indexOf("\"", valueStart);
+            if (valueEnd > valueStart) {
+                result.message = response.substring(valueStart, valueEnd);
+            }
+        }
+        
+        if (result.success) {
+            // Parse notifications array
+            int notificationsStart = response.indexOf("\"notifications\":[");
+            if (notificationsStart >= 0) {
+                notificationsStart = response.indexOf("[", notificationsStart) + 1;
+                int notificationsEnd = response.indexOf("]", notificationsStart);
+                
+                if (notificationsEnd > notificationsStart) {
+                    String notificationsArray = response.substring(notificationsStart, notificationsEnd);
+                    
+                    // Count notifications
+                    int count = 0;
+                    int pos = 0;
+                    while ((pos = notificationsArray.indexOf("}", pos)) >= 0) {
+                        count++;
+                        pos++;
+                    }
+                    
+                    result.count = count;
+                    if (count > 0) {
+                        // Allocate memory for notifications
+                        result.notifications = new NotificationEntry[count];
+                        
+                        // Parse each notification
+                        int notificationIdx = 0;
+                        pos = 0;
+                        while (notificationIdx < count) {
+                            int notificationStart = notificationsArray.indexOf("{", pos);
+                            if (notificationStart < 0) break;
+                            
+                            int notificationEnd = notificationsArray.indexOf("}", notificationStart);
+                            if (notificationEnd < 0) break;
+                            
+                            String notificationObj = notificationsArray.substring(notificationStart, notificationEnd + 1);
+                            
+                            // Parse id
+                            result.notifications[notificationIdx].id = -1;
+                            int idIdx = notificationObj.indexOf("\"id\":");
+                            if (idIdx >= 0) {
+                                int idStart = idIdx + 5;
+                                int idEnd = notificationObj.indexOf(",", idStart);
+                                if (idEnd < 0) idEnd = notificationObj.indexOf("}", idStart);
+                                String idStr = notificationObj.substring(idStart, idEnd);
+                                idStr.trim();
+                                if (idStr.length() > 0 && idStr != "null") {
+                                    result.notifications[notificationIdx].id = idStr.toInt();
+                                }
+                            }
+                            
+                            // Parse type
+                            result.notifications[notificationIdx].type = "";
+                            int typeIdx = notificationObj.indexOf("\"type\":\"");
+                            if (typeIdx >= 0) {
+                                int typeStart = typeIdx + 8; // length of "type":"
+                                int typeEnd = notificationObj.indexOf("\"", typeStart);
+                                if (typeEnd > typeStart) {
+                                    result.notifications[notificationIdx].type = notificationObj.substring(typeStart, typeEnd);
+                                }
+                            }
+                            
+                            // Parse message
+                            result.notifications[notificationIdx].message = "";
+                            int msgIdx = notificationObj.indexOf("\"message\":\"");
+                            if (msgIdx >= 0) {
+                                int msgStart = msgIdx + 11; // length of "message":"
+                                int msgEnd = notificationObj.indexOf("\"", msgStart);
+                                if (msgEnd > msgStart) {
+                                    result.notifications[notificationIdx].message = notificationObj.substring(msgStart, msgEnd);
+                                }
+                            }
+                            
+                            // Parse timestamp
+                            result.notifications[notificationIdx].timestamp = "";
+                            int timestampIdx = notificationObj.indexOf("\"timestamp\":\"");
+                            if (timestampIdx >= 0) {
+                                int timestampStart = timestampIdx + 13; // length of "timestamp":"
+                                int timestampEnd = notificationObj.indexOf("\"", timestampStart);
+                                if (timestampEnd > timestampStart) {
+                                    result.notifications[notificationIdx].timestamp = notificationObj.substring(timestampStart, timestampEnd);
+                                }
+                            }
+                            
+                            // Parse read (default to false)
+                            result.notifications[notificationIdx].read = false;
+                            int readIdx = notificationObj.indexOf("\"read\":");
+                            if (readIdx >= 0) {
+                                int readStart = readIdx + 7;
+                                int readEnd = notificationObj.indexOf(",", readStart);
+                                if (readEnd < 0) readEnd = notificationObj.indexOf("}", readStart);
+                                String readStr = notificationObj.substring(readStart, readEnd);
+                                readStr.trim();
+                                result.notifications[notificationIdx].read = (readStr == "true");
+                            }
+                            
+                            notificationIdx++;
+                            pos = notificationEnd + 1;
+                        }
+                    }
+                } else {
+                    // Empty array
+                    result.count = 0;
+                    result.notifications = nullptr;
+                }
+            } else {
+                // No notifications array found, assume empty
+                result.count = 0;
+                result.notifications = nullptr;
+            }
+        }
+    } else {
+        String error = http.getString();
+        Serial.print("API Client: Get notifications failed: ");
+        Serial.println(error);
+        result.message = "HTTP error: " + String(httpCode);
+    }
+    
+    http.end();
+    return result;
+}

@@ -66,11 +66,16 @@ public:
     // Load friends list (called after successful login)
     void loadFriends();
     
+    // Load notifications (called after successful login)
+    void loadNotifications();
+    
     // Callback for when friends are loaded
     typedef void (*FriendsLoadedCallback)(const ApiClient::FriendEntry* friends, int count);
     typedef void (*FriendsLoadedStringCallback)(const String& friendsString);  // Callback for string format
+    typedef void (*NotificationsLoadedCallback)(uint8_t count);  // Callback for notification count
     void setFriendsLoadedCallback(FriendsLoadedCallback callback) { friendsLoadedCallback = callback; }
     void setFriendsLoadedStringCallback(FriendsLoadedStringCallback callback) { friendsLoadedStringCallback = callback; }
+    void setNotificationsLoadedCallback(NotificationsLoadedCallback callback) { notificationsLoadedCallback = callback; }
  
     // Configuration
     void setExpectedPin(const String& pin) { if (pinScreen) pinScreen->setExpectedPin(pin); }
@@ -97,6 +102,7 @@ private:
     int userId;
     FriendsLoadedCallback friendsLoadedCallback;
     FriendsLoadedStringCallback friendsLoadedStringCallback;
+    NotificationsLoadedCallback notificationsLoadedCallback;
 
     // Drawing helpers
     void drawBackground();

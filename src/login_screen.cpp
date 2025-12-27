@@ -269,6 +269,9 @@ void LoginScreen::handleKeyPress(const String& key) {
                 
                 // Load friends list
                 loadFriends();
+                
+                // Load notifications
+                loadNotifications();
             } else {
                 // Login failed
                 if (!loginResult.accountExists) {
@@ -449,6 +452,47 @@ void LoginScreen::loadFriends() {
         if (friendsLoadedStringCallback != nullptr) {
             friendsLoadedStringCallback("");
         }
+    }
+}
+
+// Load notifications after successful login
+void LoginScreen::loadNotifications() {
+    if (userId <= 0) {
+        Serial.println("Login Screen: Cannot load notifications - invalid user ID");
+        return;
+    }
+    
+    Serial.println("Login Screen: Loading notifications from API...");
+    Serial.print("Login Screen: Using user_id: ");
+    Serial.println(userId);
+    
+    ApiClient::NotificationsResult notificationsResult = ApiClient::getNotifications(userId, "192.168.1.7", 8080);
+    
+    if (notificationsResult.success) {
+        Serial.print("Login Screen: Received ");
+        Serial.print(notificationsResult.count);
+        Serial.println(" notifications");
+        
+        // Log notification details
+        for (int i = 0; i < notificationsResult.count; i++) {
+            Serial.print("  Notification ");
+            Serial.print(i);
+            Serial.print(": ");
+            Serial.println(notificationsResult.notifications[i].message);
+        }
+        
+        // Call callback with notification count
+        if (notificationsLoadedCallback != nullptr) {
+            notificationsLoadedCallback(notificationsResult.count);
+        }
+        
+        // Clean up memory
+        if (notificationsResult.notifications != nullptr) {
+            delete[] notificationsResult.notifications;
+        }
+    } else {
+        Serial.print("Login Screen: Failed to load notifications: ");
+        Serial.println(notificationsResult.message);
     }
 }
 
