@@ -90,6 +90,87 @@ bool BuddyListScreen::removeFriendByName(const String& name) {
     return false;  // Friend not found
 }
 
+void BuddyListScreen::parseFriendsString(const String& friendsString) {
+    if (friendsString.length() == 0) {
+        Serial.println("BuddyListScreen: Empty friends string, setting empty list");
+        setBuddies(nullptr, 0);
+        return;
+    }
+    
+    Serial.print("BuddyListScreen: Parsing friends string: ");
+    Serial.println(friendsString);
+    Serial.print("BuddyListScreen: String length: ");
+    Serial.println(friendsString.length());
+    
+    // Count friends (by counting | separators)
+    int count = 0;
+    for (int i = 0; i < friendsString.length(); i++) {
+        if (friendsString.charAt(i) == '|') {
+            count++;
+        }
+    }
+    
+    Serial.print("BuddyListScreen: Found ");
+    Serial.print(count);
+    Serial.println(" friends (by | count)");
+    
+    if (count == 0) {
+        setBuddies(nullptr, 0);
+        return;
+    }
+    
+    // Allocate buddies array
+    BuddyEntry* buddies = new BuddyEntry[count];
+    int buddyIdx = 0;
+    
+    // Parse each friend entry: "username,online|"
+    int pos = 0;
+    while (pos < friendsString.length() && buddyIdx < count) {
+        // Find next | separator
+        int pipePos = friendsString.indexOf('|', pos);
+        if (pipePos < 0) break;
+        
+        // Extract entry: "username,online"
+        String entry = friendsString.substring(pos, pipePos);
+        entry.trim();
+        
+        if (entry.length() > 0) {
+            // Find comma separator
+            int commaPos = entry.indexOf(',');
+            if (commaPos > 0) {
+                // Extract username
+                buddies[buddyIdx].name = entry.substring(0, commaPos);
+                buddies[buddyIdx].name.trim();
+                
+                // Extract online status
+                String onlineStr = entry.substring(commaPos + 1);
+                onlineStr.trim();
+                buddies[buddyIdx].online = (onlineStr == "1");
+                
+                Serial.print("BuddyListScreen: Parsed friend ");
+                Serial.print(buddyIdx);
+                Serial.print(": ");
+                Serial.print(buddies[buddyIdx].name);
+                Serial.print(" (online: ");
+                Serial.print(buddies[buddyIdx].online ? "1" : "0");
+                Serial.println(")");
+                
+                buddyIdx++;
+            }
+        }
+        
+        pos = pipePos + 1;
+    }
+    
+    Serial.print("BuddyListScreen: Successfully parsed ");
+    Serial.print(buddyIdx);
+    Serial.println(" friends");
+    
+    // Set buddies
+    setBuddies(buddies, buddyIdx);
+    delete[] buddies;
+}
+
 uint8_t BuddyListScreen::getVisibleRows() const {
     const uint16_t headerHeight = 30;
     const uint16_t rowHeight = 24;  // Updated to 24px as per requirements

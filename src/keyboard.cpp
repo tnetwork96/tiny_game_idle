@@ -395,8 +395,23 @@ void Keyboard::moveCursorByCommand(String command, int x, int y) {
             draw();
         } else {
             // Gọi callback nếu có để xử lý phím được chọn
+            Serial.print("Keyboard::moveCursorByCommand: Selected key '");
+            Serial.print(currentKey);
+            Serial.print("' (length=");
+            Serial.print(currentKey.length());
+            if (currentKey.length() > 0) {
+                Serial.print(", first char='");
+                Serial.print(currentKey.charAt(0));
+                Serial.print("' (0x");
+                Serial.print((int)currentKey.charAt(0), HEX);
+                Serial.print(")");
+            }
+            Serial.print("), calling callback...");
+            Serial.println(onKeySelected != nullptr ? " (callback exists)" : " (NO CALLBACK!)");
+            
             if (onKeySelected != nullptr) {
                 onKeySelected(currentKey);
+                Serial.println("Keyboard::moveCursorByCommand: Callback executed");
             }
         }
     }
@@ -416,6 +431,12 @@ void Keyboard::moveCursorTo(uint16_t row, int8_t col) {
 }
 
 bool Keyboard::typeChar(char c) {
+    Serial.print("Keyboard::typeChar: Attempting to type char '");
+    Serial.print(c);
+    Serial.print("' (0x");
+    Serial.print((int)c, HEX);
+    Serial.println(")");
+    
     // Phân loại ký tự
     bool isDigit = (c >= '0' && c <= '9');
     bool isLowercaseLetter = (c >= 'a' && c <= 'z');
@@ -426,6 +447,17 @@ bool Keyboard::typeChar(char c) {
     if (isUppercaseLetter) {
         normalizedChar = c - 'A' + 'a';  // Lưu layout chữ thường, hiển thị chữ hoa qua state
     }
+    
+    Serial.print("Keyboard::typeChar: isDigit=");
+    Serial.print(isDigit);
+    Serial.print(", isLetter=");
+    Serial.print(isLetter);
+    Serial.print(", normalizedChar='");
+    Serial.print(normalizedChar);
+    Serial.print("', current mode: isAlphabetMode=");
+    Serial.print(isAlphabetMode);
+    Serial.print(", isIconMode=");
+    Serial.println(isIconMode);
     
     // Nếu là số hoặc ký tự đặc biệt, cần chuyển sang chế độ số
     if ((isDigit || (!isLetter && c != ' ')) && isAlphabetMode) {
@@ -473,16 +505,26 @@ bool Keyboard::typeChar(char c) {
             String key = currentKeys[row][col];
             // So sánh ký tự (bỏ qua các phím đặc biệt như "123", "ABC", "|e", "<", icon toggle)
             if (key.length() == 1 && key.charAt(0) == normalizedChar) {
+                Serial.print("Keyboard::typeChar: Found '");
+                Serial.print(c);
+                Serial.print("' at row=");
+                Serial.print(row);
+                Serial.print(", col=");
+                Serial.print(col);
+                Serial.println(" in current layout");
                 // Di chuyển đến ký tự này
                 moveCursorTo(row, col);
                 delay(150);  // Delay để người dùng thấy di chuyển
                 // Nhấn select
                 moveCursorByCommand("select", 0, 0);
                 delay(150);
+                Serial.println("Keyboard::typeChar: Successfully typed character");
                 return true;
             }
         }
     }
+    
+    Serial.println("Keyboard::typeChar: Not found in current layout, searching in other layout...");
     
     // Nếu không tìm thấy, thử tìm trong bảng kia
     if (isAlphabetMode) {
@@ -495,6 +537,13 @@ bool Keyboard::typeChar(char c) {
         for (uint16_t col = 0; col < 10; col++) {
             String key = currentKeys[row][col];
             if (key.length() == 1 && key.charAt(0) == normalizedChar) {
+                Serial.print("Keyboard::typeChar: Found '");
+                Serial.print(c);
+                Serial.print("' at row=");
+                Serial.print(row);
+                Serial.print(", col=");
+                Serial.print(col);
+                Serial.println(" in other layout, switching mode...");
                 // Chuyển đổi chế độ trước
                 if (isAlphabetMode) {
                     moveCursorTo(1, 0);  // "123"
@@ -510,20 +559,71 @@ bool Keyboard::typeChar(char c) {
                 delay(150);
                 moveCursorByCommand("select", 0, 0);
                 delay(150);
+                Serial.println("Keyboard::typeChar: Successfully typed character after mode switch");
                 return true;
             }
         }
     }
     
+    Serial.print("Keyboard::typeChar: FAILED - Character '");
+    Serial.print(c);
+    Serial.println("' not found in any layout!");
     return false;  // Không tìm thấy ký tự
 }
 
 void Keyboard::typeString(String text) {
+    Serial.print("Keyboard::typeString: Typing string '");
+    Serial.print(text);
+    Serial.print("' (length=");
+    Serial.print(text.length());
+    Serial.println(")");
+    
     for (uint16_t i = 0; i < text.length(); i++) {
         char c = text.charAt(i);
-        typeChar(c);
+        Serial.print("Keyboard::typeString: [");
+        Serial.print(i);
+        Serial.print("/");
+        Serial.print(text.length());
+        Serial.print("] Typing '");
+        Serial.print(c);
+        Serial.println("'");
+        
+        bool success = typeChar(c);
+        if (!success) {
+            Serial.print("Keyboard::typeString: WARNING - Failed to type character '");
+            Serial.print(c);
+            Serial.print("' at position ");
+            Serial.println(i);
+        }
         delay(150);  // Delay giữa các ký tự
     }
+    
+    Serial.println("Keyboard::typeString: Finished typing string");
+}
+
+void Keyboard::pressEnter() {
+    Serial.println("Keyboard::pressEnter: Navigating to Enter key and pressing it...");
+    
+    // Đảm bảo chúng ta không ở icon mode (Enter có trong tất cả layout chữ/số)
+    if (isIconMode) {
+        Serial.println("Keyboard::pressEnter: Currently in icon mode, switching to numeric mode...");
+        // Chuyển về chế độ số nếu đang ở icon mode
+        moveCursorTo(1, 0);  // "123" hoặc "ABC"
+        delay(100);
+        moveCursorByCommand("select", 0, 0);
+        delay(100);
+    }
+    
+    // Enter luôn ở hàng 2, cột 8 trong tất cả layout (chữ cái, số, icon)
+    Serial.println("Keyboard::pressEnter: Moving to Enter key at row=2, col=8...");
+    moveCursorTo(2, 8);
+    delay(150);
+    
+    Serial.println("Keyboard::pressEnter: Pressing Enter key...");
+    moveCursorByCommand("select", 0, 0);
+    delay(150);
+    
+    Serial.println("Keyboard::pressEnter: Enter key pressed successfully");
 }
 
 void Keyboard::turnOff() {

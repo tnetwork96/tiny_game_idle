@@ -11,7 +11,7 @@ private:
     Keyboard* keyboard;  // Sử dụng keyboard thường
     
     // Vị trí và kích thước
-    uint16_t titleY;
+    uint16_t headerHeight;
     uint16_t inputBoxY;
     uint16_t inputBoxHeight;
     uint16_t inputBoxWidth;
@@ -20,15 +20,17 @@ private:
     // Mật khẩu
     String password;
     
-    // Màu sắc
+    // Màu sắc (Deep Space Arcade Theme)
     uint16_t bgColor;
-    uint16_t titleColor;
+    uint16_t headerColor;
+    uint16_t headerTextColor;
     uint16_t inputBoxBgColor;
     uint16_t inputBoxBorderColor;
     uint16_t textColor;
+    uint16_t placeholderColor;
     
-    // Vẽ tiêu đề
-    void drawTitle();
+    // Vẽ header
+    void drawHeader();
     
     // Vẽ ô nhập mật khẩu
     void drawInputBox();
@@ -57,10 +59,12 @@ public:
     
     // Setter cho màu sắc
     void setBgColor(uint16_t color) { bgColor = color; }
-    void setTitleColor(uint16_t color) { titleColor = color; }
+    void setHeaderColor(uint16_t color) { headerColor = color; }
+    void setHeaderTextColor(uint16_t color) { headerTextColor = color; }
     void setInputBoxBgColor(uint16_t color) { inputBoxBgColor = color; }
     void setInputBoxBorderColor(uint16_t color) { inputBoxBorderColor = color; }
     void setTextColor(uint16_t color) { textColor = color; }
+    void setPlaceholderColor(uint16_t color) { placeholderColor = color; }
 };
 
 #endif

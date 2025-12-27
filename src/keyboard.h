@@ -109,6 +109,9 @@ public:
     // Tự động nhập một chuỗi
     void typeString(String text);
     
+    // Điều hướng tới và nhấn phím Enter
+    void pressEnter();
+    
     // Tắt bàn phím (xóa màn hình)
     void turnOff();
     

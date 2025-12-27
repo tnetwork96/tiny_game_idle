@@ -9,7 +9,7 @@
 ConfirmationDialog::ConfirmationDialog(Adafruit_ST7789* tft) {
     this->tft = tft;
     this->visible = false;
-    this->selectedButton = 1;  // Default to Cancel (NO) for safety
+    this->selectedButton = 0;  // Default to YES (Confirm) for better UX
     this->onConfirmCallback = nullptr;
     this->onCancelCallback = nullptr;
     this->borderColor = WIN_ACCENT;  // Default Cyan accent
@@ -28,7 +28,7 @@ void ConfirmationDialog::show(const String& message,
     this->onConfirmCallback = onConfirm;
     this->onCancelCallback = onCancel;
     this->borderColor = borderColor;
-    this->selectedButton = 1;  // Default to Cancel (NO) for safety
+    this->selectedButton = 0;  // Default to YES (Confirm) for better UX
     this->visible = true;
     this->buttonPositionsCached = false;  // Reset cache - will be set on first draw()
 }
@@ -122,7 +122,7 @@ void ConfirmationDialog::drawMessage(uint16_t x, uint16_t y, uint16_t width) {
     tft->setTextSize(1);
     tft->setTextColor(TEXT_COLOR, BOX_BG_COLOR);
     
-    // Simple text wrapping (split by spaces and fit within width)
+    // Text wrapping: handle newlines first, then wrap by spaces
     const uint16_t charWidth = 6;  // Text size 1 ~6px per char
     const uint16_t lineHeight = 10;  // Text size 1 ~8px + 2px spacing
     uint16_t maxCharsPerLine = width / charWidth;
@@ -133,22 +133,36 @@ void ConfirmationDialog::drawMessage(uint16_t x, uint16_t y, uint16_t width) {
     int lineCount = 0;
     
     while (remainingText.length() > 0 && lineCount < maxLines) {
-        // Find the longest substring that fits
         String line = "";
-        if (remainingText.length() <= maxCharsPerLine) {
-            line = remainingText;
-            remainingText = "";
+        
+        // First, check for newline character (\n)
+        int newlinePos = remainingText.indexOf('\n');
+        if (newlinePos >= 0) {
+            // Found newline, use text up to newline
+            line = remainingText.substring(0, newlinePos);
+            remainingText = remainingText.substring(newlinePos + 1);
         } else {
-            // Try to break at space
-            int breakPos = maxCharsPerLine;
-            for (int i = maxCharsPerLine; i > 0; i--) {
-                if (remainingText.charAt(i) == ' ') {
-                    breakPos = i;
-                    break;
+            // No newline, try to break at space or fit within width
+            if (remainingText.length() <= maxCharsPerLine) {
+                line = remainingText;
+                remainingText = "";
+            } else {
+                // Try to break at space
+                int breakPos = maxCharsPerLine;
+                for (int i = maxCharsPerLine; i > 0; i--) {
+                    if (remainingText.charAt(i) == ' ') {
+                        breakPos = i;
+                        break;
+                    }
                 }
+                line = remainingText.substring(0, breakPos);
+                remainingText = remainingText.substring(breakPos + 1);
             }
-            line = remainingText.substring(0, breakPos);
-            remainingText = remainingText.substring(breakPos + 1);
+        }
+        
+        // Truncate line if too long (safety check to ensure it fits)
+        if (line.length() > maxCharsPerLine) {
+            line = line.substring(0, maxCharsPerLine);
         }
         
         // Center-align text

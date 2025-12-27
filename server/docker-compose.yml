@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database Container
+  db:
+    image: postgres:15-alpine
+    container_name: tiny-game-db
+    environment:
+      POSTGRES_USER: tinygame
+      POSTGRES_PASSWORD: tinygame123
+      POSTGRES_DB: tiny_game
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - tiny-game-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tinygame"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI API Container
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tiny-game-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./app:/app/app
+      - ./migrations:/app/migrations
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://tinygame:tinygame123@db:5432/tiny_game
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - tiny-game-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tiny-game-network:
+    driver: bridge
+

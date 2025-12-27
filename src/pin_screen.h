@@ -20,6 +20,7 @@ public:
 
     bool isPinAccepted() const { return pinAccepted; }
     bool wantsUsernameStep() const { return backToUsername; }
+    String getPin() const { return pinInput; }
 
 private:
     Adafruit_ST7789* tft;

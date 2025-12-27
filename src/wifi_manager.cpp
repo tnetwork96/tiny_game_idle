@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include "wifi_manager.h"
+#include "socket_manager.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 
@@ -79,6 +80,34 @@ void WiFiManager::onPasswordEntered() {
     password = wifiPassword->getPassword();
     Serial.print("WiFi Manager: Password entered: ");
     Serial.println(password);
+    Serial.print("WiFi Manager: Password length: ");
+    Serial.println(password.length());
+    
+    // Debug: Print each character in password (hex values)
+    Serial.print("WiFi Manager: Password bytes (hex): ");
+    for (int i = 0; i < password.length(); i++) {
+        Serial.print("0x");
+        if (password.charAt(i) < 0x10) Serial.print("0");
+        Serial.print((int)password.charAt(i), HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+    
+    // Debug: Print each character as readable
+    Serial.print("WiFi Manager: Password chars: ");
+    for (int i = 0; i < password.length(); i++) {
+        char c = password.charAt(i);
+        if (c >= 32 && c <= 126) {
+            Serial.print("'");
+            Serial.print(c);
+            Serial.print("' ");
+        } else {
+            Serial.print("[");
+            Serial.print((int)c);
+            Serial.print("] ");
+        }
+    }
+    Serial.println();
     
     // Start connecting
     currentState = WIFI_STATE_CONNECTING;
@@ -90,6 +119,10 @@ void WiFiManager::connectToWiFi() {
     Serial.print(selectedSSID);
     Serial.print(" with password: ");
     Serial.println(password);
+    Serial.print("WiFi Manager: SSID length: ");
+    Serial.println(selectedSSID.length());
+    Serial.print("WiFi Manager: Password length: ");
+    Serial.println(password.length());
     
     // Disconnect if already connected
     WiFi.disconnect();
@@ -97,7 +130,16 @@ void WiFiManager::connectToWiFi() {
     
     // Start connection
     WiFi.mode(WIFI_STA);
-    WiFi.begin(selectedSSID.c_str(), password.c_str());
+    
+    // Debug: Verify password string before passing to WiFi.begin
+    const char* ssidPtr = selectedSSID.c_str();
+    const char* pwdPtr = password.c_str();
+    Serial.print("WiFi Manager: SSID c_str: ");
+    Serial.println(ssidPtr);
+    Serial.print("WiFi Manager: Password c_str: ");
+    Serial.println(pwdPtr);
+    
+    WiFi.begin(ssidPtr, pwdPtr);
     
     connectStartTime = millis();
     connectAttempts++;
@@ -112,16 +154,104 @@ void WiFiManager::connectToWiFi() {
 
 void WiFiManager::update() {
     if (currentState == WIFI_STATE_CONNECTING) {
+        wl_status_t status = WiFi.status();
+        unsigned long elapsed = millis() - connectStartTime;
+        
+        // Debug: Log status mỗi 2 giây để theo dõi
+        static unsigned long lastStatusLog = 0;
+        if (millis() - lastStatusLog > 2000) {
+            Serial.print("WiFi Manager: Status check - elapsed=");
+            Serial.print(elapsed);
+            Serial.print("ms, WiFi.status()=");
+            Serial.print(status);
+            Serial.print(" (");
+            switch(status) {
+                case WL_IDLE_STATUS: Serial.print("IDLE"); break;
+                case WL_NO_SSID_AVAIL: Serial.print("NO_SSID_AVAIL"); break;
+                case WL_SCAN_COMPLETED: Serial.print("SCAN_COMPLETED"); break;
+                case WL_CONNECTED: Serial.print("CONNECTED"); break;
+                case WL_CONNECT_FAILED: Serial.print("CONNECT_FAILED"); break;
+                case WL_CONNECTION_LOST: Serial.print("CONNECTION_LOST"); break;
+                case WL_DISCONNECTED: Serial.print("DISCONNECTED"); break;
+                default: Serial.print("UNKNOWN"); break;
+            }
+            Serial.println(")");
+            lastStatusLog = millis();
+        }
+        
         // Check connection status
-        if (WiFi.status() == WL_CONNECTED) {
+        if (status == WL_CONNECTED) {
             currentState = WIFI_STATE_CONNECTED;
             Serial.println("WiFi Manager: Connected successfully!");
+            Serial.print("WiFi Manager: IP Address: ");
+            Serial.println(WiFi.localIP());
             Serial.println("WiFi Manager: Transitioning to game menu...");
+            
+            // Initialize socket session after WiFi connection
+            extern SocketManager* socketManager;  // Forward declaration
+            if (socketManager != nullptr && !socketManager->isInitialized()) {
+                Serial.println("WiFi Manager: Initializing socket session...");
+                // Update with your server host IP (use 192.168.1.7 for local network)
+                socketManager->begin("192.168.1.7", 8080, "/ws");
+            }
+            
+            // Hiển thị thông tin kết nối lên màn hình TFT
+            tft->fillScreen(ST77XX_BLACK);
+            
+            // Hiển thị "Connected!" với màu xanh lá
+            tft->setTextColor(NEON_GREEN, ST77XX_BLACK);
+            tft->setTextSize(2);
+            tft->setCursor(10, 30);
+            tft->print("Connected!");
+            
+            // Hiển thị SSID
+            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
+            tft->setTextSize(1);
+            tft->setCursor(10, 70);
+            tft->print("SSID: ");
+            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
+            tft->print(selectedSSID);
+            
+            // Hiển thị IP Address
+            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
+            tft->setCursor(10, 90);
+            tft->print("IP: ");
+            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
+            IPAddress ip = WiFi.localIP();
+            tft->print(ip[0]);
+            tft->print(".");
+            tft->print(ip[1]);
+            tft->print(".");
+            tft->print(ip[2]);
+            tft->print(".");
+            tft->print(ip[3]);
+            
+            // Hiển thị RSSI (signal strength)
+            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
+            tft->setCursor(10, 110);
+            tft->print("Signal: ");
+            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
+            int rssi = WiFi.RSSI();
+            tft->print(rssi);
+            tft->print(" dBm");
+            
+            // Hiển thị thông báo chuyển tiếp
+            tft->setTextColor(NEON_CYAN, ST77XX_BLACK);
+            tft->setTextSize(1);
+            tft->setCursor(10, 150);
+            tft->print("Loading game menu...");
+            
             // Note: Game menu will be drawn by main.cpp after checking isConnected()
-        } else if (millis() - connectStartTime > 10000) {
-            // Timeout after 10 seconds
+        } else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+            // Connection failed immediately - không cần đợi timeout
             currentState = WIFI_STATE_ERROR;
-            Serial.println("WiFi Manager: Connection timeout");
+            Serial.print("WiFi Manager: Connection failed immediately! Status: ");
+            Serial.print(status);
+            Serial.print(" (");
+            if (status == WL_CONNECT_FAILED) Serial.print("CONNECT_FAILED");
+            else if (status == WL_NO_SSID_AVAIL) Serial.print("NO_SSID_AVAIL");
+            Serial.println(")");
+            Serial.println("WiFi Manager: Possible causes: Wrong password, SSID not found, or signal too weak");
             
             // Show error message
             tft->fillScreen(ST77XX_BLACK);
@@ -129,6 +259,37 @@ void WiFiManager::update() {
             tft->setTextSize(1);
             tft->setCursor(10, 50);
             tft->print("Connection failed!");
+            tft->setCursor(10, 70);
+            tft->print("Wrong password?");
+        } else if (elapsed > 8000) {
+            // Timeout after 8 seconds (giảm từ 10s)
+            currentState = WIFI_STATE_ERROR;
+            Serial.print("WiFi Manager: Connection timeout after ");
+            Serial.print(elapsed);
+            Serial.println("ms");
+            Serial.print("WiFi Manager: Final status: ");
+            Serial.print(status);
+            Serial.print(" (");
+            switch(status) {
+                case WL_IDLE_STATUS: Serial.print("IDLE"); break;
+                case WL_NO_SSID_AVAIL: Serial.print("NO_SSID_AVAIL"); break;
+                case WL_SCAN_COMPLETED: Serial.print("SCAN_COMPLETED"); break;
+                case WL_CONNECTED: Serial.print("CONNECTED"); break;
+                case WL_CONNECT_FAILED: Serial.print("CONNECT_FAILED"); break;
+                case WL_CONNECTION_LOST: Serial.print("CONNECTION_LOST"); break;
+                case WL_DISCONNECTED: Serial.print("DISCONNECTED"); break;
+                default: Serial.print("UNKNOWN"); break;
+            }
+            Serial.println(")");
+            
+            // Show error message
+            tft->fillScreen(ST77XX_BLACK);
+            tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
+            tft->setTextSize(1);
+            tft->setCursor(10, 50);
+            tft->print("Connection timeout!");
+            tft->setCursor(10, 70);
+            tft->print("Check password");
         }
     }
 }

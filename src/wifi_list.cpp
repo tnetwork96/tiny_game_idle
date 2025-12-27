@@ -3,33 +3,32 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 
-// Synthwave/Vaporwave color palette (theo hình arcade)
-#define NEON_PURPLE 0xD81F        // Neon purple (màu chủ đạo của arcade)
-#define NEON_GREEN 0x07E0         // Neon green (sáng hơn, như trong hình)
-#define NEON_CYAN 0x07FF          // Neon cyan (sáng hơn)
-#define YELLOW_ORANGE 0xFE20       // Yellow-orange (như "GAME OVER" text)
-#define SOFT_WHITE 0xFFFF         // White (cho text trên purple background)
-#define DARK_PURPLE 0x8010        // Dark purple cho background
-
 WiFiListScreen::WiFiListScreen(Adafruit_ST7789* tft) {
     this->tft = tft;
     this->networkCount = 0;
     this->selectedIndex = 0;
+    this->scrollOffset = 0;
     
-    // Initialize layout (màn hình 240x320)
-    this->titleY = 10;
-    this->listStartY = 35;
-    this->itemHeight = 35;  // Chiều cao item tăng lên để chữ lớn hơn
-    this->maxItems = 7;  // Có thể hiển thị 7 item với itemHeight = 35px
+    // Initialize layout (màn hình 320x240 landscape)
+    const uint16_t headerHeight = 30;
+    const uint16_t rowHeight = 24;
+    this->headerHeight = headerHeight;
+    this->listStartY = headerHeight;
+    this->itemHeight = rowHeight;
     
-    // Initialize colors (Synthwave/Vaporwave style - theo hình arcade)
-    this->bgColor = ST77XX_BLACK;  // Background đen như trong arcade
-    this->titleColor = YELLOW_ORANGE;  // Yellow-orange như "GAME OVER" text
-    this->itemBgColor = ST77XX_BLACK;  // Background đen cho items
-    this->itemSelectedBgColor = NEON_PURPLE;  // Neon purple highlight (màu chủ đạo)
-    this->itemTextColor = NEON_GREEN;  // Neon green text (sáng như trong hình)
-    this->itemSelectedTextColor = SOFT_WHITE;  // White text trên purple background
-    this->itemBorderColor = NEON_CYAN;  // Neon cyan border (sáng hơn)
+    // Calculate max visible items (screen height - header) / row height
+    uint16_t availableHeight = 240 - headerHeight;
+    this->maxItems = availableHeight / rowHeight;
+    
+    // Initialize colors (Deep Space Arcade Theme)
+    this->bgColor = 0x0042;           // Deep Midnight Blue background
+    this->headerColor = 0x08A5;        // Header background
+    this->headerTextColor = 0xFFFF;   // White text for header
+    this->itemBgColor = 0x0042;       // Deep Midnight Blue for items
+    this->itemSelectedBgColor = 0x1148;  // Electric Blue tint for selection
+    this->itemTextColor = 0xFFFF;     // White text
+    this->itemSelectedTextColor = 0xFFFF;  // White text for selected
+    this->accentColor = 0x07FF;       // Cyan accent/border
     
     // Initialize networks
     for (uint16_t i = 0; i < 5; i++) {
@@ -124,16 +123,23 @@ void WiFiListScreen::scanNetworks() {
     }
 }
 
-void WiFiListScreen::drawTitle() {
-    tft->setTextColor(titleColor, bgColor);
+void WiFiListScreen::drawHeader() {
+    if (tft == nullptr) return;
     
-    // Căn giữa tiêu đề "WiFi"
-    String title = "WiFi";
-    tft->setTextSize(2);  // Tăng kích thước chữ tiêu đề
-    uint16_t textWidth = title.length() * 12;  // Khoảng 12px mỗi ký tự với textSize 2
-    uint16_t textX = (240 - textWidth) / 2;   // Căn giữa theo chiều ngang 240px (màn hình)
-    tft->setCursor(textX, titleY);
+    // Draw header bar
+    tft->fillRect(0, 0, 320, headerHeight, headerColor);
+    
+    // Draw title "WiFi Networks" centered
+    String title = "WiFi Networks";
+    tft->setTextColor(headerTextColor, headerColor);
+    tft->setTextSize(2);
+    uint16_t textWidth = title.length() * 12;  // Approx 12px per character with textSize 2
+    uint16_t textX = (320 - textWidth) / 2;   // Center on 320px width
+    tft->setCursor(textX, 8);  // Vertically center in 30px header (text height ~16px)
     tft->print(title);
+    
+    // Draw separator line below header
+    tft->drawFastHLine(0, headerHeight - 1, 320, accentColor);
 }
 
 void WiFiListScreen::drawSignalStrength(uint16_t x, uint16_t y, int32_t rssi) {
@@ -146,8 +152,10 @@ void WiFiListScreen::drawSignalStrength(uint16_t x, uint16_t y, int32_t rssi) {
     else bars = 0;                  // Very weak
     
     // Draw bars (each bar is 2px wide, 3px tall, 1px spacing)
+    uint16_t activeColor = 0x07F3;  // Mint Green for active bars (Deep Space Arcade theme)
+    uint16_t inactiveColor = 0x0021;  // Very dark for inactive bars
     for (uint16_t i = 0; i < 4; i++) {
-        uint16_t barColor = (i < bars) ? NEON_GREEN : 0x4208;  // Soft green or dark grey (RGB565)
+        uint16_t barColor = (i < bars) ? activeColor : inactiveColor;
         uint16_t barX = x + i * 3;
         uint16_t barHeight = (i + 1) * 2;
         tft->fillRect(barX, y + 4 - barHeight, 2, barHeight, barColor);
@@ -158,49 +166,106 @@ void WiFiListScreen::drawWiFiItem(uint16_t index, uint16_t yPos) {
     if (index >= networkCount) return;
     
     WiFiNetwork* net = &networks[index];
-    uint16_t itemWidth = 230;  // Width tận dụng tối đa chiều rộng 240px (để margin 5px mỗi bên)
-    uint16_t itemX = (240 - itemWidth) / 2;  // Căn giữa theo chiều ngang 240px (màn hình)
-    uint16_t cornerRadius = 8;  // Rounded corner radius tăng lên để bo góc rõ hơn
     
-    // Determine background color (tô màu background cho item được chọn)
+    // Determine background color
     uint16_t bgItemColor = net->isSelected ? itemSelectedBgColor : itemBgColor;
     
-    // Draw item background with rounded corners (bo góc)
-    tft->fillRoundRect(itemX, yPos, itemWidth, itemHeight, cornerRadius, bgItemColor);
+    // Draw full-width row background (320px width for landscape mode)
+    tft->fillRect(0, yPos, 320, itemHeight, bgItemColor);
     
-    // Vẽ border cho item được chọn để highlight rõ hơn
+    // Draw 2px cyan vertical bar on left edge for selected row
     if (net->isSelected) {
-        tft->drawRoundRect(itemX, yPos, itemWidth, itemHeight, cornerRadius, itemBorderColor);
-        tft->drawRoundRect(itemX + 1, yPos + 1, itemWidth - 2, itemHeight - 2, cornerRadius - 1, itemBorderColor);
+        tft->fillRect(0, yPos, 2, itemHeight, accentColor);
     }
     
-    // Draw SSID (truncate if too long and center it)
-    // Use different text color for selected item to make it stand out
+    // Draw SSID text (left-aligned with margin)
     uint16_t textColor = net->isSelected ? itemSelectedTextColor : itemTextColor;
     tft->setTextColor(textColor, bgItemColor);
-    tft->setTextSize(2);  // Tăng kích thước chữ lên 2 để dễ đọc hơn
+    tft->setTextSize(2);
     String displaySSID = net->ssid;
     
-    // Tính toán độ dài tối đa có thể hiển thị (với itemWidth = 230px, margin 8px mỗi bên, textSize 2)
-    uint16_t maxChars = (itemWidth - 16) / 12;  // Trừ margin, chia cho 12px mỗi ký tự (textSize 2)
-    if (displaySSID.length() > maxChars) {
-        displaySSID = displaySSID.substring(0, maxChars);
-    }
+    // Calculate max characters that fit (320px width, 2px accent bar, margins, signal icon space)
+    // Leave space for signal strength indicator on right (about 20px) and margins
+    uint16_t textX = net->isSelected ? 8 : 6;  // Margin from left (more if selected due to accent bar)
+    uint16_t textY = yPos + (itemHeight - 16) / 2;  // Vertically center (text height ~16px)
+    uint16_t maxTextWidth = 320 - textX - 25;  // Leave space for signal indicator
+    uint16_t maxChars = maxTextWidth / 12;  // Approx 12px per character with textSize 2
     
-    // Calculate text width (approximately 12px per character with textSize 2)
-    uint16_t textWidth = displaySSID.length() * 12;
-    // Center text in item width
-    uint16_t textX = itemX + (itemWidth - textWidth) / 2;  // Căn giữa theo chiều ngang trong item
-    uint16_t textY = yPos + (itemHeight - 16) / 2;  // Căn giữa theo chiều dọc (text height ~16px với textSize 2)
+    if (displaySSID.length() > maxChars && maxChars > 3) {
+        displaySSID = displaySSID.substring(0, maxChars - 3) + "...";
+    }
     
     tft->setCursor(textX, textY);
     tft->print(displaySSID);
+    
+    // Draw signal strength indicator on the right
+    uint16_t signalX = 320 - 20;  // Right margin
+    drawSignalStrength(signalX, textY, net->rssi);
+}
+
+uint8_t WiFiListScreen::getVisibleRows() const {
+    uint16_t available = (240 > headerHeight) ? (240 - headerHeight) : 0;
+    uint8_t rows = available / itemHeight;
+    return rows < 1 ? 1 : rows;
+}
+
+void WiFiListScreen::ensureSelectionVisible() {
+    uint8_t visible = getVisibleRows();
+    if (selectedIndex < scrollOffset) {
+        scrollOffset = selectedIndex;
+    } else if (selectedIndex >= scrollOffset + visible) {
+        scrollOffset = selectedIndex - visible + 1;
+    }
+}
+
+void WiFiListScreen::drawScrollbar() {
+    if (tft == nullptr) return;
+    
+    uint16_t startY = listStartY;
+    uint8_t visibleRows = getVisibleRows();
+    
+    // Only draw scrollbar if there are more networks than visible rows
+    if (networkCount <= visibleRows) {
+        // Clear scrollbar area if it was previously visible
+        uint16_t barWidth = 4;
+        uint16_t barX = 320 - barWidth;
+        uint16_t scrollbarHeight = 240 - startY;
+        tft->fillRect(barX, startY, barWidth, scrollbarHeight, bgColor);
+        return;
+    }
+    
+    uint16_t barWidth = 4;
+    uint16_t barX = 320 - barWidth;
+    uint16_t scrollbarHeight = 240 - startY;
+    
+    // Dark track
+    tft->fillRect(barX, startY, barWidth, scrollbarHeight, 0x0021);
+    
+    float ratio = (float)visibleRows / (float)networkCount;
+    uint16_t thumbHeight = scrollbarHeight * ratio;
+    if (thumbHeight < 8) thumbHeight = 8;
+    
+    float scrollPercent = (float)scrollOffset / (float)(networkCount - visibleRows);
+    if (scrollPercent < 0.0f) scrollPercent = 0.0f;
+    if (scrollPercent > 1.0f) scrollPercent = 1.0f;
+    uint16_t thumbY = startY + (scrollbarHeight - thumbHeight) * scrollPercent;
+    
+    // Cyan thumb for scrollbar
+    tft->fillRect(barX, thumbY, barWidth, thumbHeight, accentColor);
 }
 
 void WiFiListScreen::updateItem(uint16_t index) {
     // Chỉ vẽ lại một item cụ thể để tránh nháy màn hình
     if (index >= networkCount) return;
-    uint16_t yPos = listStartY + index * (itemHeight + 4);  // Spacing 4px giữa các item
+    
+    // Only update if item is visible
+    uint8_t visibleRows = getVisibleRows();
+    if (index < scrollOffset || index >= scrollOffset + visibleRows) {
+        return;  // Item not visible
+    }
+    
+    uint8_t visibleRow = index - scrollOffset;
+    uint16_t yPos = listStartY + visibleRow * itemHeight;
     drawWiFiItem(index, yPos);
 }
 
@@ -212,23 +277,39 @@ void WiFiListScreen::draw() {
     // Fill background
     tft->fillScreen(bgColor);
     
-    // Draw title
-    drawTitle();
+    // Draw header
+    drawHeader();
     
-    // Draw WiFi list items
+    // Ensure selection is visible
+    ensureSelectionVisible();
+    
+    // Draw WiFi list items (only visible ones)
     if (networkCount > 0) {
-        for (uint16_t i = 0; i < networkCount; i++) {
-            uint16_t yPos = listStartY + i * (itemHeight + 4);  // Spacing 4px giữa các item
-            drawWiFiItem(i, yPos);
+        uint8_t visibleRows = getVisibleRows();
+        for (uint8_t row = 0; row < visibleRows; row++) {
+            uint16_t networkIdx = scrollOffset + row;
+            if (networkIdx >= networkCount) {
+                // Clear remaining rows
+                uint16_t yPos = listStartY + row * itemHeight;
+                tft->fillRect(0, yPos, 320, (visibleRows - row) * itemHeight, bgColor);
+                break;
+            }
+            uint16_t yPos = listStartY + row * itemHeight;
+            drawWiFiItem(networkIdx, yPos);
         }
     } else {
-        // Hiển thị thông báo không có WiFi
-        tft->setTextColor(NEON_GREEN, bgColor);
-        tft->setTextSize(2);  // Tăng kích thước chữ
-        uint16_t textX = (240 - 72) / 2;  // Căn giữa "No WiFi found" (12px * 6 chars = 72px)
+        // Display "No WiFi found" message
+        tft->setTextColor(0xFFFF, bgColor);  // White text
+        tft->setTextSize(2);
+        String message = "No WiFi found";
+        uint16_t textWidth = message.length() * 12;
+        uint16_t textX = (320 - textWidth) / 2;  // Center on 320px width
         tft->setCursor(textX, 100);
-        tft->print("No WiFi found");
+        tft->print(message);
     }
+    
+    // Draw scrollbar
+    drawScrollbar();
     
     Serial.println("WiFi List: Screen drawn directly to display");
 }
@@ -237,32 +318,51 @@ void WiFiListScreen::selectNext() {
     if (networkCount == 0) return;
     
     uint16_t oldIndex = selectedIndex;
+    uint16_t oldScroll = scrollOffset;
     networks[oldIndex].isSelected = false;
     selectedIndex = (selectedIndex + 1) % networkCount;
     networks[selectedIndex].isSelected = true;
     
-    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
-    updateItem(oldIndex);
-    updateItem(selectedIndex);
+    ensureSelectionVisible();
+    
+    // Redraw affected items
+    if (oldScroll != scrollOffset) {
+        // Scroll changed, need full redraw
+        draw();
+    } else {
+        // Only selection changed
+        updateItem(oldIndex);
+        updateItem(selectedIndex);
+    }
 }
 
 void WiFiListScreen::selectPrevious() {
     if (networkCount == 0) return;
     
     uint16_t oldIndex = selectedIndex;
+    uint16_t oldScroll = scrollOffset;
     networks[oldIndex].isSelected = false;
     selectedIndex = (selectedIndex == 0) ? networkCount - 1 : selectedIndex - 1;
     networks[selectedIndex].isSelected = true;
     
-    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
-    updateItem(oldIndex);
-    updateItem(selectedIndex);
+    ensureSelectionVisible();
+    
+    // Redraw affected items
+    if (oldScroll != scrollOffset) {
+        // Scroll changed, need full redraw
+        draw();
+    } else {
+        // Only selection changed
+        updateItem(oldIndex);
+        updateItem(selectedIndex);
+    }
 }
 
 void WiFiListScreen::selectIndex(uint16_t index) {
     if (index >= networkCount) return;
     
     uint16_t oldIndex = selectedIndex;
+    uint16_t oldScroll = scrollOffset;
     networks[oldIndex].isSelected = false;
     selectedIndex = index;
     networks[selectedIndex].isSelected = true;
@@ -274,10 +374,18 @@ void WiFiListScreen::selectIndex(uint16_t index) {
     Serial.print(" - RSSI: ");
     Serial.println(networks[selectedIndex].rssi);
     
-    // Chỉ vẽ lại item cũ và item mới để tránh nháy màn hình
+    ensureSelectionVisible();
+    
+    // Redraw affected items
     if (oldIndex != selectedIndex) {
-        updateItem(oldIndex);
-        updateItem(selectedIndex);
+        if (oldScroll != scrollOffset) {
+            // Scroll changed, need full redraw
+            draw();
+        } else {
+            // Only selection changed
+            updateItem(oldIndex);
+            updateItem(selectedIndex);
+        }
     }
 }
 

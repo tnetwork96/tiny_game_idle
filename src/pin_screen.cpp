@@ -13,7 +13,7 @@ PinScreen::PinScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->keyboard = keyboard;
     this->username = "";
     this->pinInput = "";
-    this->expectedPin = "1234";
+    this->expectedPin = "";  // No longer used - PIN verification is done via API against database
     this->showError = false;
     this->pinAccepted = false;
     this->backToUsername = false;

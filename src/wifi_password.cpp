@@ -3,48 +3,52 @@
 #include <Adafruit_ST7789.h>
 #include "wifi_password.h"
 
-// Synthwave/Vaporwave color palette (theo hình arcade)
-#define NEON_PURPLE 0xD81F        // Neon purple (màu chủ đạo của arcade)
-#define NEON_GREEN 0x07E0         // Neon green (sáng như trong hình)
-#define NEON_CYAN 0x07FF          // Neon cyan (sáng hơn)
-#define YELLOW_ORANGE 0xFE20       // Yellow-orange (như "GAME OVER" text)
-#define SOFT_WHITE 0xFFFF         // White (cho text trên purple background)
-
-WiFiPasswordScreen::WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {  // Sử dụng keyboard thường
+WiFiPasswordScreen::WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
     
-    // Khởi tạo vị trí và kích thước (màn hình 240x320) - cho text size 2
-    this->titleY = 10;
-    this->inputBoxY = 40;
-    this->inputBoxHeight = 40;  // Chiều cao ô nhập (tăng lên cho text size 2)
-    this->inputBoxWidth = 220;  // Rộng cho màn hình 240px (căn giữa)
+    // Initialize layout (màn hình 320x240 landscape)
+    const uint16_t headerHeight = 30;
+    this->headerHeight = headerHeight;
+    this->inputBoxY = headerHeight + 20;  // Below header with margin
+    this->inputBoxHeight = 40;  // Input box height
+    this->inputBoxWidth = 300;  // Width for 320px screen (with margins)
     this->maxPasswordLength = 20;
     
-    // Khởi tạo mật khẩu
+    // Initialize password
     this->password = "";
     
-    // Khởi tạo màu sắc mặc định - Phong cách Synthwave/Vaporwave (theo hình arcade)
-    this->bgColor = ST77XX_BLACK;  // Nền đen
-    this->titleColor = YELLOW_ORANGE;  // Tiêu đề màu yellow-orange (như "GAME OVER")
-    this->inputBoxBgColor = ST77XX_BLACK;  // Nền ô nhập đen
-    this->inputBoxBorderColor = NEON_PURPLE;  // Viền neon purple
-    this->textColor = NEON_GREEN;  // Chữ màu neon green (sáng)
+    // Initialize colors (Deep Space Arcade Theme)
+    this->bgColor = 0x0042;           // Deep Midnight Blue background
+    this->headerColor = 0x08A5;        // Header background
+    this->headerTextColor = 0xFFFF;   // White text for header
+    this->inputBoxBgColor = 0x1148;   // Electric Blue tint for input box
+    this->inputBoxBorderColor = 0x07FF;  // Cyan border
+    this->textColor = 0xFFFF;         // White text
+    this->placeholderColor = 0x08A5;  // Dimmed cyan/grey for placeholder
 }
 
 WiFiPasswordScreen::~WiFiPasswordScreen() {
     // Không cần giải phóng gì
 }
 
-void WiFiPasswordScreen::drawTitle() {
-    tft->setTextColor(titleColor, bgColor);
-    tft->setTextSize(2);  // Text size 2
-    // Căn giữa tiêu đề
-    String title = "WiFi Password";
-    uint16_t textWidth = title.length() * 12;  // Khoảng 12px mỗi ký tự với textSize 2
-    uint16_t textX = (240 - textWidth) / 2;   // Căn giữa
-    tft->setCursor(textX, titleY);
+void WiFiPasswordScreen::drawHeader() {
+    if (tft == nullptr) return;
+    
+    // Draw header bar
+    tft->fillRect(0, 0, 320, headerHeight, headerColor);
+    
+    // Draw title "Enter Password" centered
+    String title = "Enter Password";
+    tft->setTextColor(headerTextColor, headerColor);
+    tft->setTextSize(2);
+    uint16_t textWidth = title.length() * 12;  // Approx 12px per character with textSize 2
+    uint16_t textX = (320 - textWidth) / 2;   // Center on 320px width
+    tft->setCursor(textX, 8);  // Vertically center in 30px header (text height ~16px)
     tft->print(title);
+    
+    // Draw separator line below header
+    tft->drawFastHLine(0, headerHeight - 1, 320, 0x07FF);  // Cyan separator
 }
 
 void WiFiPasswordScreen::drawInputBox() {
@@ -53,72 +57,84 @@ void WiFiPasswordScreen::drawInputBox() {
 }
 
 void WiFiPasswordScreen::drawPassword() {
-    uint16_t inputBoxX = (240 - inputBoxWidth) / 2;  // Center on 240px width
-    uint16_t textX = inputBoxX + 5;  // Margin trái cho text size 2
-    uint16_t textY = inputBoxY + 10;  // Căn giữa với inputBoxHeight 40px (text size 2 cao ~16px)
+    uint16_t inputBoxX = (320 - inputBoxWidth) / 2;  // Center on 320px width
+    uint16_t textX = inputBoxX + 5;  // Left margin
+    uint16_t textY = inputBoxY + 10;  // Vertically center with inputBoxHeight 40px (text height ~16px)
     
-    // Xóa vùng text cũ (chỉ xóa phần text, không xóa viền)
-    // Giảm height để không chạm vào viền dưới
-    uint16_t textAreaHeight = inputBoxHeight - 20;  // Trừ margin trên (10px) và dưới (10px)
+    // Clear old text area (only text area, not border)
+    uint16_t textAreaHeight = inputBoxHeight - 20;  // Subtract top (10px) and bottom (10px) margins
     tft->fillRect(textX, textY, inputBoxWidth - 10, textAreaHeight, inputBoxBgColor);
     
-    // Vẽ mật khẩu
-    tft->setTextColor(textColor, inputBoxBgColor);
+    // Draw password
     tft->setTextSize(2);  // Text size 2
     tft->setCursor(textX, textY);
     
     if (password.length() == 0) {
-        // Hiển thị placeholder (màu tím nhạt cho phong cách synthwave)
-        uint16_t placeholderColor = 0x5008;  // Soft dark purple, phù hợp synthwave
+        // Display placeholder (dimmed cyan/grey for Deep Space Arcade theme)
         tft->setTextColor(placeholderColor, inputBoxBgColor);
         tft->print("Enter pwd...");
     } else {
-        // Hiển thị đầy đủ mật khẩu (không cắt bớt ký tự cuối)
-            tft->print(password);
+        // Display full password
+        tft->setTextColor(textColor, inputBoxBgColor);
+        tft->print(password);
     }
     
-    // Vẽ lại viền dưới để đảm bảo không bị mất
+    // Redraw bottom border to ensure it's not lost
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
 }
 
 void WiFiPasswordScreen::draw() {
-    // Vẽ nền màn hình
+    // Draw background
     tft->fillScreen(bgColor);
     
-    // Vẽ tiêu đề
-    drawTitle();
+    // Draw header
+    drawHeader();
     
-    // Vẽ ô nhập mật khẩu với đầy đủ viền
-    uint16_t inputBoxX = (240 - inputBoxWidth) / 2;  // Center on 240px width
+    // Draw input box with border
+    uint16_t inputBoxX = (320 - inputBoxWidth) / 2;  // Center on 320px width
     tft->fillRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, inputBoxBgColor);
     
-    // Vẽ tất cả các viền (bao gồm cả viền dưới)
-    // Viền trên
+    // Draw all borders (Cyan 0x07FF)
+    // Top border
     tft->drawFastHLine(inputBoxX, inputBoxY, inputBoxWidth, inputBoxBorderColor);
     tft->drawFastHLine(inputBoxX, inputBoxY + 1, inputBoxWidth, inputBoxBorderColor);
-    // Viền dưới (vẽ trước để đảm bảo không bị che)
+    // Bottom border
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
-    // Viền trái
+    // Left border
     tft->drawFastVLine(inputBoxX, inputBoxY, inputBoxHeight, inputBoxBorderColor);
     tft->drawFastVLine(inputBoxX + 1, inputBoxY, inputBoxHeight, inputBoxBorderColor);
-    // Viền phải
+    // Right border
     tft->drawFastVLine(inputBoxX + inputBoxWidth - 2, inputBoxY, inputBoxHeight, inputBoxBorderColor);
     tft->drawFastVLine(inputBoxX + inputBoxWidth - 1, inputBoxY, inputBoxHeight, inputBoxBorderColor);
     
-    // Vẽ mật khẩu
+    // Draw password
     drawPassword();
     
-    // Vẽ bàn phím (keyboard sẽ tự vẽ trực tiếp lên tft)
+    // Draw keyboard (keyboard will draw directly to tft)
     keyboard->draw();
     
-    // Vẽ lại viền dưới sau khi bàn phím vẽ để đảm bảo không bị che
+    // Redraw bottom border after keyboard draws to ensure it's not covered
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
     tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
 }
 
 void WiFiPasswordScreen::handleKeyPress(String key) {
+    // Debug log để kiểm tra key được nhận
+    Serial.print("WiFiPassword: Received key: '");
+    Serial.print(key);
+    Serial.print("' (length=");
+    Serial.print(key.length());
+    Serial.print(", first char=");
+    if (key.length() > 0) {
+        Serial.print((int)key.charAt(0));
+        Serial.print(" '");
+        Serial.print(key.charAt(0));
+        Serial.print("'");
+    }
+    Serial.println(")");
+    
     // Xử lý các phím đặc biệt
     if (key == "|e") {
         // Enter - có thể dùng để submit
@@ -127,20 +143,39 @@ void WiFiPasswordScreen::handleKeyPress(String key) {
         // Delete - xóa ký tự cuối
         if (password.length() > 0) {
             password.remove(password.length() - 1);
+            Serial.print("WiFiPassword: Password after delete: '");
+            Serial.print(password);
+            Serial.println("'");
             drawPassword();  // Chỉ vẽ lại phần password, không vẽ lại keyboard
         }
     } else if (key == " ") {
         // Space - thêm dấu cách
         if (password.length() < maxPasswordLength) {
             password += " ";
+            Serial.print("WiFiPassword: Password after space: '");
+            Serial.print(password);
+            Serial.println("'");
             drawPassword();  // Chỉ vẽ lại phần password, không vẽ lại keyboard
         }
     } else if (key != "123" && key != "ABC" && key != Keyboard::KEY_ICON && key != "shift") {
         // Thêm ký tự thông thường (bỏ qua các phím chuyển đổi)
         if (password.length() < maxPasswordLength) {
             password += key;
+            Serial.print("WiFiPassword: Password after adding '");
+            Serial.print(key);
+            Serial.print("': '");
+            Serial.print(password);
+            Serial.print("' (length=");
+            Serial.print(password.length());
+            Serial.println(")");
             drawPassword();  // Chỉ vẽ lại phần password, không vẽ lại keyboard
+        } else {
+            Serial.println("WiFiPassword: Password max length reached!");
         }
+    } else {
+        Serial.print("WiFiPassword: Ignored key (mode switch): '");
+        Serial.print(key);
+        Serial.println("'");
     }
 }
 

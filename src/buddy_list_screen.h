@@ -16,6 +16,7 @@ public:
 
     // Data
     void setBuddies(const BuddyEntry* entries, uint8_t count);
+    void parseFriendsString(const String& friendsString);  // Parse string format: "user1,0|user2,1|..."
     void updateStatus(uint8_t index, bool online);
     bool addFriend(String name, bool online = false);  // Add a new friend to the list
     bool removeFriend(uint8_t index);  // Remove a friend by index
