@@ -52,19 +52,42 @@ def get_db_connection():
 @router.post("/friend-requests/accept", response_model=AcceptFriendRequestResponse)
 async def accept_friend_request(request: AcceptFriendRequestRequest):
     """
-    Accept a friend request
-    Updates friend_request status, creates bidirectional friendship, and marks notification as read
+    Accept a friend request - Senior-level implementation with comprehensive validation and error handling
+    Updates friend_request status, creates bidirectional friendship, marks notification as read,
+    and creates notification for the sender
     """
     conn = None
     try:
+        # Input validation
+        if request.user_id <= 0:
+            return AcceptFriendRequestResponse(
+                success=False,
+                message="Invalid user_id"
+            )
+        
+        if request.notification_id <= 0:
+            return AcceptFriendRequestResponse(
+                success=False,
+                message="Invalid notification_id"
+            )
+        
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get notification from database
+        # Verify user exists
+        cursor.execute('SELECT id FROM users WHERE id = %s', (request.user_id,))
+        if not cursor.fetchone():
+            return AcceptFriendRequestResponse(
+                success=False,
+                message=f"User {request.user_id} not found"
+            )
+        
+        # Get notification from database with lock to prevent race conditions
         cursor.execute('''
             SELECT id, type, related_id, user_id, read
             FROM notifications
             WHERE id = %s AND user_id = %s
+            FOR UPDATE
         ''', (request.notification_id, request.user_id))
         
         notification = cursor.fetchone()
@@ -89,11 +112,12 @@ async def accept_friend_request(request: AcceptFriendRequestRequest):
                 message=f"Notification {request.notification_id} does not have a related friend request"
             )
         
-        # Get friend_request from database
+        # Get friend_request from database with lock to prevent concurrent modifications
         cursor.execute('''
-            SELECT id, from_user_id, to_user_id, status
+            SELECT id, from_user_id, to_user_id, status, created_at
             FROM friend_requests
             WHERE id = %s
+            FOR UPDATE
         ''', (friend_request_id,))
         
         friend_request = cursor.fetchone()
@@ -103,45 +127,84 @@ async def accept_friend_request(request: AcceptFriendRequestRequest):
                 message=f"Friend request {friend_request_id} not found"
             )
         
-        # Check if user is the recipient (to_user_id)
-        if friend_request['to_user_id'] != request.user_id:
+        from_user_id = friend_request['from_user_id']
+        to_user_id = friend_request['to_user_id']
+        
+        # Verify user is the recipient (to_user_id)
+        if to_user_id != request.user_id:
             return AcceptFriendRequestResponse(
                 success=False,
                 message="Only the recipient can accept a friend request"
             )
         
-        # Check if request is still pending
-        if friend_request['status'] != 'pending':
+        # Verify sender still exists
+        cursor.execute('SELECT id, COALESCE(nickname, username) as display_name FROM users WHERE id = %s', (from_user_id,))
+        sender = cursor.fetchone()
+        if not sender:
             return AcceptFriendRequestResponse(
                 success=False,
-                message=f"Friend request {friend_request_id} is already {friend_request['status']}"
+                message="The user who sent this friend request no longer exists"
             )
+        sender_display_name = sender['display_name']
         
-        from_user_id = friend_request['from_user_id']
-        to_user_id = friend_request['to_user_id']
+        # Check if request is still pending (handle race conditions)
+        if friend_request['status'] != 'pending':
+            status_msg = friend_request['status']
+            if status_msg == 'accepted':
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message=f"Friend request has already been accepted"
+                )
+            elif status_msg == 'rejected':
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message=f"Friend request has already been rejected"
+                )
+            else:
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message=f"Friend request is in '{status_msg}' status and cannot be accepted"
+                )
         
-        # Check if they're already friends
+        # Check if they're already friends (double-check to prevent duplicate friendships)
         cursor.execute('''
             SELECT id FROM friends 
             WHERE (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
+            LIMIT 1
         ''', (from_user_id, to_user_id, to_user_id, from_user_id))
         
         if cursor.fetchone():
+            # If already friends, update notification and return success (idempotent)
+            cursor.execute('''
+                UPDATE notifications
+                SET read = TRUE
+                WHERE id = %s
+            ''', (request.notification_id,))
+            conn.commit()
             return AcceptFriendRequestResponse(
-                success=False,
-                message="Users are already friends"
+                success=True,
+                message="You are already friends with this user",
+                friendship_id=None
             )
         
-        # Start transaction: Update friend_request, create friendships, mark notification as read
+        # Start transaction: Update friend_request, create friendships, mark notification as read, create sender notification
         try:
-            # Update friend_request status to 'accepted'
+            # Update friend_request status to 'accepted' (atomic update with status check)
             cursor.execute('''
                 UPDATE friend_requests
                 SET status = 'accepted', updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE id = %s AND status = 'pending'
             ''', (friend_request_id,))
             
-            # Create bidirectional friendship
+            if cursor.rowcount == 0:
+                # Another request may have changed the status
+                conn.rollback()
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message="Friend request status changed. Please refresh and try again."
+                )
+            
+            # Create bidirectional friendship (both directions)
             # First direction: from_user -> to_user
             cursor.execute('''
                 INSERT INTO friends (user_id, friend_id)
@@ -167,30 +230,66 @@ async def accept_friend_request(request: AcceptFriendRequestRequest):
             # Mark notification as read
             cursor.execute('''
                 UPDATE notifications
-                SET read = TRUE
+                SET read = TRUE, updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
             ''', (request.notification_id,))
             
+            # Create notification for the sender (they sent the request, now it's accepted)
+            # Get recipient display name for the notification
+            cursor.execute('SELECT COALESCE(nickname, username) as display_name FROM users WHERE id = %s', (to_user_id,))
+            recipient = cursor.fetchone()
+            recipient_display_name = recipient['display_name'] if recipient else f"User {to_user_id}"
+            
+            # Check if notification already exists for the sender
+            cursor.execute('''
+                SELECT id FROM notifications
+                WHERE user_id = %s AND type = 'friend_request_accepted' AND related_id = %s
+            ''', (from_user_id, friend_request_id))
+            
+            if not cursor.fetchone():
+                # Create acceptance notification for sender
+                notification_message = f"{recipient_display_name} accepted your friend request"
+                cursor.execute('''
+                    INSERT INTO notifications (user_id, type, message, related_id, read)
+                    VALUES (%s, 'friend_request_accepted', %s, %s, FALSE)
+                ''', (from_user_id, notification_message, friend_request_id))
+            
             conn.commit()
             
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} accepted by user {request.user_id}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} accepted by user {request.user_id} (from {from_user_id})")
             return AcceptFriendRequestResponse(
                 success=True,
-                message="Friend request accepted successfully",
+                message=f"Friend request from {sender_display_name} accepted successfully",
                 friendship_id=friendship_id
             )
             
+        except psycopg2.IntegrityError as e:
+            conn.rollback()
+            error_str = str(e)
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Accept friend request error (IntegrityError): {error_str}")
+            
+            # Check if it's a duplicate key error (friendship already exists)
+            if "duplicate key" in error_str.lower() or "unique constraint" in error_str.lower():
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message="Friendship already exists. Please refresh your friends list."
+                )
+            else:
+                return AcceptFriendRequestResponse(
+                    success=False,
+                    message="Database integrity error occurred. Please try again."
+                )
         except Exception as e:
             conn.rollback()
             raise e
             
-    except psycopg2.IntegrityError as e:
+    except psycopg2.OperationalError as e:
         if conn:
             conn.rollback()
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Accept friend request error (IntegrityError): {str(e)}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Accept friend request error (OperationalError): {str(e)}")
         return AcceptFriendRequestResponse(
             success=False,
-            message="Database integrity error: friendship may already exist"
+            message="Database connection error. Please try again later."
         )
     except Exception as e:
         if conn:
@@ -210,19 +309,41 @@ async def accept_friend_request(request: AcceptFriendRequestRequest):
 @router.post("/friend-requests/reject", response_model=RejectFriendRequestResponse)
 async def reject_friend_request(request: RejectFriendRequestRequest):
     """
-    Reject a friend request
-    Updates friend_request status to 'rejected' and marks notification as read
+    Reject a friend request - Senior-level implementation with comprehensive validation and error handling
+    Updates friend_request status to 'rejected', marks notification as read
     """
     conn = None
     try:
+        # Input validation
+        if request.user_id <= 0:
+            return RejectFriendRequestResponse(
+                success=False,
+                message="Invalid user_id"
+            )
+        
+        if request.notification_id <= 0:
+            return RejectFriendRequestResponse(
+                success=False,
+                message="Invalid notification_id"
+            )
+        
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get notification from database
+        # Verify user exists
+        cursor.execute('SELECT id FROM users WHERE id = %s', (request.user_id,))
+        if not cursor.fetchone():
+            return RejectFriendRequestResponse(
+                success=False,
+                message=f"User {request.user_id} not found"
+            )
+        
+        # Get notification from database with lock to prevent race conditions
         cursor.execute('''
             SELECT id, type, related_id, user_id, read
             FROM notifications
             WHERE id = %s AND user_id = %s
+            FOR UPDATE
         ''', (request.notification_id, request.user_id))
         
         notification = cursor.fetchone()
@@ -247,11 +368,12 @@ async def reject_friend_request(request: RejectFriendRequestRequest):
                 message=f"Notification {request.notification_id} does not have a related friend request"
             )
         
-        # Get friend_request from database
+        # Get friend_request from database with lock to prevent concurrent modifications
         cursor.execute('''
-            SELECT id, from_user_id, to_user_id, status
+            SELECT id, from_user_id, to_user_id, status, created_at
             FROM friend_requests
             WHERE id = %s
+            FOR UPDATE
         ''', (friend_request_id,))
         
         friend_request = cursor.fetchone()
@@ -261,48 +383,84 @@ async def reject_friend_request(request: RejectFriendRequestRequest):
                 message=f"Friend request {friend_request_id} not found"
             )
         
-        # Check if user is the recipient (to_user_id)
-        if friend_request['to_user_id'] != request.user_id:
+        from_user_id = friend_request['from_user_id']
+        to_user_id = friend_request['to_user_id']
+        
+        # Verify user is the recipient (to_user_id)
+        if to_user_id != request.user_id:
             return RejectFriendRequestResponse(
                 success=False,
                 message="Only the recipient can reject a friend request"
             )
         
-        # Check if request is still pending
+        # Verify sender still exists (for display name in message)
+        cursor.execute('SELECT id, COALESCE(nickname, username) as display_name FROM users WHERE id = %s', (from_user_id,))
+        sender = cursor.fetchone()
+        sender_display_name = sender['display_name'] if sender else f"User {from_user_id}"
+        
+        # Check if request is still pending (handle race conditions)
         if friend_request['status'] != 'pending':
-            return RejectFriendRequestResponse(
-                success=False,
-                message=f"Friend request {friend_request_id} is already {friend_request['status']}"
-            )
+            status_msg = friend_request['status']
+            if status_msg == 'accepted':
+                return RejectFriendRequestResponse(
+                    success=False,
+                    message="Friend request has already been accepted"
+                )
+            elif status_msg == 'rejected':
+                return RejectFriendRequestResponse(
+                    success=False,
+                    message="Friend request has already been rejected"
+                )
+            else:
+                return RejectFriendRequestResponse(
+                    success=False,
+                    message=f"Friend request is in '{status_msg}' status and cannot be rejected"
+                )
         
         # Start transaction: Update friend_request status and mark notification as read
         try:
-            # Update friend_request status to 'rejected'
+            # Update friend_request status to 'rejected' (atomic update with status check)
             cursor.execute('''
                 UPDATE friend_requests
                 SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
-                WHERE id = %s
+                WHERE id = %s AND status = 'pending'
             ''', (friend_request_id,))
+            
+            if cursor.rowcount == 0:
+                # Another request may have changed the status
+                conn.rollback()
+                return RejectFriendRequestResponse(
+                    success=False,
+                    message="Friend request status changed. Please refresh and try again."
+                )
             
             # Mark notification as read
             cursor.execute('''
                 UPDATE notifications
-                SET read = TRUE
+                SET read = TRUE, updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
             ''', (request.notification_id,))
             
             conn.commit()
             
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} rejected by user {request.user_id}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} rejected by user {request.user_id} (from {from_user_id})")
             return RejectFriendRequestResponse(
                 success=True,
-                message="Friend request rejected successfully"
+                message=f"Friend request from {sender_display_name} rejected successfully"
             )
             
         except Exception as e:
             conn.rollback()
             raise e
             
+    except psycopg2.OperationalError as e:
+        if conn:
+            conn.rollback()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Reject friend request error (OperationalError): {str(e)}")
+        return RejectFriendRequestResponse(
+            success=False,
+            message="Database connection error. Please try again later."
+        )
     except Exception as e:
         if conn:
             conn.rollback()

@@ -43,11 +43,15 @@ const unsigned char PROGMEM iconPlus[] = {
 #define TAB_HEIGHT       60
 #define TAB_PADDING      10
 
+// Static instance pointer for callbacks
+static SocialScreen* s_socialScreenInstance = nullptr;
+
 SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
     this->miniKeyboard = new MiniKeyboard(tft);
     this->miniAddFriend = new MiniAddFriendScreen(tft, miniKeyboard);
+    this->confirmationDialog = new ConfirmationDialog(tft);
     this->currentTab = TAB_FRIENDS;
     this->focusMode = FOCUS_SIDEBAR;
     this->userId = -1;
@@ -65,6 +69,10 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->notificationsScrollOffset = 0;
     
     this->onAddFriendSuccessCallback = nullptr;
+    this->pendingAcceptNotificationId = -1;
+    
+    // Set static instance for callbacks
+    s_socialScreenInstance = this;
 }
 
 SocialScreen::~SocialScreen() {
@@ -73,6 +81,10 @@ SocialScreen::~SocialScreen() {
     if (miniAddFriend != nullptr) {
         delete miniAddFriend;
     }
+    if (confirmationDialog != nullptr) {
+        delete confirmationDialog;
+    }
+    s_socialScreenInstance = nullptr;
 }
 
 void SocialScreen::drawBackground() {
@@ -210,16 +222,6 @@ void SocialScreen::drawFriendsList() {
             uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
             tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
             
-            // Draw card border based on selection and focus
-            if (isSelected && focusMode == FOCUS_CONTENT) {
-                // Bright cyan border when selected and content focused
-                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
-            } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
-                // Dimmed border when selected but sidebar focused
-                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
-            }
-            // No border for unselected cards
-            
             // Draw online/offline indicator (larger, 6px radius)
             uint16_t statusColor = friends[i].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
             uint16_t dotX = cardX + 12;
@@ -298,15 +300,6 @@ void SocialScreen::drawNotificationsList() {
             // Draw card background
             uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
             tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
-            
-            // Draw card border based on selection and focus
-            if (isSelected && focusMode == FOCUS_CONTENT) {
-                // Bright cyan border when selected and content focused
-                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
-            } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
-                // Dimmed border when selected but sidebar focused
-                tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
-            }
             
             // Draw notification type indicator (icon on left)
             // Use different color for friend requests to indicate they are actionable
@@ -416,6 +409,11 @@ void SocialScreen::draw() {
     drawBackground();
     drawSidebar();
     drawContentArea();
+    
+    // Draw confirmation dialog if visible (draw last so it appears on top)
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->draw();
+    }
 }
 
 void SocialScreen::handleTabNavigation(const String& key) {
@@ -457,13 +455,6 @@ void SocialScreen::redrawFriendCard(int index, bool isSelected) {
     // Draw card background
     uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
     tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
-    
-    // Draw card border based on selection and focus
-    if (isSelected && focusMode == FOCUS_CONTENT) {
-        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
-    } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
-        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
-    }
     
     // Draw online/offline indicator
     uint16_t statusColor = friends[index].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
@@ -516,13 +507,6 @@ void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
     // Draw card background
     uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
     tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
-    
-    // Draw card border based on selection and focus
-    if (isSelected && focusMode == FOCUS_CONTENT) {
-        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_ACCENT);
-    } else if (isSelected && focusMode == FOCUS_SIDEBAR) {
-        tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
-    }
     
             // Draw notification type indicator
             // Use different color for friend requests to indicate they are actionable
@@ -733,6 +717,20 @@ void SocialScreen::handleContentNavigation(const String& key) {
             }
         }
     } else if (currentTab == TAB_NOTIFICATIONS) {
+        // If confirmation dialog is showing, handle dialog navigation
+        if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+            if (key == "|l") {
+                confirmationDialog->handleLeft();
+            } else if (key == "|r") {
+                confirmationDialog->handleRight();
+            } else if (key == "|e") {
+                confirmationDialog->handleSelect();
+            } else if (key == "<" || key == "|b") {
+                confirmationDialog->handleCancel();
+            }
+            return;
+        }
+        
         // Handle Enter key for accepting friend requests
         if (key == "|e") {
             if (selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
@@ -740,26 +738,51 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 
                 // Check if this is a friend request notification
                 if (notification->type == "friend_request") {
-                    Serial.print("Social Screen: Accepting friend request from notification ID: ");
-                    Serial.println(notification->id);
-                    
-                    if (userId > 0 && serverHost.length() > 0) {
-                        ApiClient::FriendRequestResult result = ApiClient::acceptFriendRequest(userId, notification->id, serverHost, serverPort);
-                        if (result.success) {
-                            Serial.print("Social Screen: Friend request accepted successfully: ");
-                            Serial.println(result.message);
-                            
-                            // Refresh friends list
-                            loadFriends();
-                            
-                            // Reload notifications to get updated list from server
-                            loadNotifications();
-                        } else {
-                            Serial.print("Social Screen: Failed to accept friend request: ");
-                            Serial.println(result.message);
-                            // TODO: Display error message to user
-                        }
+                    // Validate inputs before showing confirmation
+                    if (userId <= 0) {
+                        Serial.println("Social Screen: Invalid user ID for accepting friend request");
+                        return;
                     }
+                    
+                    if (serverHost.length() == 0) {
+                        Serial.println("Social Screen: Server host not configured");
+                        return;
+                    }
+                    
+                    // Check if notification is already read (may have been processed)
+                    if (notification->read) {
+                        Serial.println("Social Screen: Notification already processed, refreshing...");
+                        loadNotifications();
+                        return;
+                    }
+                    
+                    // Extract sender name from notification message
+                    String message = notification->message;
+                    String senderName = message;
+                    // Message format: "{sender_name} sent you a friend request"
+                    int sentPos = message.indexOf(" sent you a friend request");
+                    if (sentPos > 0) {
+                        senderName = message.substring(0, sentPos);
+                    }
+                    
+                    // Store notification ID for accept action
+                    pendingAcceptNotificationId = notification->id;
+                    
+                    // Show confirmation dialog
+                    String confirmMessage = "Accept friend request\nfrom " + senderName + "?";
+                    confirmationDialog->show(
+                        confirmMessage,
+                        "YES",
+                        "NO",
+                        onConfirmAcceptFriendRequest,
+                        onCancelAcceptFriendRequest
+                    );
+                    
+                    // Redraw to show dialog
+                    draw();
+                } else {
+                    Serial.print("Social Screen: Notification type is not friend_request: ");
+                    Serial.println(notification->type);
                 }
             }
             return;
@@ -898,7 +921,7 @@ void SocialScreen::handleKeyPress(const String& key) {
             focusMode = FOCUS_SIDEBAR;
             // Redraw sidebar tabs to show focus change
             drawSidebar();
-            // Redraw selected card with dimmed border
+            // Redraw selected card
             if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
                 redrawFriendCard(selectedFriendIndex, true);
             } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
@@ -912,7 +935,7 @@ void SocialScreen::handleKeyPress(const String& key) {
             focusMode = FOCUS_CONTENT;
             // Redraw sidebar tabs to show focus change
             drawSidebar();
-            // Redraw selected card with bright border
+            // Redraw selected card
             if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
                 redrawFriendCard(selectedFriendIndex, true);
             } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
@@ -1058,15 +1081,39 @@ void SocialScreen::loadNotifications() {
     if (result.success) {
         Serial.print("Social Screen: Received ");
         Serial.print(result.count);
-        Serial.println(" notifications");
+        Serial.println(" notifications from server");
         
         clearNotifications();
-        notificationsCount = result.count;
+        
+        // Filter out read notifications - only keep unread ones
+        int unreadCount = 0;
+        for (int i = 0; i < result.count; i++) {
+            if (!result.notifications[i].read) {
+                unreadCount++;
+            }
+        }
+        
+        Serial.print("Social Screen: Filtered to ");
+        Serial.print(unreadCount);
+        Serial.println(" unread notifications");
+        
+        notificationsCount = unreadCount;
         if (notificationsCount > 0) {
             notifications = new ApiClient::NotificationEntry[notificationsCount];
-            for (int i = 0; i < notificationsCount; i++) {
-                notifications[i] = result.notifications[i];
+            int unreadIndex = 0;
+            for (int i = 0; i < result.count; i++) {
+                if (!result.notifications[i].read) {
+                    notifications[unreadIndex] = result.notifications[i];
+                    unreadIndex++;
+                }
             }
+        }
+        
+        // Reset selected index if it's now out of bounds
+        if (selectedNotificationIndex >= notificationsCount) {
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+            Serial.println("Social Screen: Reset selected notification index after filtering");
         }
         
         // Clean up result memory
@@ -1092,8 +1139,199 @@ void SocialScreen::reset() {
     friendsScrollOffset = 0;
     selectedNotificationIndex = 0;
     notificationsScrollOffset = 0;
+    pendingAcceptNotificationId = -1;
     if (miniAddFriend != nullptr) {
         miniAddFriend->reset();
     }
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+}
+
+// Static callback wrappers for ConfirmationDialog
+void SocialScreen::onConfirmAcceptFriendRequest() {
+    if (s_socialScreenInstance != nullptr) {
+        s_socialScreenInstance->doAcceptFriendRequest();
+    }
+}
+
+void SocialScreen::onCancelAcceptFriendRequest() {
+    if (s_socialScreenInstance != nullptr) {
+        s_socialScreenInstance->doCancelAcceptFriendRequest();
+    }
+}
+
+// Instance callback methods for confirmation dialog
+void SocialScreen::doAcceptFriendRequest() {
+    if (pendingAcceptNotificationId <= 0) {
+        Serial.println("Social Screen: No pending notification ID for accept");
+        pendingAcceptNotificationId = -1;
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        draw();
+        return;
+    }
+    
+    Serial.print("Social Screen: Accepting friend request from notification ID: ");
+    Serial.println(pendingAcceptNotificationId);
+    
+    // Call API to accept friend request
+    ApiClient::FriendRequestResult result = ApiClient::acceptFriendRequest(userId, pendingAcceptNotificationId, serverHost, serverPort);
+    
+    // Reset pending notification ID first
+    int processedNotificationId = pendingAcceptNotificationId;
+    pendingAcceptNotificationId = -1;
+    
+    if (result.success) {
+        Serial.print("Social Screen: Friend request accepted successfully: ");
+        Serial.println(result.message);
+        
+        // Optimistic UI update: refresh both lists
+        loadFriends();
+        loadNotifications();  // This will filter out the read notification
+        
+        // Reset selection since notification was removed
+        if (selectedNotificationIndex >= notificationsCount) {
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+        }
+    } else {
+        Serial.print("Social Screen: Failed to accept friend request: ");
+        Serial.println(result.message);
+        
+        // Reload notifications to get latest state from server
+        // (in case the request was processed by another client)
+        loadNotifications();
+        
+        // Reset selection if needed
+        if (selectedNotificationIndex >= notificationsCount) {
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+        }
+    }
+    
+    // Ensure dialog is hidden and redraw to show notifications list
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    
+    // Redraw to show notifications list (dialog đã được hide, notification đã bị xóa)
+    draw();
+}
+
+int SocialScreen::getFirstFriendRequestIndex() const {
+    if (notifications == nullptr || notificationsCount == 0) {
+        return -1;
+    }
+    
+    // Find first unread friend_request notification
+    for (int i = 0; i < notificationsCount; i++) {
+        if (notifications[i].type == "friend_request" && !notifications[i].read) {
+            return i;
+        }
+    }
+    
+    return -1;
+}
+
+void SocialScreen::selectNotification(int index) {
+    if (index >= 0 && index < notificationsCount) {
+        selectedNotificationIndex = index;
+        // Update scroll offset if needed to keep selected item visible
+        const uint16_t cardHeight = 48;
+        const uint16_t cardSpacing = 4;
+        const uint16_t headerHeight = 35;
+        const uint16_t startY = headerHeight + 4;
+        const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+        
+        if (selectedNotificationIndex < notificationsScrollOffset) {
+            notificationsScrollOffset = selectedNotificationIndex;
+        } else if (selectedNotificationIndex >= notificationsScrollOffset + visibleItems) {
+            notificationsScrollOffset = selectedNotificationIndex - visibleItems + 1;
+        }
+        
+        // Redraw to show selection
+        drawContentArea();
+    }
+}
+
+void SocialScreen::doCancelAcceptFriendRequest() {
+    if (pendingAcceptNotificationId <= 0) {
+        Serial.println("Social Screen: No pending notification ID for reject");
+        pendingAcceptNotificationId = -1;
+        // Ensure dialog is hidden
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        draw();
+        return;
+    }
+    
+    Serial.print("Social Screen: Rejecting friend request from notification ID: ");
+    Serial.println(pendingAcceptNotificationId);
+    
+    // Validate inputs before making request
+    if (userId <= 0) {
+        Serial.println("Social Screen: Invalid user ID for rejecting friend request");
+        pendingAcceptNotificationId = -1;
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        draw();
+        return;
+    }
+    
+    if (serverHost.length() == 0) {
+        Serial.println("Social Screen: Server host not configured");
+        pendingAcceptNotificationId = -1;
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        draw();
+        return;
+    }
+    
+    // Call API to reject friend request
+    ApiClient::FriendRequestResult result = ApiClient::rejectFriendRequest(userId, pendingAcceptNotificationId, serverHost, serverPort);
+    
+    // Reset pending notification ID first
+    pendingAcceptNotificationId = -1;
+    
+    if (result.success) {
+        Serial.print("Social Screen: Friend request rejected successfully: ");
+        Serial.println(result.message);
+        
+        // Reload notifications to get updated list from server
+        // This will filter out the read notification
+        loadNotifications();
+        
+        // Reset selection since notification was removed
+        if (selectedNotificationIndex >= notificationsCount) {
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+        }
+    } else {
+        Serial.print("Social Screen: Failed to reject friend request: ");
+        Serial.println(result.message);
+        
+        // Reload notifications to get latest state from server
+        // (in case the request was processed by another client)
+        loadNotifications();
+        
+        // Reset selection if needed
+        if (selectedNotificationIndex >= notificationsCount) {
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+        }
+    }
+    
+    // Ensure dialog is hidden and redraw to show notifications list
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    
+    // Redraw to show notifications list (dialog đã được hide, notification đã bị xóa)
+    draw();
 }
 

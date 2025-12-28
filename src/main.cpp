@@ -218,7 +218,7 @@ void autoLogin() {
         delay(1000);
         
         // Type username (không tồn tại để test flow tạo account mới)
-        keyboard->typeString("player22s");
+        keyboard->typeString("user123");
         
         Serial.println("Auto-login: Username typed, waiting before pressing Enter...");
         delay(1000);
@@ -236,7 +236,7 @@ void autoLogin() {
         Serial.println("Auto-login: PIN screen ready, typing PIN...");
         
         // Type PIN for player2: "2222"
-        keyboard->typeString("2222");
+        keyboard->typeString("1234");
         
         Serial.println("Auto-login: PIN typed, waiting before pressing Enter...");
         delay(1000);
@@ -440,7 +440,7 @@ void loop() {
         }
     }
     
-    // Auto-navigation flow for Notifications - CHỈ TẬP TRUNG VÀO NOTIFICATIONS
+    // Auto-navigation flow for Notifications - Chọn thông báo đầu tiên và điều hướng sang NO rồi select
     if (isSocialScreenActive && socialScreen != nullptr) {
         // Đảm bảo luôn ở tab Notifications
         if (socialScreen->getCurrentTab() != SocialScreen::TAB_NOTIFICATIONS) {
@@ -449,40 +449,111 @@ void loop() {
             delay(500);
         }
         
-        // Navigate notifications list
-        static unsigned long lastActionTime = 0;
-        static unsigned long nextActionDelay = 0;
-        static int actionCounter = 0;
-        
-        unsigned long currentTime = millis();
-        
-        // Initialize or check if it's time for next action
-        if (nextActionDelay == 0 || (currentTime - lastActionTime >= nextActionDelay)) {
-            // Navigate notifications list: up and down
-            int navAction = actionCounter % 2;
+        // Nếu confirmation dialog đang hiển thị, tự động điều hướng sang NO và select
+        if (socialScreen->isConfirmationDialogVisible()) {
+            static unsigned long dialogShowTime = 0;
+            static bool navRightDone = false;
+            static bool selectDone = false;
             
-            switch (navAction) {
-                case 0:
-                    Serial.println("Notifications: Auto-nav - Moving down in notifications list");
-                    socialScreen->handleKeyPress("|d");
-                    break;
-                case 1:
-                    Serial.println("Notifications: Auto-nav - Moving up in notifications list");
-                    socialScreen->handleKeyPress("|u");
-                    break;
+            if (dialogShowTime == 0) {
+                dialogShowTime = millis();
+                navRightDone = false;
+                selectDone = false;
+                Serial.println("Notifications: Confirmation dialog detected, will navigate to NO and select");
             }
             
-            lastActionTime = currentTime;
-            actionCounter++;
+            unsigned long currentTime = millis();
+            unsigned long elapsedTime = currentTime - dialogShowTime;
             
-            // Set delay for next action (1-2 seconds)
-            nextActionDelay = 1000 + (millis() % 1000);
+            // Sau 0.5 giây, điều hướng sang NO (right)
+            if (!navRightDone && elapsedTime >= 500) {
+                Serial.println("Notifications: Auto-navigation - Moving to NO (right)");
+                socialScreen->handleKeyPress("|r");  // Move right to NO button
+                navRightDone = true;
+            }
             
-            // Log every 10 actions
-            if (actionCounter % 10 == 0) {
-                Serial.print("Notifications: Auto-navigation - ");
-                Serial.print(actionCounter);
-                Serial.println(" actions performed");
+            // Sau 1 giây, tự động chọn NO
+            if (!selectDone && navRightDone && elapsedTime >= 1000) {
+                Serial.println("Notifications: Auto-selecting NO in confirmation dialog");
+                socialScreen->handleKeyPress("|e");  // Select NO (now selected)
+                selectDone = true;
+                dialogShowTime = 0;  // Reset for next time
+                navRightDone = false;  // Reset flags
+            }
+        } else {
+            // Nếu không có dialog, tìm và chọn thông báo đầu tiên (friend request)
+            static unsigned long lastActionTime = 0;
+            static unsigned long nextActionDelay = 0;
+            static int actionCounter = 0;
+            static bool firstNotificationSelected = false;
+            
+            // Reset flag nếu dialog đã đóng (để có thể tìm thông báo tiếp theo)
+            static bool wasDialogVisible = false;
+            if (wasDialogVisible && !socialScreen->isConfirmationDialogVisible()) {
+                // Dialog vừa đóng, reset flag để tìm thông báo tiếp theo
+                firstNotificationSelected = false;
+                Serial.println("Notifications: Dialog closed, resetting to find next notification");
+                // Đợi một chút trước khi tìm tiếp
+                lastActionTime = millis();
+                nextActionDelay = 1000;
+            }
+            wasDialogVisible = socialScreen->isConfirmationDialogVisible();
+            
+            unsigned long currentTime = millis();
+            
+            // Tìm và chọn thông báo đầu tiên (friend request)
+            if (!firstNotificationSelected) {
+                int firstRequestIndex = socialScreen->getFirstFriendRequestIndex();
+                if (firstRequestIndex >= 0) {
+                    Serial.print("Notifications: Found first friend request notification at index: ");
+                    Serial.println(firstRequestIndex);
+                    
+                    // Chọn notification đầu tiên
+                    socialScreen->selectNotification(firstRequestIndex);
+                    delay(300);  // Đợi một chút để UI update
+                    
+                    // Nhấn Enter để mở confirmation dialog
+                    Serial.println("Notifications: Pressing Enter to open confirmation dialog");
+                    socialScreen->handleKeyPress("|e");
+                    
+                    firstNotificationSelected = true;
+                    lastActionTime = currentTime;
+                    nextActionDelay = 2000;  // Đợi 2 giây trước khi tiếp tục
+                } else {
+                    // Không có friend request, chỉ navigate bình thường
+                    Serial.println("Notifications: No unread friend requests found");
+                    firstNotificationSelected = true;  // Đánh dấu đã check
+                }
+            }
+            
+            // Navigate notifications list (nếu không có friend request hoặc đã xử lý xong)
+            if (firstNotificationSelected && (nextActionDelay == 0 || (currentTime - lastActionTime >= nextActionDelay))) {
+                // Navigate notifications list: up and down
+                int navAction = actionCounter % 2;
+                
+                switch (navAction) {
+                    case 0:
+                        Serial.println("Notifications: Auto-nav - Moving down in notifications list");
+                        socialScreen->handleKeyPress("|d");
+                        break;
+                    case 1:
+                        Serial.println("Notifications: Auto-nav - Moving up in notifications list");
+                        socialScreen->handleKeyPress("|u");
+                        break;
+                }
+                
+                lastActionTime = currentTime;
+                actionCounter++;
+                
+                // Set delay for next action (1-2 seconds)
+                nextActionDelay = 1000 + (millis() % 1000);
+                
+                // Log every 10 actions
+                if (actionCounter % 10 == 0) {
+                    Serial.print("Notifications: Auto-navigation - ");
+                    Serial.print(actionCounter);
+                    Serial.println(" actions performed");
+                }
             }
         }
     }

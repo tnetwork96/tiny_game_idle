@@ -8,6 +8,7 @@
 #include "mini_keyboard.h"
 #include "mini_add_friend_screen.h"
 #include "api_client.h"
+#include "confirmation_dialog.h"
 
 // Social screen with sidebar tabs: Friends, Notifications, Add Friend
 class SocialScreen {
@@ -55,6 +56,20 @@ public:
     
     // Navigate to Notifications tab
     void navigateToNotifications();
+    
+    // Check if confirmation dialog is visible
+    bool isConfirmationDialogVisible() const {
+        return confirmationDialog != nullptr && confirmationDialog->isVisible();
+    }
+    
+    // Get notifications count
+    int getNotificationsCount() const { return notificationsCount; }
+    
+    // Get first friend request notification index (returns -1 if none)
+    int getFirstFriendRequestIndex() const;
+    
+    // Select notification by index (for auto-navigation)
+    void selectNotification(int index);
 
     // Callback for when friend is added successfully
     typedef void (*OnAddFriendSuccessCallback)();
@@ -67,6 +82,7 @@ private:
     Keyboard* keyboard;
     MiniKeyboard* miniKeyboard;
     MiniAddFriendScreen* miniAddFriend;
+    ConfirmationDialog* confirmationDialog;
 
     // Current state
     Tab currentTab;
@@ -121,6 +137,17 @@ private:
     void parseFriendsString(const String& friendsString);
     void clearFriends();
     void clearNotifications();
+    
+    // Confirmation dialog callbacks (static wrappers)
+    static void onConfirmAcceptFriendRequest();
+    static void onCancelAcceptFriendRequest();
+    
+    // Instance callback methods for confirmation dialog
+    void doAcceptFriendRequest();
+    void doCancelAcceptFriendRequest();
+    
+    // Store notification ID for accept action
+    int pendingAcceptNotificationId;
 };
 
 #endif

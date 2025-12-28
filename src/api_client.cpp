@@ -797,9 +797,29 @@ ApiClient::FriendRequestResult ApiClient::acceptFriendRequest(int userId, int no
     result.friendshipId = -1;
     result.status = "";
     
+    // Input validation
+    if (userId <= 0) {
+        Serial.println("API Client: Invalid user_id for accept friend request");
+        result.message = "Invalid user ID";
+        return result;
+    }
+    
+    if (notificationId <= 0) {
+        Serial.println("API Client: Invalid notification_id for accept friend request");
+        result.message = "Invalid notification ID";
+        return result;
+    }
+    
+    if (serverHost.length() == 0) {
+        Serial.println("API Client: Empty server host for accept friend request");
+        result.message = "Server host not configured";
+        return result;
+    }
+    
+    // Check WiFi connection
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("API Client: WiFi not connected!");
-        result.message = "WiFi not connected";
+        result.message = "WiFi not connected. Please check your connection.";
         return result;
     }
     
@@ -808,11 +828,13 @@ ApiClient::FriendRequestResult ApiClient::acceptFriendRequest(int userId, int no
     Serial.print("API Client: Accepting friend request at: ");
     Serial.println(url);
     
+    // Configure HTTP client with retry and timeout settings
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
+    http.setTimeout(10000);  // Increased timeout for better reliability
+    http.setReuse(true);  // Reuse connection if possible
     
-    // Create payload
+    // Create payload with validation
     String payload = "{\"user_id\":";
     payload += String(userId);
     payload += ",\"notification_id\":";
@@ -822,24 +844,96 @@ ApiClient::FriendRequestResult ApiClient::acceptFriendRequest(int userId, int no
     Serial.print("API Client: Payload: ");
     Serial.println(payload);
     
-    int httpCode = http.POST(payload);
-    Serial.print("API Client: HTTP response code: ");
-    Serial.println(httpCode);
+    // Retry logic for network errors
+    int maxRetries = 3;
+    int retryDelay = 500;  // 500ms between retries
+    int httpCode = 0;
+    String response = "";
     
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+        if (attempt > 1) {
+            Serial.print("API Client: Retry attempt ");
+            Serial.print(attempt);
+            Serial.print(" of ");
+            Serial.println(maxRetries);
+            delay(retryDelay * attempt);  // Exponential backoff
+        }
+        
+        httpCode = http.POST(payload);
+        Serial.print("API Client: HTTP response code: ");
+        Serial.println(httpCode);
+        
+        if (httpCode > 0) {
+            response = http.getString();
+            break;  // Success, exit retry loop
+        } else {
+            Serial.print("API Client: Network error on attempt ");
+            Serial.print(attempt);
+            Serial.print(": ");
+            Serial.println(httpCode);
+            
+            if (attempt < maxRetries) {
+                // Continue to retry
+                continue;
+            } else {
+                // All retries failed
+                result.message = "Network error: Unable to connect to server. Please check your connection.";
+                http.end();
+                return result;
+            }
+        }
+    }
+    
+    // Process response
     if (httpCode == HTTP_CODE_OK || httpCode == 200) {
-        String response = http.getString();
         Serial.print("API Client: Response: ");
         Serial.println(response);
         parseFriendRequestResponse(response, result);
-    } else {
-        String error = http.getString();
-        Serial.print("API Client: Accept friend request failed: ");
-        Serial.println(error);
-        result.message = "HTTP error: " + String(httpCode);
-        // Try to parse error message from response
-        if (error.length() > 0) {
-            parseFriendRequestResponse(error, result);
+        
+        if (!result.success && result.message.length() == 0) {
+            result.message = "Failed to accept friend request. Please try again.";
         }
+    } else if (httpCode == HTTP_CODE_BAD_REQUEST || httpCode == 400) {
+        // Bad request - try to parse error message
+        Serial.print("API Client: Bad request (400): ");
+        Serial.println(response);
+        if (response.length() > 0) {
+            parseFriendRequestResponse(response, result);
+        }
+        if (result.message.length() == 0) {
+            result.message = "Invalid request. Please check your input.";
+        }
+    } else if (httpCode == HTTP_CODE_NOT_FOUND || httpCode == 404) {
+        result.message = "Friend request not found. It may have been cancelled or already processed.";
+    } else if (httpCode == HTTP_CODE_CONFLICT || httpCode == 409) {
+        // Conflict - request may already be accepted/rejected
+        if (response.length() > 0) {
+            parseFriendRequestResponse(response, result);
+        }
+        if (result.message.length() == 0) {
+            result.message = "Friend request status has changed. Please refresh and try again.";
+        }
+    } else if (httpCode == HTTP_CODE_INTERNAL_SERVER_ERROR || httpCode == 500) {
+        result.message = "Server error. Please try again later.";
+        Serial.print("API Client: Server error (500): ");
+        Serial.println(response);
+    } else if (httpCode > 0) {
+        // Other HTTP error codes
+        Serial.print("API Client: HTTP error (");
+        Serial.print(httpCode);
+        Serial.print("): ");
+        Serial.println(response);
+        
+        if (response.length() > 0) {
+            parseFriendRequestResponse(response, result);
+        }
+        
+        if (result.message.length() == 0) {
+            result.message = "Server error (HTTP " + String(httpCode) + "). Please try again later.";
+        }
+    } else {
+        // Network error (httpCode <= 0)
+        result.message = "Network error: Unable to connect to server. Please check your connection.";
     }
     
     http.end();
