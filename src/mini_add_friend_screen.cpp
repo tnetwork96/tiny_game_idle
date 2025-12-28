@@ -59,18 +59,19 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
     
     // Draw keyboard at bottom of content area
     if (keyboard != nullptr) {
-        // Calculate keyboard dimensions
-        const uint16_t KEY_WIDTH = 22;
-        const uint16_t KEY_HEIGHT = 22;
-        const uint16_t SPACING = 2;
-        const uint16_t keyboardWidth = 10 * (KEY_WIDTH + SPACING) - SPACING;
-        const uint16_t keyboardHeight = 4 * (KEY_HEIGHT + SPACING) - SPACING;
+        // Calculate keyboard dimensions (matching MiniKeyboard constants)
+        const uint16_t KEY_WIDTH = 24;
+        const uint16_t KEY_HEIGHT = 26;
+        const uint16_t SPACING = 3;
+        const uint16_t keyboardWidth = 10 * KEY_WIDTH + 9 * SPACING;  // 267px
+        const uint16_t keyboardHeight = 4 * KEY_HEIGHT + 3 * SPACING;  // 4 rows including spacebar
         
         // Position keyboard at bottom of screen
         const uint16_t screenHeight = 240;
-        uint16_t keyboardY = screenHeight - keyboardHeight - 10;  // 10px margin from bottom
+        uint16_t keyboardY = screenHeight - keyboardHeight - 4;  // 4px margin from bottom
         
         // Center keyboard in content area (x is content area X, w is content area width)
+        // Content area is 275px wide, keyboard is 267px, leaving 4px padding on each side
         uint16_t keyboardX = x + (w - keyboardWidth) / 2;
         
         keyboard->draw(keyboardX, keyboardY);
