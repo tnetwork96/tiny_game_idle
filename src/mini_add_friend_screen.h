@@ -25,7 +25,7 @@ public:
     // Reset the input state
     void reset();
 
-    // Get cursor position for keyboard navigation
+    // Get cursor position for keyboard navigation (deprecated - use keyboard directly)
     uint16_t getCursorRow() const { return cursorRow; }
     int8_t getCursorCol() const { return cursorCol; }
 

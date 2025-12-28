@@ -47,6 +47,9 @@ public:
     // Reset screen state
     void reset();
 
+    // Navigate to Add Friend tab and focus keyboard
+    void navigateToAddFriend();
+
     // Callback for when friend is added successfully
     typedef void (*OnAddFriendSuccessCallback)();
     void setOnAddFriendSuccessCallback(OnAddFriendSuccessCallback callback) {

@@ -68,10 +68,10 @@ void onLoginSuccess() {
         // Activate social screen
         isSocialScreenActive = true;
         
-        // Draw social screen
-        socialScreen->draw();
+        // Auto-navigate to Add Friend tab and focus keyboard
+        socialScreen->navigateToAddFriend();
         
-        Serial.println("Main: Social Screen activated");
+        Serial.println("Main: Social Screen activated - Auto-navigated to Add Friend tab");
     }
 }
 

@@ -421,11 +421,7 @@ void SocialScreen::drawAddFriendContent() {
     tft->setCursor(inputX, inputY + inputH + 12);
     tft->print("Press Enter to add friend");
     
-    // Draw mini keyboard
-    if (miniKeyboard != nullptr && miniAddFriend != nullptr) {
-        miniKeyboard->draw();
-        miniKeyboard->moveCursorTo(miniAddFriend->getCursorRow(), miniAddFriend->getCursorCol());
-    }
+    // Keyboard is drawn by MiniAddFriendScreen::draw()
 }
 
 void SocialScreen::drawContentArea() {
@@ -757,13 +753,9 @@ void SocialScreen::switchTab(Tab newTab) {
         // Auto-focus input when switching to Add Friend tab
         if (newTab == TAB_ADD_FRIEND) {
             focusMode = FOCUS_CONTENT;
-            // Reset miniAddFriend to clear any previous input
+            // Reset miniAddFriend to clear any previous input (also resets keyboard)
             if (miniAddFriend != nullptr) {
                 miniAddFriend->reset();
-            }
-            // Reset mini keyboard cursor position
-            if (miniKeyboard != nullptr) {
-                miniKeyboard->resetCursor();
             }
         } else {
             // Reset focus to sidebar when switching to other tabs
@@ -776,6 +768,19 @@ void SocialScreen::switchTab(Tab newTab) {
         notificationsScrollOffset = 0;
         draw();
     }
+}
+
+void SocialScreen::navigateToAddFriend() {
+    // Switch to Add Friend tab
+    switchTab(TAB_ADD_FRIEND);
+    // Ensure focus is on content (keyboard)
+    focusMode = FOCUS_CONTENT;
+    // Reset keyboard and input
+    if (miniAddFriend != nullptr) {
+        miniAddFriend->reset();
+    }
+    // Draw the screen
+    draw();
 }
 
 void SocialScreen::handleKeyPress(const String& key) {

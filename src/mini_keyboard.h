@@ -6,34 +6,27 @@
 #include <Adafruit_ST7789.h>
 
 // Mini Keyboard - Simplified keyboard for Add Friend screen
-// Compact layout with smaller keys, alphabet-only mode
+// Cyberpunk theme matching main Keyboard class
 class MiniKeyboard {
 public:
     MiniKeyboard(Adafruit_ST7789* tft);
     ~MiniKeyboard() = default;
 
-    // Draw the keyboard
-    void draw();
+    // Draw the keyboard at specified position (top-left origin)
+    void draw(uint16_t x, uint16_t y);
 
-    // Move cursor by command (up, down, left, right, select)
-    void moveCursorByCommand(String command);
+    // Move cursor by direction ("up", "down", "left", "right", "select")
+    void moveCursor(String direction);
 
-    // Get the current key at cursor position
-    String getCurrentKey() const;
+    // Get the current character at cursor position
+    String getCurrentChar();
 
-    // Reset cursor to initial position
-    void resetCursor();
+    // Reset cursor and caps lock
+    void reset();
 
-    // Set visibility (for future use)
-    void setVisible(bool visible) { this->visible = visible; }
-    bool isVisible() const { return visible; }
-
-    // Get cursor position
+    // Get cursor position (for compatibility)
     uint16_t getCursorRow() const { return cursorRow; }
     int8_t getCursorCol() const { return cursorCol; }
-    
-    // Move cursor to specific position
-    void moveCursorTo(uint16_t row, int8_t col);
 
 private:
     Adafruit_ST7789* tft;
@@ -42,21 +35,21 @@ private:
     uint16_t cursorRow;
     int8_t cursorCol;
 
-    // Visibility
-    bool visible;
+    // Caps Lock state
+    bool capsLock;
 
-    // Key dimensions (smaller than main keyboard)
-    static const uint16_t KEY_WIDTH = 18;
-    static const uint16_t KEY_HEIGHT = 20;
+    // Key dimensions (fits in 275px content width)
+    static const uint16_t KEY_WIDTH = 22;
+    static const uint16_t KEY_HEIGHT = 22;
     static const uint16_t SPACING = 2;
 
-    // QWERTY layout (alphabet only, lowercase)
-    static const String qwertyKeys[3][10];
+    // QWERTY layout (4 rows: 3 QWERTY + 1 Spacebar)
+    static const String qwertyKeys[4][10];
 
     // Helper methods
-    void moveCursor(int8_t deltaRow, int8_t deltaCol);
+    void moveCursorInternal(int8_t deltaRow, int8_t deltaCol);
     void drawKey(uint16_t x, uint16_t y, const String& key, bool isSelected);
+    String getKeyDisplayText(const String& key) const;
 };
 
 #endif
-

@@ -56,35 +56,79 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
             tft->print("_");
         }
     }
+    
+    // Draw keyboard at bottom of content area
+    if (keyboard != nullptr) {
+        // Calculate keyboard dimensions
+        const uint16_t KEY_WIDTH = 22;
+        const uint16_t KEY_HEIGHT = 22;
+        const uint16_t SPACING = 2;
+        const uint16_t keyboardWidth = 10 * (KEY_WIDTH + SPACING) - SPACING;
+        const uint16_t keyboardHeight = 4 * (KEY_HEIGHT + SPACING) - SPACING;
+        
+        // Position keyboard at bottom of screen
+        const uint16_t screenHeight = 240;
+        uint16_t keyboardY = screenHeight - keyboardHeight - 10;  // 10px margin from bottom
+        
+        // Center keyboard in content area (x is content area X, w is content area width)
+        uint16_t keyboardX = x + (w - keyboardWidth) / 2;
+        
+        keyboard->draw(keyboardX, keyboardY);
+    }
 }
 
 void MiniAddFriendScreen::handleKeyPress(const String& key) {
-    // Track cursor position
+    if (keyboard == nullptr) return;
+    
+    // Handle navigation keys - delegate to keyboard
+    if (key == "|u") {
+        keyboard->moveCursor("up");
+        return;
+    } else if (key == "|d") {
+        keyboard->moveCursor("down");
+        return;
+    } else if (key == "|l") {
+        keyboard->moveCursor("left");
+        return;
+    } else if (key == "|r") {
+        keyboard->moveCursor("right");
+        return;
+    } else if (key == "|e") {
+        // Enter/Select key
+        keyboard->moveCursor("select");
+        String currentChar = keyboard->getCurrentChar();
+        
+        // Handle the selected character
+        if (currentChar == "|e") {
+            // Enter key - handled by parent (SocialScreen)
+            return;
+        } else if (currentChar == "<") {
+            // Backspace - remove last character
+            if (enteredName.length() > 0) {
+                enteredName.remove(enteredName.length() - 1);
+            }
+            return;
+        } else if (currentChar == "shift") {
+            // Shift key - caps lock toggled in keyboard
+            return;
+        } else if (currentChar == " ") {
+            // Space
+            if (enteredName.length() < MAX_NAME_LENGTH) {
+                enteredName += " ";
+            }
+            return;
+        } else if (currentChar.length() == 1) {
+            // Regular character
+            if (enteredName.length() < MAX_NAME_LENGTH) {
+                enteredName += currentChar;
+            }
+            return;
+        }
+    }
+    
+    // Track cursor position for display
     cursorRow = keyboard->getCursorRow();
     cursorCol = keyboard->getCursorCol();
-    
-    if (key == "|e") {
-        // Enter key - handled by parent (SocialScreen)
-        return;
-    }
-    
-    if (key == "<") {
-        // Backspace - remove last character
-        if (enteredName.length() > 0) {
-            enteredName.remove(enteredName.length() - 1);
-        }
-        return;
-    }
-    
-    // Ignore mode switch keys (not needed for MiniKeyboard)
-    if (key == "123" || key == "ABC" || key == "shift") {
-        return;
-    }
-    
-    // Add character if under limit
-    if (key.length() == 1 && enteredName.length() < MAX_NAME_LENGTH) {
-        enteredName += key;
-    }
 }
 
 void MiniAddFriendScreen::reset() {
@@ -92,7 +136,7 @@ void MiniAddFriendScreen::reset() {
     cursorRow = 0;
     cursorCol = 0;
     if (keyboard != nullptr) {
-        keyboard->resetCursor();
+        keyboard->reset();
     }
 }
 
