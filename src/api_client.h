@@ -47,6 +47,8 @@ public:
     static FriendsListResult getFriends(int userId, const String& serverHost, uint16_t port);
     static String getFriendsList(int userId, const String& serverHost, uint16_t port);  // Returns simple string format: "user1,0|user2,1|..."
     static NotificationsResult getNotifications(int userId, const String& serverHost, uint16_t port);
+    static bool sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port);
+    static bool acceptFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
     static void printResponse(const String& response);
     
 private:

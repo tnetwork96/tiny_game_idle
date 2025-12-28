@@ -564,3 +564,113 @@ ApiClient::NotificationsResult ApiClient::getNotifications(int userId, const Str
     http.end();
     return result;
 }
+
+bool ApiClient::sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        return false;
+    }
+    
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/friend-requests/send";
+    Serial.print("API Client: Sending friend request to: ");
+    Serial.println(url);
+    
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5000);
+    
+    // Create payload
+    String payload = "{\"from_user_id\":";
+    payload += String(fromUserId);
+    payload += ",\"to_username\":\"";
+    payload += toUsername;
+    payload += "\"}";
+    
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+    
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+    
+    bool success = false;
+    if (httpCode == HTTP_CODE_OK || httpCode == 200) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        
+        // Parse response to check success
+        int successIdx = response.indexOf("\"success\":");
+        if (successIdx >= 0) {
+            int valueStart = response.indexOf(":", successIdx) + 1;
+            int valueEnd = response.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+            String successStr = response.substring(valueStart, valueEnd);
+            successStr.trim();
+            success = (successStr == "true");
+        }
+    } else {
+        String error = http.getString();
+        Serial.print("API Client: Send friend request failed: ");
+        Serial.println(error);
+    }
+    
+    http.end();
+    return success;
+}
+
+bool ApiClient::acceptFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port) {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        return false;
+    }
+    
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/friend-requests/accept";
+    Serial.print("API Client: Accepting friend request at: ");
+    Serial.println(url);
+    
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(5000);
+    
+    // Create payload
+    String payload = "{\"user_id\":";
+    payload += String(userId);
+    payload += ",\"notification_id\":";
+    payload += String(notificationId);
+    payload += "}";
+    
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+    
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+    
+    bool success = false;
+    if (httpCode == HTTP_CODE_OK || httpCode == 200) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        
+        // Parse response to check success
+        int successIdx = response.indexOf("\"success\":");
+        if (successIdx >= 0) {
+            int valueStart = response.indexOf(":", successIdx) + 1;
+            int valueEnd = response.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+            String successStr = response.substring(valueStart, valueEnd);
+            successStr.trim();
+            success = (successStr == "true");
+        }
+    } else {
+        String error = http.getString();
+        Serial.print("API Client: Accept friend request failed: ");
+        Serial.println(error);
+    }
+    
+    http.end();
+    return success;
+}

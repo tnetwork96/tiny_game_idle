@@ -5,7 +5,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include "keyboard.h"
-#include "add_friend_screen.h"
+#include "mini_keyboard.h"
+#include "mini_add_friend_screen.h"
 #include "api_client.h"
 
 // Social screen with sidebar tabs: Friends, Notifications, Add Friend
@@ -55,7 +56,8 @@ public:
 private:
     Adafruit_ST7789* tft;
     Keyboard* keyboard;
-    AddFriendScreen* addFriendScreen;
+    MiniKeyboard* miniKeyboard;
+    MiniAddFriendScreen* miniAddFriend;
 
     // Current state
     Tab currentTab;

@@ -46,7 +46,8 @@ const unsigned char PROGMEM iconPlus[] = {
 SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
-    this->addFriendScreen = new AddFriendScreen(tft, keyboard);
+    this->miniKeyboard = new MiniKeyboard(tft);
+    this->miniAddFriend = new MiniAddFriendScreen(tft, miniKeyboard);
     this->currentTab = TAB_FRIENDS;
     this->focusMode = FOCUS_SIDEBAR;
     this->userId = -1;
@@ -69,8 +70,8 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
 SocialScreen::~SocialScreen() {
     clearFriends();
     clearNotifications();
-    if (addFriendScreen != nullptr) {
-        delete addFriendScreen;
+    if (miniAddFriend != nullptr) {
+        delete miniAddFriend;
     }
 }
 
@@ -328,7 +329,8 @@ void SocialScreen::drawNotificationsList() {
             }
             
             // Draw notification type indicator (icon on left)
-            uint16_t typeColor = SOCIAL_ACCENT;
+            // Use different color for friend requests to indicate they are actionable
+            uint16_t typeColor = (notifications[i].type == "friend_request") ? SOCIAL_SUCCESS : SOCIAL_ACCENT;
             uint16_t iconX = cardX + 12;
             uint16_t iconY = cardY + cardHeight / 2;
             tft->fillCircle(iconX, iconY, 5, typeColor);
@@ -408,47 +410,9 @@ void SocialScreen::drawAddFriendContent() {
     uint16_t inputX = CONTENT_X + (CONTENT_WIDTH - inputW) / 2;
     uint16_t inputY = (SCREEN_HEIGHT - inputH) / 2;
     
-    String friendName = addFriendScreen->getFriendName();
-    
-    // Draw terminal-style input box
-    // Background (card style)
-    tft->fillRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_HEADER);
-    
-    // Border - bright cyan when content focused
-    if (focusMode == FOCUS_CONTENT) {
-        tft->drawRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_ACCENT);
-    } else {
-        tft->drawRoundRect(inputX, inputY, inputW, inputH, 4, SOCIAL_MUTED);
-    }
-    
-    // Draw terminal prompt "> "
-    tft->setTextSize(2);
-    tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
-    tft->setCursor(inputX + 8, inputY + (inputH / 2) - 6);
-    tft->print("> ");
-    
-    // Draw input text or placeholder
-    uint16_t textX = inputX + 24;  // After "> "
-    tft->setCursor(textX, inputY + (inputH / 2) - 6);
-    
-    if (friendName.length() == 0) {
-        tft->setTextColor(SOCIAL_MUTED, SOCIAL_HEADER);
-        tft->print("Enter Username");
-    } else {
-        tft->setTextColor(SOCIAL_TEXT, SOCIAL_HEADER);
-        // Truncate if too long
-        String displayName = friendName;
-        int maxChars = (inputW - 24 - 16) / 12;  // Approximate chars for text size 2
-        if (displayName.length() > maxChars) {
-            displayName = displayName.substring(0, maxChars - 3) + "...";
-        }
-        tft->print(displayName);
-        
-        // Draw blinking cursor (simple underscore)
-        if ((millis() / 500) % 2 == 0) {  // Blink every 500ms
-            tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
-            tft->print("_");
-        }
+    // Delegate drawing to MiniAddFriendScreen
+    if (miniAddFriend != nullptr) {
+        miniAddFriend->draw(inputX, inputY, inputW, inputH, focusMode == FOCUS_CONTENT);
     }
     
     // Instructions (centered below input)
@@ -456,6 +420,12 @@ void SocialScreen::drawAddFriendContent() {
     tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
     tft->setCursor(inputX, inputY + inputH + 12);
     tft->print("Press Enter to add friend");
+    
+    // Draw mini keyboard
+    if (miniKeyboard != nullptr && miniAddFriend != nullptr) {
+        miniKeyboard->draw();
+        miniKeyboard->moveCursorTo(miniAddFriend->getCursorRow(), miniAddFriend->getCursorCol());
+    }
 }
 
 void SocialScreen::drawContentArea() {
@@ -584,12 +554,13 @@ void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
         tft->drawRoundRect(cardX, cardY, cardW, cardHeight, cardR, SOCIAL_MUTED);
     }
     
-    // Draw notification type indicator
-    uint16_t typeColor = SOCIAL_ACCENT;
-    uint16_t iconX = cardX + 12;
-    uint16_t iconY = cardY + cardHeight / 2;
-    tft->fillCircle(iconX, iconY, 5, typeColor);
-    tft->drawCircle(iconX, iconY, 5, typeColor);
+            // Draw notification type indicator
+            // Use different color for friend requests to indicate they are actionable
+            uint16_t typeColor = (notifications[index].type == "friend_request") ? SOCIAL_SUCCESS : SOCIAL_ACCENT;
+            uint16_t iconX = cardX + 12;
+            uint16_t iconY = cardY + cardHeight / 2;
+            tft->fillCircle(iconX, iconY, 5, typeColor);
+            tft->drawCircle(iconX, iconY, 5, typeColor);
     
     // Draw message
     tft->setTextSize(1);
@@ -633,25 +604,36 @@ void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
 
 void SocialScreen::handleContentNavigation(const String& key) {
     if (currentTab == TAB_ADD_FRIEND) {
-        // Forward to AddFriendScreen
-        addFriendScreen->handleKeyPress(key);
-        
-        // Check if friend was confirmed
-        if (addFriendScreen->isConfirmed()) {
-            String friendName = addFriendScreen->getFriendName();
-            Serial.print("Social Screen: Friend name confirmed: ");
-            Serial.println(friendName);
+        // Forward to MiniAddFriendScreen
+        if (miniAddFriend != nullptr) {
+            miniAddFriend->handleKeyPress(key);
             
-            // TODO: Call API to add friend here
-            // For now, just reset and call callback
-            addFriendScreen->reset();
-            
-            // Refresh friends list
-            loadFriends();
-            
-            // Call callback if set
-            if (onAddFriendSuccessCallback != nullptr) {
-                onAddFriendSuccessCallback();
+            // Handle Enter key to trigger Add Friend API call
+            if (key == "|e") {
+                String friendName = miniAddFriend->getEnteredName();
+                if (friendName.length() > 0) {
+                    Serial.print("Social Screen: Adding friend: ");
+                    Serial.println(friendName);
+                    
+                    // Call API to add friend (send friend request)
+                    if (userId > 0 && serverHost.length() > 0) {
+                        bool success = ApiClient::sendFriendRequest(userId, friendName, serverHost, serverPort);
+                        if (success) {
+                            Serial.println("Social Screen: Friend request sent successfully");
+                            miniAddFriend->reset();
+                            
+                            // Refresh friends list
+                            loadFriends();
+                            
+                            // Call callback if set
+                            if (onAddFriendSuccessCallback != nullptr) {
+                                onAddFriendSuccessCallback();
+                            }
+                        } else {
+                            Serial.println("Social Screen: Failed to send friend request");
+                        }
+                    }
+                }
             }
         }
         
@@ -698,6 +680,35 @@ void SocialScreen::handleContentNavigation(const String& key) {
             }
         }
     } else if (currentTab == TAB_NOTIFICATIONS) {
+        // Handle Enter key for accepting friend requests
+        if (key == "|e") {
+            if (selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+                ApiClient::NotificationEntry* notification = &notifications[selectedNotificationIndex];
+                
+                // Check if this is a friend request notification
+                if (notification->type == "friend_request") {
+                    Serial.print("Social Screen: Accepting friend request from notification ID: ");
+                    Serial.println(notification->id);
+                    
+                    if (userId > 0 && serverHost.length() > 0) {
+                        bool success = ApiClient::acceptFriendRequest(userId, notification->id, serverHost, serverPort);
+                        if (success) {
+                            Serial.println("Social Screen: Friend request accepted successfully");
+                            
+                            // Refresh friends list
+                            loadFriends();
+                            
+                            // Reload notifications to get updated list from server
+                            loadNotifications();
+                        } else {
+                            Serial.println("Social Screen: Failed to accept friend request");
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        
         // Navigate notifications list with partial redraw
         int oldIndex = selectedNotificationIndex;
         if (key == "|u" && selectedNotificationIndex > 0) {
@@ -743,8 +754,21 @@ void SocialScreen::handleContentNavigation(const String& key) {
 void SocialScreen::switchTab(Tab newTab) {
     if (currentTab != newTab) {
         currentTab = newTab;
-        // Reset focus to sidebar when switching tabs
-        focusMode = FOCUS_SIDEBAR;
+        // Auto-focus input when switching to Add Friend tab
+        if (newTab == TAB_ADD_FRIEND) {
+            focusMode = FOCUS_CONTENT;
+            // Reset miniAddFriend to clear any previous input
+            if (miniAddFriend != nullptr) {
+                miniAddFriend->reset();
+            }
+            // Reset mini keyboard cursor position
+            if (miniKeyboard != nullptr) {
+                miniKeyboard->resetCursor();
+            }
+        } else {
+            // Reset focus to sidebar when switching to other tabs
+            focusMode = FOCUS_SIDEBAR;
+        }
         // Reset selection indices when switching tabs
         selectedFriendIndex = 0;
         friendsScrollOffset = 0;
@@ -755,7 +779,7 @@ void SocialScreen::switchTab(Tab newTab) {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
-    // If on Add Friend tab and typing, forward to AddFriendScreen
+    // If on Add Friend tab and typing, forward to MiniAddFriendScreen
     if (currentTab == TAB_ADD_FRIEND && 
         (key.length() == 1 || key == "|e" || key == "<" || key == "123" || key == "ABC")) {
         // When typing in Add Friend, focus should be on content
@@ -965,8 +989,8 @@ void SocialScreen::reset() {
     friendsScrollOffset = 0;
     selectedNotificationIndex = 0;
     notificationsScrollOffset = 0;
-    if (addFriendScreen != nullptr) {
-        addFriendScreen->reset();
+    if (miniAddFriend != nullptr) {
+        miniAddFriend->reset();
     }
 }
 
