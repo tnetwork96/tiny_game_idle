@@ -74,7 +74,7 @@ private:
 
     // Friends data
     struct FriendItem {
-        String username;
+        String nickname;  // Display name (nickname or username fallback)
         bool online;
     };
     FriendItem* friends;

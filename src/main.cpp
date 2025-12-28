@@ -218,7 +218,7 @@ void autoLogin() {
         delay(1000);
         
         // Type username (không tồn tại để test flow tạo account mới)
-        keyboard->typeString("player2");
+        keyboard->typeString("player22s");
         
         Serial.println("Auto-login: Username typed, waiting before pressing Enter...");
         delay(1000);
@@ -473,11 +473,9 @@ void loop() {
                 // Wait for typing to complete
                 delay(2000);
                 
-                // Press Enter key to submit (giống Keyboard gốc)
+                // Press physical Enter key to submit (nhập xong Enter là send request)
                 Serial.println("Add Friend: Auto-nav - Pressing Enter key to submit");
-                if (miniKeyboard != nullptr) {
-                    miniKeyboard->pressEnter();
-                }
+                socialScreen->handleKeyPress("|e");
                 
                 hasTypedFriendName = true;
                 nextActionDelay = 5000;  // Wait 5 seconds after submit

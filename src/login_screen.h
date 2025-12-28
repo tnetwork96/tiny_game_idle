@@ -94,6 +94,7 @@ private:
 
     LoginState state;
     String username;
+    String nickname;  // Display name for welcome screen
     bool showUsernameEmpty;
     uint16_t usernameCursorRow;
     int8_t usernameCursorCol;

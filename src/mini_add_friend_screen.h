@@ -43,7 +43,7 @@ private:
     MiniKeyboard* keyboard;
 
     String enteredName;
-    static const int MAX_NAME_LENGTH = 18;
+    static const int MAX_NAME_LENGTH = 255;  // Match server VARCHAR(255) limit
     
     // Cursor position for keyboard navigation
     uint16_t cursorRow;

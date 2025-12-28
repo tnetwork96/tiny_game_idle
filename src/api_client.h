@@ -12,11 +12,12 @@ public:
         bool accountExists;
         String message;
         int user_id;
-        String username;
+        String username;  // Keep for authentication
+        String nickname;  // Display name for UI
     };
     
     struct FriendEntry {
-        String username;
+        String nickname;  // Display name (nickname or username fallback)
         bool online;
     };
     
@@ -53,9 +54,9 @@ public:
     static LoginResult checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port);
     static bool createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port);
     static FriendsListResult getFriends(int userId, const String& serverHost, uint16_t port);
-    static String getFriendsList(int userId, const String& serverHost, uint16_t port);  // Returns simple string format: "user1,0|user2,1|..."
+    static String getFriendsList(int userId, const String& serverHost, uint16_t port);  // Returns simple string format: "nickname1,0|nickname2,1|..."
     static NotificationsResult getNotifications(int userId, const String& serverHost, uint16_t port);
-    static FriendRequestResult sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port);
+    static FriendRequestResult sendFriendRequest(int fromUserId, const String& toNickname, const String& serverHost, uint16_t port);
     static FriendRequestResult acceptFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
     static FriendRequestResult rejectFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
     static FriendRequestResult cancelFriendRequest(int fromUserId, int toUserId, const String& serverHost, uint16_t port);

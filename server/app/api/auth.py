@@ -18,6 +18,7 @@ class LoginResponse(BaseModel):
     message: str
     user_id: Optional[int] = None
     username: Optional[str] = None
+    nickname: Optional[str] = None  # Display name for UI
     account_exists: Optional[bool] = None  # True if account exists (even if PIN wrong), False if not found
 
 class RegisterRequest(BaseModel):
@@ -32,7 +33,7 @@ class RegisterResponse(BaseModel):
     username: Optional[str] = None
 
 class FriendResponse(BaseModel):
-    username: str
+    nickname: str  # Display name (nickname or username fallback)
     online: bool = False  # Default to offline, can be updated later
 
 class FriendsListResponse(BaseModel):
@@ -54,7 +55,7 @@ class NotificationsResponse(BaseModel):
 
 class SendFriendRequestRequest(BaseModel):
     from_user_id: int
-    to_username: str  # Username of the user to send request to
+    to_nickname: str  # Nickname of the user to send request to
 
 class SendFriendRequestResponse(BaseModel):
     success: bool
@@ -85,13 +86,14 @@ async def login(request: LoginRequest):
         pin_hash = hashlib.sha256(request.pin.encode()).hexdigest()
         
         # Query database for username (all credentials come from database)
-        cursor.execute('SELECT id, username, pin FROM users WHERE username = %s', (request.username,))
+        cursor.execute('SELECT id, username, pin, nickname FROM users WHERE username = %s', (request.username,))
         user_row = cursor.fetchone()
         
         if user_row:
             # Username exists in database, check PIN hash
             user_id = user_row['id']
             username = user_row['username']
+            nickname = user_row.get('nickname')  # Get nickname, may be None
             stored_pin_hash = user_row['pin']
             
             if stored_pin_hash == pin_hash:
@@ -102,6 +104,7 @@ async def login(request: LoginRequest):
                     message=f"Login successful for {username}",
                     user_id=user_id,
                     username=username,
+                    nickname=nickname,  # Return nickname for display
                     account_exists=True
                 )
             else:
@@ -203,10 +206,11 @@ async def register(request: RegisterRequest):
 async def get_friends_list(user_id: int):
     """
     Get list of friends as simple string format for ESP32
-    Format: "username1,online1|username2,online2|..."
-    Example: "user123,0|admin,0|test,1|"
+    Format: "nickname1,online1|nickname2,online2|..."
+    Example: "User123,0|Admin,0|TestUser,1|"
     online: 0 = offline, 1 = online
     Note: friends table only contains accepted friendships (no status column)
+    Uses nickname for display, falls back to username if nickname is NULL
     """
     conn = None
     try:
@@ -214,19 +218,20 @@ async def get_friends_list(user_id: int):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         # Get all friends for this user (all records in friends table are accepted)
+        # Use COALESCE to fallback to username if nickname is NULL
         cursor.execute('''
-            SELECT u.username 
+            SELECT COALESCE(u.nickname, u.username) as display_name
             FROM friends f
             JOIN users u ON f.friend_id = u.id
             WHERE f.user_id = %s
-            ORDER BY u.username
+            ORDER BY COALESCE(u.nickname, u.username)
         ''', (user_id,))
         
         friends_list = []
         for row in cursor.fetchall():
-            username = row['username']
+            display_name = row['display_name']
             online = "0"  # Default to offline (0), can be updated later with WebSocket status
-            friends_list.append(f"{username},{online}")
+            friends_list.append(f"{display_name},{online}")
         
         # Join with | separator
         result_string = "|".join(friends_list)
@@ -250,8 +255,9 @@ async def get_friends_list(user_id: int):
 async def get_pending_requests(user_id: int):
     """
     Get pending friend requests sent TO this user
-    Format: "username1|username2|..."
-    Example: "user123|admin|test|"
+    Format: "nickname1|nickname2|..."
+    Example: "User123|Admin|TestUser|"
+    Uses nickname for display, falls back to username if nickname is NULL
     """
     conn = None
     try:
@@ -259,8 +265,9 @@ async def get_pending_requests(user_id: int):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         # Get pending requests sent TO this user
+        # Use COALESCE to fallback to username if nickname is NULL
         cursor.execute('''
-            SELECT u.username 
+            SELECT COALESCE(u.nickname, u.username) as display_name
             FROM friend_requests fr
             JOIN users u ON fr.from_user_id = u.id
             WHERE fr.to_user_id = %s AND fr.status = 'pending'
@@ -269,8 +276,8 @@ async def get_pending_requests(user_id: int):
         
         requests_list = []
         for row in cursor.fetchall():
-            username = row['username']
-            requests_list.append(username)
+            display_name = row['display_name']
+            requests_list.append(display_name)
         
         # Join with | separator
         result_string = "|".join(requests_list)
@@ -294,8 +301,9 @@ async def get_pending_requests(user_id: int):
 async def get_sent_requests(user_id: int):
     """
     Get friend requests sent BY this user (pending status)
-    Format: "username1|username2|..."
-    Example: "user123|admin|test|"
+    Format: "nickname1|nickname2|..."
+    Example: "User123|Admin|TestUser|"
+    Uses nickname for display, falls back to username if nickname is NULL
     """
     conn = None
     try:
@@ -303,8 +311,9 @@ async def get_sent_requests(user_id: int):
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
         # Get pending requests sent BY this user
+        # Use COALESCE to fallback to username if nickname is NULL
         cursor.execute('''
-            SELECT u.username 
+            SELECT COALESCE(u.nickname, u.username) as display_name
             FROM friend_requests fr
             JOIN users u ON fr.to_user_id = u.id
             WHERE fr.from_user_id = %s AND fr.status = 'pending'
@@ -313,8 +322,8 @@ async def get_sent_requests(user_id: int):
         
         requests_list = []
         for row in cursor.fetchall():
-            username = row['username']
-            requests_list.append(username)
+            display_name = row['display_name']
+            requests_list.append(display_name)
         
         # Join with | separator
         result_string = "|".join(requests_list)
@@ -339,23 +348,70 @@ async def send_friend_request(request: SendFriendRequestRequest):
     """
     Send a friend request to another user
     Creates a friend request and automatically creates a notification
+    
+    Comprehensive validation and error handling:
+    - Input validation (trim, empty check, length check)
+    - Case-insensitive lookup
+    - Self-request prevention
+    - Already friends check
+    - Duplicate request prevention (pending, accepted, rejected)
+    - User existence validation
+    - Transaction safety
     """
     conn = None
     try:
+        # Input validation: trim whitespace
+        to_nickname = request.to_nickname.strip() if request.to_nickname else ""
+        
+        # Validate input
+        if not to_nickname:
+            return SendFriendRequestResponse(
+                success=False,
+                message="Nickname cannot be empty"
+            )
+        
+        if len(to_nickname) > 255:  # Match database VARCHAR(255) limit
+            return SendFriendRequestResponse(
+                success=False,
+                message="Nickname is too long (max 255 characters)"
+            )
+        
+        # Validate from_user_id
+        if request.from_user_id <= 0:
+            return SendFriendRequestResponse(
+                success=False,
+                message="Invalid user ID"
+            )
+        
         conn = get_db_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get to_user_id from username
-        cursor.execute('SELECT id FROM users WHERE username = %s', (request.to_username,))
+        # Verify from_user_id exists
+        cursor.execute('SELECT id FROM users WHERE id = %s', (request.from_user_id,))
+        from_user = cursor.fetchone()
+        if not from_user:
+            return SendFriendRequestResponse(
+                success=False,
+                message="Sender user not found"
+            )
+        
+        # Get to_user_id from nickname (case-insensitive lookup with fallback to username)
+        # Use LOWER() for case-insensitive comparison
+        cursor.execute('''
+            SELECT id, COALESCE(nickname, username) as display_name
+            FROM users 
+            WHERE LOWER(COALESCE(nickname, username)) = LOWER(%s)
+        ''', (to_nickname,))
         to_user = cursor.fetchone()
         
         if not to_user:
             return SendFriendRequestResponse(
                 success=False,
-                message=f"User '{request.to_username}' not found"
+                message=f"User '{to_nickname}' not found"
             )
         
         to_user_id = to_user['id']
+        display_name = to_user['display_name']
         
         # Check if trying to send request to self
         if request.from_user_id == to_user_id:
@@ -364,7 +420,7 @@ async def send_friend_request(request: SendFriendRequestRequest):
                 message="Cannot send friend request to yourself"
             )
         
-        # Check if they're already friends
+        # Check if they're already friends (bidirectional check)
         cursor.execute('''
             SELECT id FROM friends 
             WHERE (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
@@ -373,53 +429,113 @@ async def send_friend_request(request: SendFriendRequestRequest):
         if cursor.fetchone():
             return SendFriendRequestResponse(
                 success=False,
-                message=f"You are already friends with '{request.to_username}'"
+                message=f"You are already friends with '{display_name}'"
             )
         
-        # Check if there's already a pending request (in either direction)
+        # Check for existing friend requests (all statuses, both directions)
         cursor.execute('''
-            SELECT id, status, from_user_id FROM friend_requests 
+            SELECT id, status, from_user_id, created_at FROM friend_requests 
             WHERE (from_user_id = %s AND to_user_id = %s) 
                OR (from_user_id = %s AND to_user_id = %s)
+            ORDER BY created_at DESC
+            LIMIT 1
         ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
         
         existing_request = cursor.fetchone()
         if existing_request:
             existing_status = existing_request['status']
             existing_from_id = existing_request['from_user_id']
+            
             if existing_status == 'pending':
                 if existing_from_id == request.from_user_id:
                     return SendFriendRequestResponse(
                         success=False,
-                        message=f"Friend request to '{request.to_username}' is already pending"
+                        message=f"Friend request to '{display_name}' is already pending. Please wait for a response."
                     )
                 else:
                     return SendFriendRequestResponse(
                         success=False,
-                        message=f"'{request.to_username}' has already sent you a friend request"
+                        message=f"'{display_name}' has already sent you a friend request. Check your notifications to accept it."
                     )
+            elif existing_status == 'accepted':
+                # This shouldn't happen if friends check above works, but handle it anyway
+                return SendFriendRequestResponse(
+                    success=False,
+                    message=f"You are already friends with '{display_name}'"
+                )
+            elif existing_status == 'rejected':
+                # Allow resending after rejection (user might have changed their mind)
+                # But check if it was recently rejected (e.g., within last hour) to prevent spam
+                # For now, allow resending immediately
+                pass  # Continue to create new request
         
-        # Create friend request
-        cursor.execute('''
-            INSERT INTO friend_requests (from_user_id, to_user_id, status)
-            VALUES (%s, %s, 'pending')
-            RETURNING id
-        ''', (request.from_user_id, to_user_id))
-        
-        request_id = cursor.fetchone()['id']
-        conn.commit()
-        
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request created: user_id {request.from_user_id} -> {request.to_username} (id: {request_id})")
-        
-        # Create notification for the recipient
-        create_friend_request_notification(request.from_user_id, to_user_id, request_id)
-        
-        return SendFriendRequestResponse(
-            success=True,
-            message=f"Friend request sent to '{request.to_username}'",
-            request_id=request_id,
-            status="pending"
-        )
+        # Use transaction to ensure atomicity
+        try:
+            # Create friend request (with UNIQUE constraint protection)
+            cursor.execute('''
+                INSERT INTO friend_requests (from_user_id, to_user_id, status)
+                VALUES (%s, %s, 'pending')
+                RETURNING id
+            ''', (request.from_user_id, to_user_id))
+            
+            request_row = cursor.fetchone()
+            if not request_row:
+                raise Exception("Failed to create friend request")
+            
+            request_id = request_row['id']
+            
+            # Create notification for the recipient (may fail, but don't rollback request)
+            try:
+                create_friend_request_notification(request.from_user_id, to_user_id, request_id)
+            except Exception as notif_error:
+                # Log but don't fail the request
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create notification for friend request {request_id}: {str(notif_error)}")
+            
+            conn.commit()
+            
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request created: user_id {request.from_user_id} -> {display_name} (id: {request_id})")
+            
+            return SendFriendRequestResponse(
+                success=True,
+                message=f"Friend request sent to '{display_name}'",
+                request_id=request_id,
+                status="pending"
+            )
+            
+        except psycopg2.IntegrityError as integrity_err:
+            # Handle UNIQUE constraint violation (race condition)
+            conn.rollback()
+            error_msg = str(integrity_err)
+            if "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
+                # Check what the actual state is
+                cursor.execute('''
+                    SELECT status, from_user_id FROM friend_requests 
+                    WHERE (from_user_id = %s AND to_user_id = %s) 
+                       OR (from_user_id = %s AND to_user_id = %s)
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
+                
+                duplicate = cursor.fetchone()
+                if duplicate:
+                    if duplicate['status'] == 'pending':
+                        if duplicate['from_user_id'] == request.from_user_id:
+                            return SendFriendRequestResponse(
+                                success=False,
+                                message=f"Friend request to '{display_name}' is already pending"
+                            )
+                        else:
+                            return SendFriendRequestResponse(
+                                success=False,
+                                message=f"'{display_name}' has already sent you a friend request"
+                            )
+                
+                return SendFriendRequestResponse(
+                    success=False,
+                    message="Friend request already exists"
+                )
+            else:
+                raise  # Re-raise if it's a different integrity error
         
     except psycopg2.IntegrityError as e:
         if conn:

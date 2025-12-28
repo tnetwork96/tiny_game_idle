@@ -22,6 +22,7 @@ LoginScreen::LoginScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->nicknameScreen = new NicknameScreen(tft, keyboard);
     this->state = LOGIN_USERNAME;
     this->username = "";
+    this->nickname = "";
     this->showUsernameEmpty = false;
     this->usernameCursorRow = 0;
     this->usernameCursorCol = 0;
@@ -152,7 +153,9 @@ void LoginScreen::drawSuccessScreen() {
     tft->setCursor(100, headerHeight + 10);
     tft->print("Welcome,");
     tft->setCursor(100, headerHeight + 32);
-    tft->print(username);
+    // Display nickname if available, otherwise fallback to username
+    String displayName = nickname.length() > 0 ? nickname : username;
+    tft->print(displayName);
 
     tft->setTextSize(1);
     tft->setTextColor(WIN_SUCCESS, WIN_BG_DARK);
@@ -268,6 +271,7 @@ void LoginScreen::handleKeyPress(const String& key) {
             if (loginResult.success) {
                 // Login successful
                 userId = loginResult.user_id;
+                nickname = loginResult.nickname.length() > 0 ? loginResult.nickname : username;  // Use nickname, fallback to username
                 state = LOGIN_SUCCESS;
                 drawSuccessScreen();
                 Serial.println("Login Screen: API verification successful!");
@@ -275,6 +279,8 @@ void LoginScreen::handleKeyPress(const String& key) {
                 Serial.println(userId);
                 Serial.print("Login Screen: Username: ");
                 Serial.println(username);
+                Serial.print("Login Screen: Nickname: ");
+                Serial.println(nickname);
                 
                 // Load friends list
                 loadFriends();
@@ -346,6 +352,7 @@ void LoginScreen::handleKeyPress(const String& key) {
                         if (loginResult.success) {
                             userId = loginResult.user_id;
                             username = pendingUsername;
+                            nickname = loginResult.nickname.length() > 0 ? loginResult.nickname : username;  // Use nickname, fallback to username
                             state = LOGIN_SUCCESS;
                             drawSuccessScreen();
                             Serial.println("Login Screen: Auto-login successful after account creation!");

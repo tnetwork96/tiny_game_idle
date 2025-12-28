@@ -64,6 +64,19 @@ void ApiClient::parseLoginResponse(const String& response, LoginResult& result) 
             result.username = response.substring(valueStart, valueEnd);
         }
     }
+    
+    // Get nickname
+    int nicknameIdx = response.indexOf("\"nickname\":\"");
+    if (nicknameIdx >= 0) {
+        int valueStart = nicknameIdx + 12; // length of "nickname":"
+        int valueEnd = response.indexOf("\"", valueStart);
+        if (valueEnd > valueStart) {
+            result.nickname = response.substring(valueStart, valueEnd);
+        }
+    } else {
+        // Fallback to username if nickname not found
+        result.nickname = result.username;
+    }
 }
 
 // Helper: Parse register response string
@@ -152,6 +165,7 @@ ApiClient::LoginResult ApiClient::checkLogin(const String& username, const Strin
     result.accountExists = false;
     result.user_id = -1;
     result.username = "";
+    result.nickname = "";
     result.message = "";
     
     if (WiFi.status() != WL_CONNECTED) {
@@ -210,6 +224,8 @@ ApiClient::LoginResult ApiClient::checkLogin(const String& username, const Strin
             Serial.println(result.user_id);
             Serial.print("  Username: ");
             Serial.println(result.username);
+            Serial.print("  Nickname: ");
+            Serial.println(result.nickname);
         }
         Serial.println("========================================");
         
@@ -327,7 +343,7 @@ ApiClient::FriendsListResult ApiClient::getFriends(int userId, const String& ser
         Serial.println(response);
         
         // Parse response manually
-        // Expected format: {"success":true,"friends":[{"username":"user1","online":false},...],"message":"..."}
+        // Expected format: {"success":true,"friends":[{"nickname":"user1","online":false},...],"message":"..."}
         
         // Check success
         int successIdx = response.indexOf("\"success\":");
@@ -375,13 +391,23 @@ ApiClient::FriendsListResult ApiClient::getFriends(int userId, const String& ser
                             
                             String friendObj = friendsArray.substring(friendStart, friendEnd + 1);
                             
-                            // Parse username
-                            int usernameIdx = friendObj.indexOf("\"username\":\"");
-                            if (usernameIdx >= 0) {
-                                int nameStart = usernameIdx + 12;
+                            // Parse nickname (fallback to username if not found)
+                            int nicknameIdx = friendObj.indexOf("\"nickname\":\"");
+                            if (nicknameIdx >= 0) {
+                                int nameStart = nicknameIdx + 12;
                                 int nameEnd = friendObj.indexOf("\"", nameStart);
                                 if (nameEnd > nameStart) {
-                                    result.friends[friendIdx].username = friendObj.substring(nameStart, nameEnd);
+                                    result.friends[friendIdx].nickname = friendObj.substring(nameStart, nameEnd);
+                                }
+                            } else {
+                                // Fallback to username if nickname not found
+                                int usernameIdx = friendObj.indexOf("\"username\":\"");
+                                if (usernameIdx >= 0) {
+                                    int nameStart = usernameIdx + 12;
+                                    int nameEnd = friendObj.indexOf("\"", nameStart);
+                                    if (nameEnd > nameStart) {
+                                        result.friends[friendIdx].nickname = friendObj.substring(nameStart, nameEnd);
+                                    }
                                 }
                             }
                             
@@ -631,7 +657,7 @@ ApiClient::NotificationsResult ApiClient::getNotifications(int userId, const Str
     return result;
 }
 
-ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port) {
+ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, const String& toNickname, const String& serverHost, uint16_t port) {
     FriendRequestResult result;
     result.success = false;
     result.message = "";
@@ -639,9 +665,36 @@ ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, cons
     result.friendshipId = -1;
     result.status = "";
     
+    // Pre-flight validation
+    if (fromUserId <= 0) {
+        Serial.println("API Client: Invalid user ID!");
+        result.message = "Invalid user ID";
+        return result;
+    }
+    
+    String trimmedNickname = toNickname;
+    trimmedNickname.trim();
+    if (trimmedNickname.length() == 0) {
+        Serial.println("API Client: Empty nickname!");
+        result.message = "Nickname cannot be empty";
+        return result;
+    }
+    
+    if (trimmedNickname.length() > 255) {
+        Serial.println("API Client: Nickname too long!");
+        result.message = "Nickname is too long (max 255 characters)";
+        return result;
+    }
+    
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("API Client: WiFi not connected!");
-        result.message = "WiFi not connected";
+        result.message = "WiFi not connected. Please check your connection.";
+        return result;
+    }
+    
+    if (serverHost.length() == 0) {
+        Serial.println("API Client: Server host not configured!");
+        result.message = "Server not configured";
         return result;
     }
     
@@ -652,13 +705,21 @@ ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, cons
     
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(5000);
+    http.setTimeout(10000);  // Increased timeout for reliability (10 seconds)
     
-    // Create payload
+    // Create payload with trimmed nickname and escape JSON special characters
+    String escapedNickname = trimmedNickname;
+    // Basic JSON escaping (replace " with \", \ with \\, newlines, etc.)
+    escapedNickname.replace("\\", "\\\\");
+    escapedNickname.replace("\"", "\\\"");
+    escapedNickname.replace("\n", "\\n");
+    escapedNickname.replace("\r", "\\r");
+    escapedNickname.replace("\t", "\\t");
+    
     String payload = "{\"from_user_id\":";
     payload += String(fromUserId);
-    payload += ",\"to_username\":\"";
-    payload += toUsername;
+    payload += ",\"to_nickname\":\"";
+    payload += escapedNickname;
     payload += "\"}";
     
     Serial.print("API Client: Payload: ");
@@ -673,14 +734,54 @@ ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, cons
         Serial.print("API Client: Response: ");
         Serial.println(response);
         parseFriendRequestResponse(response, result);
-    } else {
+    } else if (httpCode == HTTP_CODE_BAD_REQUEST || httpCode == 400) {
+        // Bad request - try to parse error message
         String error = http.getString();
-        Serial.print("API Client: Send friend request failed: ");
+        Serial.print("API Client: Bad request (400): ");
         Serial.println(error);
-        result.message = "HTTP error: " + String(httpCode);
+        if (error.length() > 0) {
+            parseFriendRequestResponse(error, result);
+        } else {
+            result.message = "Invalid request. Please check the nickname and try again.";
+        }
+    } else if (httpCode == HTTP_CODE_NOT_FOUND || httpCode == 404) {
+        String error = http.getString();
+        Serial.print("API Client: Not found (404): ");
+        Serial.println(error);
+        if (error.length() > 0) {
+            parseFriendRequestResponse(error, result);
+        } else {
+            result.message = "User not found";
+        }
+    } else if (httpCode == HTTP_CODE_CONFLICT || httpCode == 409) {
+        // Conflict - duplicate request, already friends, etc.
+        String error = http.getString();
+        Serial.print("API Client: Conflict (409): ");
+        Serial.println(error);
+        if (error.length() > 0) {
+            parseFriendRequestResponse(error, result);
+        } else {
+            result.message = "Friend request conflict. You may already be friends or have a pending request.";
+        }
+    } else if (httpCode < 0) {
+        // Network error (timeout, connection failed, etc.)
+        String errorMsg = http.errorToString(httpCode);
+        Serial.print("API Client: Network error: ");
+        Serial.println(errorMsg);
+        result.message = "Network error: " + errorMsg + ". Please check your connection and try again.";
+    } else {
+        // Other HTTP error
+        String error = http.getString();
+        Serial.print("API Client: HTTP error (");
+        Serial.print(httpCode);
+        Serial.print("): ");
+        Serial.println(error);
+        
         // Try to parse error message from response
         if (error.length() > 0) {
             parseFriendRequestResponse(error, result);
+        } else {
+            result.message = "Server error (HTTP " + String(httpCode) + "). Please try again later.";
         }
     }
     

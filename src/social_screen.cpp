@@ -172,7 +172,7 @@ void SocialScreen::drawFriendsList() {
     
     // Draw modern header with count
     const uint16_t headerHeight = 35;
-    tft->setTextSize(2);
+    tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("FRIENDS");
@@ -237,17 +237,17 @@ void SocialScreen::drawFriendsList() {
             tft->fillCircle(dotX, dotY, 6, statusColor);
             tft->drawCircle(dotX, dotY, 6, statusColor);
             
-            // Draw username (truncate if too long)
+            // Draw nickname (truncate if too long)
             tft->setTextSize(1);
             tft->setTextColor(SOCIAL_TEXT, cardBgColor);
             tft->setCursor(cardX + 25, cardY + 8);
-            String username = friends[i].username;
+            String nickname = friends[i].nickname;
             // Calculate max width (card width - indicator - padding)
             int maxWidth = (cardW - 25 - 8) / 6;  // Approximate chars (6px per char)
-            if (username.length() > maxWidth) {
-                username = username.substring(0, maxWidth - 3) + "...";
+            if (nickname.length() > maxWidth) {
+                nickname = nickname.substring(0, maxWidth - 3) + "...";
             }
-            tft->print(username);
+            tft->print(nickname);
             
             // Draw online status text (right-aligned)
             tft->setTextColor(SOCIAL_MUTED, cardBgColor);
@@ -271,7 +271,7 @@ void SocialScreen::drawNotificationsList() {
     
     // Draw modern header with count
     const uint16_t headerHeight = 35;
-    tft->setTextSize(2);
+    tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("THONG BAO");
@@ -396,7 +396,7 @@ void SocialScreen::drawAddFriendContent() {
     
     // Draw header
     const uint16_t headerHeight = 35;
-    tft->setTextSize(2);
+    tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("ADD FRIEND");
@@ -414,12 +414,6 @@ void SocialScreen::drawAddFriendContent() {
     if (miniAddFriend != nullptr) {
         miniAddFriend->draw(inputX, inputY, inputW, inputH, focusMode == FOCUS_CONTENT);
     }
-    
-    // Instructions (centered below input)
-    tft->setTextSize(1);
-    tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-    tft->setCursor(inputX, inputY + inputH + 12);
-    tft->print("Press Enter to add friend");
     
     // Keyboard is drawn by MiniAddFriendScreen::draw()
 }
@@ -498,16 +492,16 @@ void SocialScreen::redrawFriendCard(int index, bool isSelected) {
     tft->fillCircle(dotX, dotY, 6, statusColor);
     tft->drawCircle(dotX, dotY, 6, statusColor);
     
-    // Draw username
+    // Draw nickname
     tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, cardBgColor);
     tft->setCursor(cardX + 25, cardY + 8);
-    String username = friends[index].username;
+    String nickname = friends[index].nickname;
     int maxWidth = (cardW - 25 - 8) / 6;
-    if (username.length() > maxWidth) {
-        username = username.substring(0, maxWidth - 3) + "...";
+    if (nickname.length() > maxWidth) {
+        nickname = nickname.substring(0, maxWidth - 3) + "...";
     }
-    tft->print(username);
+    tft->print(nickname);
     
     // Draw online status text
     tft->setTextColor(SOCIAL_MUTED, cardBgColor);
@@ -614,33 +608,74 @@ void SocialScreen::handleContentNavigation(const String& key) {
             // Check if form should be submitted (Enter key on keyboard was selected and pressed)
             if (miniAddFriend->shouldSubmitForm()) {
                 String friendName = miniAddFriend->getEnteredName();
-                if (friendName.length() > 0) {
-                    Serial.print("Social Screen: Adding friend: ");
-                    Serial.println(friendName);
+                
+                // Client-side validation before sending
+                friendName.trim();  // Trim whitespace
+                
+                if (friendName.length() == 0) {
+                    miniAddFriend->setErrorMessage("Please enter a nickname");
+                    drawContentArea();  // Redraw to show error
+                    return;
+                }
+                
+                if (friendName.length() > 255) {  // Match server limit
+                    miniAddFriend->setErrorMessage("Nickname is too long (max 255 characters)");
+                    drawContentArea();  // Redraw to show error
+                    return;
+                }
+                
+                // Prevent sending to self (basic check - server will also validate)
+                // Note: We don't have current user's nickname here, so we skip this check
+                // Server will handle it properly
+                
+                Serial.print("Social Screen: Adding friend: ");
+                Serial.println(friendName);
+                
+                // Call API to add friend (send friend request)
+                if (userId > 0 && serverHost.length() > 0) {
+                    // Clear any previous error before sending
+                    miniAddFriend->clearError();
+                    drawContentArea();  // Redraw to clear error
                     
-                    // Call API to add friend (send friend request)
-                    if (userId > 0 && serverHost.length() > 0) {
-                        ApiClient::FriendRequestResult result = ApiClient::sendFriendRequest(userId, friendName, serverHost, serverPort);
-                        if (result.success) {
-                            Serial.print("Social Screen: Friend request sent successfully: ");
-                            Serial.println(result.message);
-                            miniAddFriend->clearError();  // Clear any previous error
-                            miniAddFriend->reset();
-                            
-                            // Refresh friends list
-                            loadFriends();
-                            
-                            // Call callback if set
-                            if (onAddFriendSuccessCallback != nullptr) {
-                                onAddFriendSuccessCallback();
-                            }
-                        } else {
-                            Serial.print("Social Screen: Failed to send friend request: ");
-                            Serial.println(result.message);
-                            // Display error message to user
-                            miniAddFriend->setErrorMessage(result.message);
+                    // Send friend request
+                    ApiClient::FriendRequestResult result = ApiClient::sendFriendRequest(userId, friendName, serverHost, serverPort);
+                    
+                    if (result.success) {
+                        Serial.print("Social Screen: Friend request sent successfully: ");
+                        Serial.println(result.message);
+                        
+                        // Clear input and reset form
+                        miniAddFriend->clearError();
+                        miniAddFriend->reset();
+                        
+                        // Refresh friends list to show any updates
+                        loadFriends();
+                        
+                        // Redraw to show cleared input
+                        drawContentArea();
+                        
+                        // Call callback if set
+                        if (onAddFriendSuccessCallback != nullptr) {
+                            onAddFriendSuccessCallback();
                         }
+                    } else {
+                        Serial.print("Social Screen: Failed to send friend request: ");
+                        Serial.println(result.message);
+                        
+                        // Display user-friendly error message
+                        String errorMsg = result.message;
+                        if (errorMsg.length() == 0) {
+                            errorMsg = "Failed to send friend request. Please try again.";
+                        }
+                        miniAddFriend->setErrorMessage(errorMsg);
+                        
+                        // Redraw to show error
+                        drawContentArea();
                     }
+                } else {
+                    // Invalid configuration
+                    miniAddFriend->setErrorMessage("Server connection error. Please check settings.");
+                    drawContentArea();
                 }
             }
         }
@@ -691,7 +726,7 @@ void SocialScreen::handleContentNavigation(const String& key) {
             if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount && userId > 0 && serverHost.length() > 0) {
                 FriendItem* friendItem = &friends[selectedFriendIndex];
                 Serial.print("Social Screen: Attempting to remove friend: ");
-                Serial.println(friendItem->username);
+                Serial.println(friendItem->nickname);
                 
                 // NOTE: removeFriend API requires friendId, but current FriendItem only has username
                 // This is a limitation - the API endpoint DELETE /api/friends/{userId}/{friendId} needs friendId
@@ -962,7 +997,7 @@ void SocialScreen::parseFriendsString(const String& friendsString) {
             int commaPos = entry.indexOf(',');
             
             if (commaPos > 0 && entryIndex < friendsCount) {
-                friends[entryIndex].username = entry.substring(0, commaPos);
+                friends[entryIndex].nickname = entry.substring(0, commaPos);
                 String onlineStr = entry.substring(commaPos + 1);
                 friends[entryIndex].online = (onlineStr == "1");
                 entryIndex++;
