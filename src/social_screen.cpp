@@ -404,11 +404,11 @@ void SocialScreen::drawAddFriendContent() {
     // Draw header line
     tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
     
-    // Center the input box vertically and horizontally
+    // Center the input box horizontally, position vertically to avoid keyboard overlap
     uint16_t inputW = CONTENT_WIDTH - 40;
     uint16_t inputH = 40;
     uint16_t inputX = CONTENT_X + (CONTENT_WIDTH - inputW) / 2;
-    uint16_t inputY = (SCREEN_HEIGHT - inputH) / 2;
+    uint16_t inputY = 60;  // Fixed position to avoid keyboard overlap (keyboard occupies bottom ~85px)
     
     // Delegate drawing to MiniAddFriendScreen
     if (miniAddFriend != nullptr) {
