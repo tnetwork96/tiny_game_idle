@@ -162,6 +162,29 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         }
     }
     
+    // Handle direct character input from callback (giống LoginScreen)
+    // Keyboard gốc gọi callback với currentKey (ký tự), screen xử lý trực tiếp
+    if (key.length() == 1) {
+        // Ignore special keys
+        if (key == "123" || key == "ABC" || key == "shift") {
+            return;
+        }
+        
+        // Add character directly (giống LoginScreen::handleUsernameKey)
+        if (enteredName.length() < MAX_NAME_LENGTH) {
+            enteredName += key;
+        }
+        return;
+    }
+    
+    // Handle backspace from callback
+    if (key == "<") {
+        if (enteredName.length() > 0) {
+            enteredName.remove(enteredName.length() - 1);
+        }
+        return;
+    }
+    
     // Track cursor position for display
     cursorRow = keyboard->getCursorRow();
     cursorCol = keyboard->getCursorCol();

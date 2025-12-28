@@ -605,6 +605,12 @@ void SocialScreen::handleContentNavigation(const String& key) {
         if (miniAddFriend != nullptr) {
             miniAddFriend->handleKeyPress(key);
             
+            // Redraw content area to show updated text (giống LoginScreen redraw sau khi update)
+            // Chỉ redraw nếu là ký tự hoặc backspace để hiển thị text mới
+            if (key.length() == 1 || key == "<") {
+                drawContentArea();
+            }
+            
             // Check if form should be submitted (Enter key on keyboard was selected and pressed)
             if (miniAddFriend->shouldSubmitForm()) {
                 String friendName = miniAddFriend->getEnteredName();

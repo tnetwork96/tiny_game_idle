@@ -28,8 +28,22 @@ public:
     uint16_t getCursorRow() const { return cursorRow; }
     int8_t getCursorCol() const { return cursorCol; }
 
+    // Move cursor to specific position (giống Keyboard gốc)
+    void moveCursorTo(uint16_t row, int8_t col);
+
     // Toggle between QWERTY and Numeric mode
     void toggleMode();
+    
+    // Type a string by navigating to each character and selecting it
+    void typeString(const String& text);
+    
+    // Press Enter key (giống Keyboard gốc)
+    void pressEnter();
+    
+    // Set callback for when a key is selected (giống Keyboard gốc)
+    void setOnKeySelectedCallback(void (*callback)(String key)) { 
+        onKeySelected = callback; 
+    }
 
 private:
     Adafruit_ST7789* tft;
@@ -47,16 +61,20 @@ private:
     // Last draw position (for refresh after mode toggle)
     uint16_t lastDrawX;
     uint16_t lastDrawY;
+    
+    // Callback function pointer cho khi nhấn select (giống Keyboard gốc)
+    void (*onKeySelected)(String key);
 
     // Local constants
     static const uint16_t KEY_WIDTH = 24;
     static const uint16_t KEY_HEIGHT = 28;
     static const uint16_t SPACING = 3;
-    static const uint16_t ROWS = 4;  // 3 QWERTY rows + 1 Spacebar row
+    static const uint16_t ROWS = 3;  // 3 QWERTY rows (spacebar vẽ riêng, giống Keyboard gốc)
     static const uint16_t COLS = 10;
 
-    // Layout definitions (4 rows x 10 cols for QWERTY, 3 rows for numeric)
-    static const String qwertyLayout[4][10];
+    // Layout definitions (3 rows x 10 cols for QWERTY, 3 rows for numeric)
+    // Spacebar không có trong layout array, được vẽ riêng giống Keyboard gốc
+    static const String qwertyLayout[3][10];
     static const String numericLayout[3][10];
 
     // Helper methods

@@ -39,6 +39,9 @@ public:
         this->serverPort = port;
     }
     Tab getCurrentTab() const { return currentTab; }
+    
+    // Get MiniKeyboard for Add Friend screen
+    MiniKeyboard* getMiniKeyboard() const { return miniKeyboard; }
 
     // Load data for tabs
     void loadFriends();

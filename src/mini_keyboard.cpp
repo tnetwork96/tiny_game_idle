@@ -8,16 +8,15 @@
 #define MKB_HIGHLIGHT     0xFE1F  // Light pink (hồng nhạt) for selection
 #define MKB_SELECTED_TEXT 0xF81F  // Pink text on selected key
 
-// QWERTY Layout (4 rows x 10 cols) - GIỐNG HỆT Keyboard
+// QWERTY Layout (3 rows x 10 cols) - GIỐNG HỆT Keyboard gốc
 // Row 0: q w e r t y u i o p
 // Row 1: 123 a s d f g h j k l
 // Row 2: shift z x c v b n m |e <
-// Row 3: Spacebar (spans 8 keys, centered)
-const String MiniKeyboard::qwertyLayout[4][10] = {
+// Row 3: Spacebar (vẽ riêng, không có trong layout array)
+const String MiniKeyboard::qwertyLayout[3][10] = {
     { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
     { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l" },
-    { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<" },
-    { " ", " ", " ", " ", " ", " ", " ", " ", "", "" }  // Spacebar row
+    { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<" }
 };
 
 // Numeric Layout (3 rows x 10 cols) - GIỐNG HỆT Keyboard
@@ -38,6 +37,7 @@ MiniKeyboard::MiniKeyboard(Adafruit_ST7789* tft) {
     this->isNumericMode = false;
     this->lastDrawX = 0;
     this->lastDrawY = 0;
+    this->onKeySelected = nullptr;  // Khởi tạo callback = null (giống Keyboard gốc)
 }
 
 void MiniKeyboard::draw(uint16_t x, uint16_t y) {
@@ -265,14 +265,16 @@ void MiniKeyboard::moveCursor(String direction) {
             return;
         }
         
-        // Toggle caps lock if Shift key was selected (only in QWERTY mode)
-        if (!isNumericMode && cursorRow < ROWS && cursorCol < COLS) {
-            String key = qwertyLayout[cursorRow][cursorCol];
-            if (key == "shift") {
-                capsLock = !capsLock;
-            }
+        // Toggle caps lock if Shift key was selected (giống Keyboard gốc - check currentKey trước)
+        if (!isNumericMode && currentKey == "shift") {
+            capsLock = !capsLock;
+            return;  // Don't call callback for shift
         }
-        // Selection result is returned via getCurrentChar()
+        
+        // Gọi callback nếu có để xử lý phím được chọn (giống Keyboard gốc)
+        if (onKeySelected != nullptr) {
+            onKeySelected(currentKey);
+        }
     }
 }
 
@@ -339,4 +341,132 @@ void MiniKeyboard::toggleMode() {
     cursorCol = 0;
     // Refresh the display immediately using last draw position
     draw(lastDrawX, lastDrawY);
+}
+
+void MiniKeyboard::moveCursorTo(uint16_t row, int8_t col) {
+    // Giới hạn vị trí (giống Keyboard gốc)
+    if (row > 3) row = 3;
+    if (col < 0) col = 0;
+    if (col > 9) col = 9;
+    
+    cursorRow = row;
+    cursorCol = col;
+    
+    // Refresh display
+    draw(lastDrawX, lastDrawY);
+}
+
+void MiniKeyboard::typeString(const String& text) {
+    Serial.print("MiniKeyboard::typeString: Typing string '");
+    Serial.print(text);
+    Serial.print("' (length=");
+    Serial.print(text.length());
+    Serial.println(")");
+    
+    for (uint16_t i = 0; i < text.length(); i++) {
+        char c = text.charAt(i);
+        Serial.print("MiniKeyboard::typeString: [");
+        Serial.print(i);
+        Serial.print("/");
+        Serial.print(text.length());
+        Serial.print("] Typing '");
+        Serial.print(c);
+        Serial.println("'");
+        
+        // Phân loại ký tự
+        bool isDigit = (c >= '0' && c <= '9');
+        bool isLowercaseLetter = (c >= 'a' && c <= 'z');
+        bool isUppercaseLetter = (c >= 'A' && c <= 'Z');
+        bool isLetter = isLowercaseLetter || isUppercaseLetter;
+        char normalizedChar = c;
+        if (isUppercaseLetter) {
+            normalizedChar = c - 'A' + 'a';  // Normalize to lowercase
+        }
+        
+        // Nếu là số hoặc ký tự đặc biệt, cần chuyển sang chế độ số
+        if ((isDigit || (!isLetter && c != ' ')) && !isNumericMode) {
+            // Dùng moveCursorTo để di chuyển trực tiếp (giống Keyboard gốc)
+            moveCursorTo(1, 0);  // Move directly to "123"
+            delay(100);
+            moveCursor("select");  // Select "123"
+            delay(100);
+        }
+        // Nếu là chữ cái, cần chuyển về chế độ chữ cái
+        else if (isLetter && isNumericMode) {
+            // Dùng moveCursorTo để di chuyển trực tiếp (giống Keyboard gốc)
+            moveCursorTo(1, 0);  // Move directly to "ABC"
+            delay(100);
+            moveCursor("select");  // Select "ABC"
+            delay(100);
+        }
+        
+        // Đặt chế độ chữ hoa/thường theo ký tự cần gõ
+        if (isLetter && isUppercaseLetter && !capsLock) {
+            // Dùng moveCursorTo để di chuyển trực tiếp (giống Keyboard gốc)
+            moveCursorTo(2, 0);  // Move directly to "shift"
+            delay(100);
+            moveCursor("select");  // Toggle caps lock
+            delay(100);
+        } else if (isLetter && isLowercaseLetter && capsLock) {
+            // Dùng moveCursorTo để di chuyển trực tiếp (giống Keyboard gốc)
+            moveCursorTo(2, 0);  // Move directly to "shift"
+            delay(100);
+            moveCursor("select");  // Toggle caps lock
+            delay(100);
+        }
+        
+        // Tìm ký tự trong bảng phím hiện tại
+        const String (*currentKeys)[10] = isNumericMode ? numericLayout : qwertyLayout;
+        bool found = false;
+        
+        for (uint16_t row = 0; row < 3; row++) {
+            for (uint16_t col = 0; col < 10; col++) {
+                String key = currentKeys[row][col];
+                // So sánh ký tự (bỏ qua các phím đặc biệt)
+                if (key.length() == 1 && key.charAt(0) == normalizedChar) {
+                    Serial.print("MiniKeyboard::typeString: Found '");
+                    Serial.print(c);
+                    Serial.print("' at row=");
+                    Serial.print(row);
+                    Serial.print(", col=");
+                    Serial.print(col);
+                    Serial.println(" in current layout");
+                    
+                    // Di chuyển trực tiếp đến ký tự (giống Keyboard gốc)
+                    // Dùng moveCursorTo để tránh đi qua các phím khác và gọi callback nhầm
+                    moveCursorTo(row, col);
+                    delay(150);
+                    // Select the character
+                    moveCursor("select");
+                    delay(150);
+                    found = true;
+                    break;
+                }
+            }
+            if (found) break;
+        }
+        
+        if (!found) {
+            Serial.print("MiniKeyboard::typeString: WARNING - Character '");
+            Serial.print(c);
+            Serial.println("' not found in current layout!");
+        }
+    }
+    
+    Serial.println("MiniKeyboard::typeString: Finished typing string");
+}
+
+void MiniKeyboard::pressEnter() {
+    Serial.println("MiniKeyboard::pressEnter: Navigating to Enter key and pressing it...");
+    
+    // Enter luôn ở hàng 2, cột 8 trong tất cả layout (chữ cái, số)
+    Serial.println("MiniKeyboard::pressEnter: Moving to Enter key at row=2, col=8...");
+    moveCursorTo(2, 8);
+    delay(150);
+    
+    Serial.println("MiniKeyboard::pressEnter: Pressing Enter key...");
+    moveCursor("select");
+    delay(150);
+    
+    Serial.println("MiniKeyboard::pressEnter: Enter key pressed successfully");
 }
