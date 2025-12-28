@@ -70,6 +70,9 @@ public:
     
     // Select notification by index (for auto-navigation)
     void selectNotification(int index);
+    
+    // Remove notification by ID (optimistic update before server reload)
+    void removeNotificationById(int notificationId);
 
     // Callback for when friend is added successfully
     typedef void (*OnAddFriendSuccessCallback)();

@@ -1042,6 +1042,70 @@ void SocialScreen::clearNotifications() {
     notificationsScrollOffset = 0;
 }
 
+void SocialScreen::removeNotificationById(int notificationId) {
+    if (notifications == nullptr || notificationsCount == 0) {
+        return;
+    }
+    
+    // Find and remove the notification with matching ID
+    int foundIndex = -1;
+    for (int i = 0; i < notificationsCount; i++) {
+        if (notifications[i].id == notificationId) {
+            foundIndex = i;
+            break;
+        }
+    }
+    
+    if (foundIndex < 0) {
+        Serial.print("Social Screen: Notification ID ");
+        Serial.print(notificationId);
+        Serial.println(" not found in current list");
+        return;
+    }
+    
+    Serial.print("Social Screen: Removing notification ID ");
+    Serial.print(notificationId);
+    Serial.print(" at index ");
+    Serial.println(foundIndex);
+    
+    // Create new array without the removed notification
+    if (notificationsCount == 1) {
+        // Last notification, just clear
+        clearNotifications();
+        selectedNotificationIndex = -1;
+        notificationsScrollOffset = 0;
+    } else {
+        // Create new array
+        ApiClient::NotificationEntry* newNotifications = new ApiClient::NotificationEntry[notificationsCount - 1];
+        int newIndex = 0;
+        for (int i = 0; i < notificationsCount; i++) {
+            if (i != foundIndex) {
+                newNotifications[newIndex] = notifications[i];
+                newIndex++;
+            }
+        }
+        
+        // Update count and swap arrays
+        int oldCount = notificationsCount;
+        delete[] notifications;
+        notifications = newNotifications;
+        notificationsCount = oldCount - 1;
+        
+        // Reset selection if needed
+        if (selectedNotificationIndex == foundIndex) {
+            // Selected item was removed
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+        } else if (selectedNotificationIndex > foundIndex) {
+            // Selected item index needs to shift down
+            selectedNotificationIndex--;
+        }
+    }
+    
+    Serial.print("Social Screen: After removal, notifications count: ");
+    Serial.println(notificationsCount);
+}
+
 void SocialScreen::loadFriends() {
     if (userId <= 0 || serverHost.length() == 0) {
         Serial.println("Social Screen: Cannot load friends - invalid user ID or server info");
@@ -1109,11 +1173,15 @@ void SocialScreen::loadNotifications() {
             }
         }
         
-        // Reset selected index if it's now out of bounds
-        if (selectedNotificationIndex >= notificationsCount) {
+        // Reset selected index if it's now out of bounds or if count changed significantly
+        if (selectedNotificationIndex >= notificationsCount || selectedNotificationIndex < 0) {
+            int oldIndex = selectedNotificationIndex;
             selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
             notificationsScrollOffset = 0;
-            Serial.println("Social Screen: Reset selected notification index after filtering");
+            Serial.print("Social Screen: Reset selected notification index from ");
+            Serial.print(oldIndex);
+            Serial.print(" to ");
+            Serial.println(selectedNotificationIndex);
         }
         
         // Clean up result memory
@@ -1187,37 +1255,67 @@ void SocialScreen::doAcceptFriendRequest() {
         Serial.print("Social Screen: Friend request accepted successfully: ");
         Serial.println(result.message);
         
-        // Optimistic UI update: refresh both lists
+        // Hide dialog first
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        
+        // Optimistic UI update: remove notification immediately
+        removeNotificationById(processedNotificationId);
+        
+        // Redraw immediately to show updated list
+        draw();
+        
+        // Then reload from server to ensure consistency
+        delay(200);  // Small delay to ensure server has committed the transaction
+        
+        // Reload friends list first
         loadFriends();
-        loadNotifications();  // This will filter out the read notification
+        
+        // Reload notifications from server (this will filter out the read notification)
+        loadNotifications();
         
         // Reset selection since notification was removed
-        if (selectedNotificationIndex >= notificationsCount) {
+        if (selectedNotificationIndex >= notificationsCount || selectedNotificationIndex < 0) {
             selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
             notificationsScrollOffset = 0;
+        }
+        
+        Serial.print("Social Screen: After reload, notifications count: ");
+        Serial.println(notificationsCount);
+        
+        // Ensure we're on notifications tab and redraw notifications list
+        if (currentTab == TAB_NOTIFICATIONS) {
+            drawContentArea();  // Redraw notifications list with updated data
+        } else {
+            draw();  // Full redraw if on different tab
         }
     } else {
         Serial.print("Social Screen: Failed to accept friend request: ");
         Serial.println(result.message);
+        
+        // Hide dialog
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
         
         // Reload notifications to get latest state from server
         // (in case the request was processed by another client)
         loadNotifications();
         
         // Reset selection if needed
-        if (selectedNotificationIndex >= notificationsCount) {
+        if (selectedNotificationIndex >= notificationsCount || selectedNotificationIndex < 0) {
             selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
             notificationsScrollOffset = 0;
         }
+        
+        // Redraw notifications list with updated data
+        if (currentTab == TAB_NOTIFICATIONS) {
+            drawContentArea();  // Redraw notifications list
+        } else {
+            draw();  // Full redraw if on different tab
+        }
     }
-    
-    // Ensure dialog is hidden and redraw to show notifications list
-    if (confirmationDialog != nullptr) {
-        confirmationDialog->hide();
-    }
-    
-    // Redraw to show notifications list (dialog đã được hide, notification đã bị xóa)
-    draw();
 }
 
 int SocialScreen::getFirstFriendRequestIndex() const {
@@ -1295,6 +1393,9 @@ void SocialScreen::doCancelAcceptFriendRequest() {
     // Call API to reject friend request
     ApiClient::FriendRequestResult result = ApiClient::rejectFriendRequest(userId, pendingAcceptNotificationId, serverHost, serverPort);
     
+    // Store notification ID before resetting
+    int processedNotificationId = pendingAcceptNotificationId;
+    
     // Reset pending notification ID first
     pendingAcceptNotificationId = -1;
     
@@ -1302,36 +1403,63 @@ void SocialScreen::doCancelAcceptFriendRequest() {
         Serial.print("Social Screen: Friend request rejected successfully: ");
         Serial.println(result.message);
         
-        // Reload notifications to get updated list from server
-        // This will filter out the read notification
+        // Hide dialog first
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        
+        // Optimistic UI update: remove notification immediately
+        removeNotificationById(processedNotificationId);
+        
+        // Redraw immediately to show updated list
+        draw();
+        
+        // Then reload from server to ensure consistency
+        delay(200);  // Small delay to ensure server has committed the transaction
+        
+        // Reload notifications from server (this will filter out the read notification)
         loadNotifications();
         
         // Reset selection since notification was removed
-        if (selectedNotificationIndex >= notificationsCount) {
+        if (selectedNotificationIndex >= notificationsCount || selectedNotificationIndex < 0) {
             selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
             notificationsScrollOffset = 0;
+        }
+        
+        Serial.print("Social Screen: After reload, notifications count: ");
+        Serial.println(notificationsCount);
+        
+        // Ensure we're on notifications tab and redraw notifications list
+        if (currentTab == TAB_NOTIFICATIONS) {
+            drawContentArea();  // Redraw notifications list with updated data
+        } else {
+            draw();  // Full redraw if on different tab
         }
     } else {
         Serial.print("Social Screen: Failed to reject friend request: ");
         Serial.println(result.message);
+        
+        // Hide dialog
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
         
         // Reload notifications to get latest state from server
         // (in case the request was processed by another client)
         loadNotifications();
         
         // Reset selection if needed
-        if (selectedNotificationIndex >= notificationsCount) {
+        if (selectedNotificationIndex >= notificationsCount || selectedNotificationIndex < 0) {
             selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
             notificationsScrollOffset = 0;
         }
+        
+        // Redraw notifications list with updated data
+        if (currentTab == TAB_NOTIFICATIONS) {
+            drawContentArea();  // Redraw notifications list
+        } else {
+            draw();  // Full redraw if on different tab
+        }
     }
-    
-    // Ensure dialog is hidden and redraw to show notifications list
-    if (confirmationDialog != nullptr) {
-        confirmationDialog->hide();
-    }
-    
-    // Redraw to show notifications list (dialog đã được hide, notification đã bị xóa)
-    draw();
 }
 
