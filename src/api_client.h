@@ -42,19 +42,31 @@ public:
         int count;
     };
     
+    struct FriendRequestResult {
+        bool success;
+        String message;
+        int requestId;
+        int friendshipId;  // For accept response
+        String status;  // "pending", "accepted", "rejected"
+    };
+    
     static LoginResult checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port);
     static bool createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port);
     static FriendsListResult getFriends(int userId, const String& serverHost, uint16_t port);
     static String getFriendsList(int userId, const String& serverHost, uint16_t port);  // Returns simple string format: "user1,0|user2,1|..."
     static NotificationsResult getNotifications(int userId, const String& serverHost, uint16_t port);
-    static bool sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port);
-    static bool acceptFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
+    static FriendRequestResult sendFriendRequest(int fromUserId, const String& toUsername, const String& serverHost, uint16_t port);
+    static FriendRequestResult acceptFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
+    static FriendRequestResult rejectFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
+    static FriendRequestResult cancelFriendRequest(int fromUserId, int toUserId, const String& serverHost, uint16_t port);
+    static FriendRequestResult removeFriend(int userId, int friendId, const String& serverHost, uint16_t port);
     static void printResponse(const String& response);
     
 private:
     // Helper methods to parse response strings manually
     static void parseLoginResponse(const String& response, LoginResult& result);
     static bool parseRegisterResponse(const String& response);
+    static void parseFriendRequestResponse(const String& response, FriendRequestResult& result);
 };
 
 #endif

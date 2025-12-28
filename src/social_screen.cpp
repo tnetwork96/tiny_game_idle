@@ -613,9 +613,10 @@ void SocialScreen::handleContentNavigation(const String& key) {
                     
                     // Call API to add friend (send friend request)
                     if (userId > 0 && serverHost.length() > 0) {
-                        bool success = ApiClient::sendFriendRequest(userId, friendName, serverHost, serverPort);
-                        if (success) {
-                            Serial.println("Social Screen: Friend request sent successfully");
+                        ApiClient::FriendRequestResult result = ApiClient::sendFriendRequest(userId, friendName, serverHost, serverPort);
+                        if (result.success) {
+                            Serial.print("Social Screen: Friend request sent successfully: ");
+                            Serial.println(result.message);
                             miniAddFriend->reset();
                             
                             // Refresh friends list
@@ -626,7 +627,9 @@ void SocialScreen::handleContentNavigation(const String& key) {
                                 onAddFriendSuccessCallback();
                             }
                         } else {
-                            Serial.println("Social Screen: Failed to send friend request");
+                            Serial.print("Social Screen: Failed to send friend request: ");
+                            Serial.println(result.message);
+                            // TODO: Display error message to user (could add error display in MiniAddFriendScreen)
                         }
                     }
                 }
@@ -674,6 +677,36 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 redrawFriendCard(oldIndex, false);
                 redrawFriendCard(selectedFriendIndex, true);
             }
+        } else if (key == "<") {
+            // Handle Backspace key for removing friend
+            if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount && userId > 0 && serverHost.length() > 0) {
+                FriendItem* friendItem = &friends[selectedFriendIndex];
+                Serial.print("Social Screen: Attempting to remove friend: ");
+                Serial.println(friendItem->username);
+                
+                // NOTE: removeFriend API requires friendId, but current FriendItem only has username
+                // This is a limitation - the API endpoint DELETE /api/friends/{userId}/{friendId} needs friendId
+                // TODO: Either:
+                // 1. Modify API to support removal by username: DELETE /api/friends/{userId}/by-username/{username}
+                // 2. Add friendId to FriendItem struct and update parseFriendsString to include friendId
+                // 3. Lookup friendId from username via a separate API call
+                
+                // For now, we'll log the attempt but cannot complete without friendId
+                Serial.println("Social Screen: Remove friend requires friendId - feature not fully implemented");
+                Serial.println("TODO: Add friendId support to FriendItem or modify API to support username-based removal");
+                
+                // Uncomment below when friendId is available:
+                // int friendId = friend->friendId; // Would need to add this field
+                // ApiClient::FriendRequestResult result = ApiClient::removeFriend(userId, friendId, serverHost, serverPort);
+                // if (result.success) {
+                //     Serial.print("Social Screen: Friend removed successfully: ");
+                //     Serial.println(result.message);
+                //     loadFriends(); // Refresh list
+                // } else {
+                //     Serial.print("Social Screen: Failed to remove friend: ");
+                //     Serial.println(result.message);
+                // }
+            }
         }
     } else if (currentTab == TAB_NOTIFICATIONS) {
         // Handle Enter key for accepting friend requests
@@ -687,9 +720,10 @@ void SocialScreen::handleContentNavigation(const String& key) {
                     Serial.println(notification->id);
                     
                     if (userId > 0 && serverHost.length() > 0) {
-                        bool success = ApiClient::acceptFriendRequest(userId, notification->id, serverHost, serverPort);
-                        if (success) {
-                            Serial.println("Social Screen: Friend request accepted successfully");
+                        ApiClient::FriendRequestResult result = ApiClient::acceptFriendRequest(userId, notification->id, serverHost, serverPort);
+                        if (result.success) {
+                            Serial.print("Social Screen: Friend request accepted successfully: ");
+                            Serial.println(result.message);
                             
                             // Refresh friends list
                             loadFriends();
@@ -697,7 +731,38 @@ void SocialScreen::handleContentNavigation(const String& key) {
                             // Reload notifications to get updated list from server
                             loadNotifications();
                         } else {
-                            Serial.println("Social Screen: Failed to accept friend request");
+                            Serial.print("Social Screen: Failed to accept friend request: ");
+                            Serial.println(result.message);
+                            // TODO: Display error message to user
+                        }
+                    }
+                }
+            }
+            return;
+        }
+        
+        // Handle Backspace key for rejecting friend requests
+        if (key == "<") {
+            if (selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+                ApiClient::NotificationEntry* notification = &notifications[selectedNotificationIndex];
+                
+                // Check if this is a friend request notification
+                if (notification->type == "friend_request") {
+                    Serial.print("Social Screen: Rejecting friend request from notification ID: ");
+                    Serial.println(notification->id);
+                    
+                    if (userId > 0 && serverHost.length() > 0) {
+                        ApiClient::FriendRequestResult result = ApiClient::rejectFriendRequest(userId, notification->id, serverHost, serverPort);
+                        if (result.success) {
+                            Serial.print("Social Screen: Friend request rejected successfully: ");
+                            Serial.println(result.message);
+                            
+                            // Reload notifications to get updated list from server
+                            loadNotifications();
+                        } else {
+                            Serial.print("Social Screen: Failed to reject friend request: ");
+                            Serial.println(result.message);
+                            // TODO: Display error message to user
                         }
                     }
                 }

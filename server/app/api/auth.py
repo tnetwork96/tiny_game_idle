@@ -60,6 +60,7 @@ class SendFriendRequestResponse(BaseModel):
     success: bool
     message: str
     request_id: Optional[int] = None
+    status: Optional[str] = None  # "pending", "accepted", "rejected"
 
 # Database connection string from environment
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
@@ -416,116 +417,8 @@ async def send_friend_request(request: SendFriendRequestRequest):
         return SendFriendRequestResponse(
             success=True,
             message=f"Friend request sent to '{request.to_username}'",
-            request_id=request_id
-        )
-        
-    except psycopg2.IntegrityError as e:
-        if conn:
-            conn.rollback()
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Send friend request error (IntegrityError): {str(e)}")
-        return SendFriendRequestResponse(
-            success=False,
-            message="Friend request already exists or invalid data"
-        )
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        import traceback
-        error_trace = traceback.format_exc()
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Send friend request error: {str(e)}")
-        print(f"Traceback: {error_trace}")
-        return SendFriendRequestResponse(
-            success=False,
-            message=f"Error sending friend request: {str(e)}"
-        )
-    finally:
-        if conn:
-            conn.close()
-
-@router.post("/friend-requests/send", response_model=SendFriendRequestResponse)
-async def send_friend_request(request: SendFriendRequestRequest):
-    """
-    Send a friend request to another user
-    Creates a friend request and automatically creates a notification
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Get to_user_id from username
-        cursor.execute('SELECT id FROM users WHERE username = %s', (request.to_username,))
-        to_user = cursor.fetchone()
-        
-        if not to_user:
-            return SendFriendRequestResponse(
-                success=False,
-                message=f"User '{request.to_username}' not found"
-            )
-        
-        to_user_id = to_user['id']
-        
-        # Check if trying to send request to self
-        if request.from_user_id == to_user_id:
-            return SendFriendRequestResponse(
-                success=False,
-                message="Cannot send friend request to yourself"
-            )
-        
-        # Check if they're already friends
-        cursor.execute('''
-            SELECT id FROM friends 
-            WHERE (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
-        ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
-        
-        if cursor.fetchone():
-            return SendFriendRequestResponse(
-                success=False,
-                message=f"You are already friends with '{request.to_username}'"
-            )
-        
-        # Check if there's already a pending request (in either direction)
-        cursor.execute('''
-            SELECT id, status, from_user_id FROM friend_requests 
-            WHERE (from_user_id = %s AND to_user_id = %s) 
-               OR (from_user_id = %s AND to_user_id = %s)
-        ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
-        
-        existing_request = cursor.fetchone()
-        if existing_request:
-            existing_status = existing_request['status']
-            existing_from_id = existing_request['from_user_id']
-            if existing_status == 'pending':
-                if existing_from_id == request.from_user_id:
-                    return SendFriendRequestResponse(
-                        success=False,
-                        message=f"Friend request to '{request.to_username}' is already pending"
-                    )
-                else:
-                    return SendFriendRequestResponse(
-                        success=False,
-                        message=f"'{request.to_username}' has already sent you a friend request"
-                    )
-        
-        # Create friend request
-        cursor.execute('''
-            INSERT INTO friend_requests (from_user_id, to_user_id, status)
-            VALUES (%s, %s, 'pending')
-            RETURNING id
-        ''', (request.from_user_id, to_user_id))
-        
-        request_id = cursor.fetchone()['id']
-        conn.commit()
-        
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request created: user_id {request.from_user_id} -> {request.to_username} (id: {request_id})")
-        
-        # Create notification for the recipient
-        create_friend_request_notification(request.from_user_id, to_user_id, request_id)
-        
-        return SendFriendRequestResponse(
-            success=True,
-            message=f"Friend request sent to '{request.to_username}'",
-            request_id=request_id
+            request_id=request_id,
+            status="pending"
         )
         
     except psycopg2.IntegrityError as e:
