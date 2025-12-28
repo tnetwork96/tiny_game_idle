@@ -1,11 +1,33 @@
 #include "mini_keyboard.h"
 
-// QWERTY layout (4 rows: 3 QWERTY + 1 Spacebar) - Matching main Keyboard layout
-const String MiniKeyboard::qwertyKeys[4][10] = {
+// Local Theme Macros (Pink/Feminine Style) - Private to this class
+#define MKB_BG_COLOR      0xE73F  // Light purple background
+#define MKB_KEY_BG        0xF81F  // Pink/Magenta (màu hồng)
+#define MKB_BORDER_COLOR  0xF81F  // Pink border
+#define MKB_TEXT_COLOR    0xFFFF  // White (chữ trắng nổi bật)
+#define MKB_HIGHLIGHT     0xFE1F  // Light pink (hồng nhạt) for selection
+#define MKB_SELECTED_TEXT 0xF81F  // Pink text on selected key
+
+// QWERTY Layout (4 rows x 10 cols) - GIỐNG HỆT Keyboard
+// Row 0: q w e r t y u i o p
+// Row 1: 123 a s d f g h j k l
+// Row 2: shift z x c v b n m |e <
+// Row 3: Spacebar (spans 8 keys, centered)
+const String MiniKeyboard::qwertyLayout[4][10] = {
     { "q", "w", "e", "r", "t", "y", "u", "i", "o", "p" },
-    { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l" },  // Added "123" at start, removed "|e" at end
-    { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<" }, // Added "|e" at position 8
-    { " ", " ", " ", " ", " ", " ", " ", " ", " ", "" }      // Spacebar row
+    { "123", "a", "s", "d", "f", "g", "h", "j", "k", "l" },
+    { "shift", "z", "x", "c", "v", "b", "n", "m", "|e", "<" },
+    { " ", " ", " ", " ", " ", " ", " ", " ", "", "" }  // Spacebar row
+};
+
+// Numeric Layout (3 rows x 10 cols) - GIỐNG HỆT Keyboard
+// Row 0: 1 2 3 4 5 6 7 8 9 0
+// Row 1: ABC / : ; ( ) $ & @ "
+// Row 2: (empty) # . , ? ! ' - |e <
+const String MiniKeyboard::numericLayout[3][10] = {
+    { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+    { "ABC", "/", ":", ";", "(", ")", "$", "&", "@", "\"" },
+    { "", "#", ".", ",", "?", "!", "'", "-", "|e", "<" }
 };
 
 MiniKeyboard::MiniKeyboard(Adafruit_ST7789* tft) {
@@ -13,172 +35,141 @@ MiniKeyboard::MiniKeyboard(Adafruit_ST7789* tft) {
     this->cursorRow = 0;
     this->cursorCol = 0;
     this->capsLock = false;
-    // Initialize with same skin as main Keyboard (FeminineLilac)
-    this->currentSkin = KeyboardSkins::getFeminineLilac();
-}
-
-void MiniKeyboard::setSkin(KeyboardSkin skin) {
-    this->currentSkin = skin;
+    this->isNumericMode = false;
+    this->lastDrawX = 0;
+    this->lastDrawY = 0;
 }
 
 void MiniKeyboard::draw(uint16_t x, uint16_t y) {
-    // Draw all keys
-    for (uint16_t row = 0; row < 4; row++) {
-        for (uint16_t col = 0; col < 10; col++) {
-            // Skip empty keys
-            if (qwertyKeys[row][col].length() == 0) {
-                continue;
+    // Store position for refresh after mode toggle
+    lastDrawX = x;
+    lastDrawY = y;
+    
+    // Center calculation: Hardcoded for SocialScreen fit
+    // Content area: 294px wide starting at x=26
+    // Keyboard width: 10*24 + 9*3 = 267px
+    // Center: 26 + (294 - 267) / 2 = 26 + 13 = 39
+    uint16_t xStart = x;
+    if (x == 0) {
+        // If x not provided, use hardcoded center calculation
+        xStart = 26 + (294 - (10 * KEY_WIDTH + 9 * SPACING)) / 2;
+    }
+    
+    uint16_t totalW = 10 * KEY_WIDTH + 9 * SPACING;  // 267px
+    
+    if (isNumericMode) {
+        // Draw numeric keys (3 rows, no spacebar)
+        for (uint16_t row = 0; row < 3; row++) {
+            for (uint16_t col = 0; col < COLS; col++) {
+                String key = numericLayout[row][col];
+                if (key.length() == 0) continue;
+                
+                uint16_t xPos = xStart + col * (KEY_WIDTH + SPACING);
+                uint16_t yPos = y + row * (KEY_HEIGHT + SPACING);
+                bool isSelected = (row == cursorRow && col == cursorCol);
+                drawKey(xPos, yPos, key, isSelected);
             }
-
-            // Handle Spacebar row (spans multiple columns)
-            if (row == 3) {
-                // Spacebar spans columns 0-5 (6 keys wide, centered)
-                if (col == 0) {
-                    // Calculate spacebar position (centered in row)
-                    uint16_t rowWidth = 10 * KEY_WIDTH + 9 * SPACING;  // Total row width: 267px
-                    uint16_t spacebarWidth = 6 * KEY_WIDTH + 5 * SPACING;  // Spacebar width: 159px
-                    uint16_t xPos = x + (rowWidth - spacebarWidth) / 2;  // Center spacebar
-                    uint16_t yPos = y + row * (KEY_HEIGHT + SPACING);
-                    bool isSelected = (cursorRow == 3 && cursorCol >= 0 && cursorCol < 6);
-                    drawKey(xPos, yPos, " ", isSelected);
-                    // Skip drawing other spacebar columns
-                    col = 5;
-                }
-                continue;
-            }
-
-            uint16_t xPos = x + col * (KEY_WIDTH + SPACING);
-            uint16_t yPos = y + row * (KEY_HEIGHT + SPACING);
-
-            bool isSelected = (row == cursorRow && col == cursorCol);
-            drawKey(xPos, yPos, qwertyKeys[row][col], isSelected);
         }
+    } else {
+        // Draw QWERTY keys (3 rows first)
+        for (uint16_t row = 0; row < 3; row++) {
+            for (uint16_t col = 0; col < COLS; col++) {
+                String key = qwertyLayout[row][col];
+                if (key.length() == 0) continue;
+                
+                uint16_t xPos = xStart + col * (KEY_WIDTH + SPACING);
+                uint16_t yPos = y + row * (KEY_HEIGHT + SPACING);
+                bool isSelected = (row == cursorRow && col == cursorCol);
+                drawKey(xPos, yPos, key, isSelected);
+            }
+        }
+        
+        // Vẽ phím Space ở hàng dưới cùng và căn giữa - COPY TỪ Keyboard
+        uint16_t spaceKeyWidth = 8 * (KEY_WIDTH + SPACING) - SPACING; // Phím Space chiếm 8 ô
+        uint16_t spaceXStart = xStart + (totalW - spaceKeyWidth) / 2; // Căn giữa trong keyboard width
+        uint16_t spaceYStart = y + 3 * (KEY_HEIGHT + SPACING); // Đặt phím Space ở hàng 3
+        
+        // BƯỚC 1: Vẽ nền phím Space trước
+        uint16_t spaceBgColor;
+        if (cursorRow == 3) {
+            spaceBgColor = MKB_HIGHLIGHT; // Tô sáng phím Space khi chọn
+        } else {
+            spaceBgColor = MKB_KEY_BG;  // Màu nền phím bình thường
+        }
+        
+        // Vẽ phím Space với bo góc (radius 3)
+        tft->fillRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, KEY_HEIGHT, 3, spaceBgColor);
+        tft->drawRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, KEY_HEIGHT, 3, MKB_BORDER_COLOR);
+        
+        // BƯỚC 2: Không in text cho spacebar (giống Keyboard - đã comment)
     }
 }
 
 void MiniKeyboard::drawKey(uint16_t x, uint16_t y, const String& key, bool isSelected) {
-    // Determine key width (normal or spacebar)
     uint16_t keyWidth = KEY_WIDTH;
-    if (key == " ") {
-        keyWidth = 6 * KEY_WIDTH + 5 * SPACING;  // Spacebar width
-    }
-
-    // Background color from skin
-    uint16_t bgColor = isSelected ? currentSkin.keySelectedColor : currentSkin.keyBgColor;
     
-    // Draw key background with rounded corners or square based on skin
-    if (currentSkin.roundedCorners && currentSkin.cornerRadius > 0) {
-        tft->fillRoundRect(x, y, keyWidth, KEY_HEIGHT, currentSkin.cornerRadius, bgColor);
-        if (currentSkin.hasBorder) {
-            tft->drawRoundRect(x, y, keyWidth, KEY_HEIGHT, currentSkin.cornerRadius, currentSkin.keyBorderColor);
-        }
-    } else {
-        tft->fillRect(x, y, keyWidth, KEY_HEIGHT, bgColor);
-        if (currentSkin.hasBorder) {
-            tft->drawRect(x, y, keyWidth, KEY_HEIGHT, currentSkin.keyBorderColor);
-        }
-    }
-
-    // Draw pattern if skin has pattern (feminine pattern for lilac skin)
-    if (currentSkin.hasPattern && !isSelected) {
-        // Check for feminine skin (pink/lilac colors)
-        if (currentSkin.keyBgColor == 0xF81F || currentSkin.keyBgColor == 0xFE1F || 
-            currentSkin.keyBgColor == 0xA2B5 || currentSkin.keyBgColor == 0xC618) {
-            drawFemininePattern(x, y, keyWidth, KEY_HEIGHT);
-        }
-        // Check for cyberpunk skin (black bg, cyan border)
-        else if (currentSkin.keyBgColor == 0x0000 && currentSkin.keyBorderColor == 0x07FF) {
-            // Draw grid pattern
-            uint16_t gridColor = 0x07FF;  // Neon cyan
-            tft->drawFastHLine(x + 2, y + KEY_HEIGHT / 2, keyWidth - 4, gridColor);
-            tft->drawFastVLine(x + keyWidth / 2, y + 2, KEY_HEIGHT - 4, gridColor);
-        }
-    }
-
-    // Draw key text (matching main Keyboard logic)
+    // Use local theme colors
+    uint16_t bgColor = isSelected ? MKB_HIGHLIGHT : MKB_KEY_BG;
+    uint16_t borderColor = MKB_BORDER_COLOR;
+    uint16_t textColor = isSelected ? MKB_SELECTED_TEXT : MKB_TEXT_COLOR;
+    
+    // Draw key background with rounded corners (radius 3)
+    tft->fillRoundRect(x, y, keyWidth, KEY_HEIGHT, 3, bgColor);
+    
+    // Draw border
+    tft->drawRoundRect(x, y, keyWidth, KEY_HEIGHT, 3, borderColor);
+    
+    // Pink theme doesn't use grid pattern (cleaner look)
+    
+    // Draw key text
     String displayText = getKeyDisplayText(key);
     
-    // Skip drawing if text is empty (e.g., spacebar)
+    // Skip drawing if text is empty
     if (displayText.length() == 0) {
         return;
     }
     
-    // Truncate text if too long (matching main Keyboard - max 2 chars)
+    // Truncate text if too long (max 2 chars)
     if (displayText.length() > 2) {
         displayText = displayText.substring(0, 2);
     }
     
-    // Text color from skin
-    uint16_t textColor = isSelected ? currentSkin.keySelectedTextColor : currentSkin.keyTextColor;
-    
-    tft->setTextSize(currentSkin.textSize);
+    tft->setTextSize(1);
     tft->setTextColor(textColor, bgColor);
     
-    // Calculate text position (matching main Keyboard logic)
-    uint16_t textWidth = displayText.length() * 6 * currentSkin.textSize;  // Approximate width
-    uint16_t marginX = 2;  // Margin to avoid border
-    uint16_t textX = x + marginX;  // Start from left with margin
+    // Calculate text position (center text in key)
+    uint16_t textWidth = displayText.length() * 6;  // Approximate width (6px per char)
+    uint16_t marginX = 2;
+    uint16_t textX = x + marginX;
     if (textWidth < keyWidth - (marginX * 2)) {
         textX = x + (keyWidth - textWidth) / 2;  // Center if enough space
     }
-    uint16_t textY = y + (KEY_HEIGHT - 8 * currentSkin.textSize) / 2;  // Center vertically
+    uint16_t textY = y + (KEY_HEIGHT - 8) / 2;  // Center vertically
     
     tft->setCursor(textX, textY);
     tft->print(displayText);
 }
 
-void MiniKeyboard::drawFemininePattern(uint16_t x, uint16_t y, uint16_t width, uint16_t height) {
-    // Draw feminine pattern (hearts, flowers) matching main Keyboard
-    uint16_t patternColor = 0xFFFF;  // White color for pattern
-    
-    // Draw small heart at top-right corner
-    uint16_t heartX = x + width - 6;
-    uint16_t heartY = y + 2;
-    
-    // Draw simple heart (3 pixels)
-    tft->drawPixel(heartX, heartY, patternColor);
-    tft->drawPixel(heartX + 1, heartY, patternColor);
-    tft->drawPixel(heartX, heartY + 1, patternColor);
-    
-    // Draw small flower at bottom-left corner
-    uint16_t flowerX = x + 2;
-    uint16_t flowerY = y + height - 4;
-    
-    // Draw simple 5-petal flower
-    tft->drawPixel(flowerX, flowerY, patternColor);      // Center petal
-    tft->drawPixel(flowerX - 1, flowerY - 1, patternColor);  // Top-left petal
-    tft->drawPixel(flowerX + 1, flowerY - 1, patternColor);  // Top-right petal
-    tft->drawPixel(flowerX - 1, flowerY + 1, patternColor);  // Bottom-left petal
-    tft->drawPixel(flowerX + 1, flowerY + 1, patternColor);  // Bottom-right petal
-    
-    // Draw small dot in center
-    if (width > 15 && height > 15) {
-        uint16_t dotX = x + width / 2;
-        uint16_t dotY = y + height / 2;
-        tft->drawPixel(dotX, dotY, patternColor);
-    }
-}
-
 String MiniKeyboard::getKeyDisplayText(const String& key) const {
-    // Handle shift key - show "Aa" or "AA" based on capsLock (matching main Keyboard)
+    // Handle shift key - show "Aa" or "AA" based on capsLock
     if (key == "shift") {
         return capsLock ? "AA" : "Aa";
     }
     // Handle Enter key
     if (key == "|e") {
-        return "Ent";  // Could draw symbol, but text is simpler for mini keyboard
+        return "Ent";
     }
     // Handle Backspace
     if (key == "<") {
-        return "<";  // Keep simple, matching main keyboard format
+        return "<";
     }
-    // Handle spacebar
-    if (key == " ") {
-        return "";  // Spacebar usually has no text, or could show "Space"
-    }
-    // Handle "123" key
+    // Handle "123" key (switch to numeric mode)
     if (key == "123") {
         return "123";
+    }
+    // Handle "ABC" key (switch back to QWERTY mode)
+    if (key == "ABC") {
+        return "ABC";
     }
     // Handle letters - apply caps lock
     if (key.length() == 1 && key >= "a" && key <= "z") {
@@ -197,11 +188,17 @@ void MiniKeyboard::moveCursorInternal(int8_t deltaRow, int8_t deltaCol) {
     int16_t newRow = (int16_t)cursorRow + deltaRow;
     int16_t newCol = (int16_t)cursorCol + deltaCol;
     
-    // Handle row wrapping
+    uint16_t maxRow = isNumericMode ? 2 : 3;  // Numeric has 3 rows (0-2), QWERTY has 4 rows (0-3)
+    
+    // Handle row wrapping - COPY TỪ Keyboard
     if (newRow < 0) {
-        newRow = 3;  // Wrap to spacebar row
-    } else if (newRow > 3) {
-        newRow = 0;  // Wrap to top row
+        if (isNumericMode) {
+            newRow = maxRow;  // Wrap to bottom row
+        } else {
+            newRow = 3;  // Nếu nhấn "up" từ hàng đầu tiên, quay lại hàng phím Space
+        }
+    } else if (newRow > maxRow) {
+        newRow = 0;  // Quay lại hàng đầu tiên
     }
     
     // Handle column wrapping
@@ -211,20 +208,22 @@ void MiniKeyboard::moveCursorInternal(int8_t deltaRow, int8_t deltaCol) {
         newCol = 0;  // Wrap to left
     }
     
-    // Special handling for spacebar row
-    if (newRow == 3) {
-        // Spacebar spans columns 0-5, so clamp to that range
-        if (newCol < 0 || newCol > 5) {
-            newCol = 2;  // Center of spacebar
-        }
-    } else {
-        // Skip empty keys in other rows
-        if (qwertyKeys[newRow][newCol].length() == 0) {
+    // Nếu con trỏ đang ở hàng Space (hàng 3), cố định nó ở giữa phím Space - COPY TỪ Keyboard
+    if (!isNumericMode && newRow == 3) {
+        newCol = 4;  // Phím Space nằm ở giữa (cột 4)
+    }
+    
+    // Get active layout
+    const String (*activeLayout)[10] = isNumericMode ? numericLayout : qwertyLayout;
+    
+    // Skip empty keys (chỉ cho các hàng 0-2, không check hàng 3 vì đó là spacebar)
+    if (newRow < 3) {
+        if (activeLayout[newRow][newCol].length() == 0) {
             // Find nearest valid key
             if (deltaCol > 0) {
                 // Moving right, find next valid key
-                for (int8_t c = newCol + 1; c < 10; c++) {
-                    if (qwertyKeys[newRow][c].length() > 0) {
+                for (int8_t c = newCol + 1; c < COLS; c++) {
+                    if (activeLayout[newRow][c].length() > 0) {
                         newCol = c;
                         break;
                     }
@@ -232,7 +231,7 @@ void MiniKeyboard::moveCursorInternal(int8_t deltaRow, int8_t deltaCol) {
             } else if (deltaCol < 0) {
                 // Moving left, find previous valid key
                 for (int8_t c = newCol - 1; c >= 0; c--) {
-                    if (qwertyKeys[newRow][c].length() > 0) {
+                    if (activeLayout[newRow][c].length() > 0) {
                         newCol = c;
                         break;
                     }
@@ -255,10 +254,21 @@ void MiniKeyboard::moveCursor(String direction) {
     } else if (direction == "right") {
         moveCursorInternal(0, 1);
     } else if (direction == "select") {
-        // Toggle caps lock if Shift key was selected
-        if (cursorRow < 4 && cursorCol < 10) {
-            String currentKey = qwertyKeys[cursorRow][cursorCol];
-            if (currentKey == "shift") {
+        String currentKey = getCurrentChar();
+        
+        // Handle mode toggle keys
+        if (currentKey == "123") {
+            toggleMode();
+            return;
+        } else if (currentKey == "ABC") {
+            toggleMode();
+            return;
+        }
+        
+        // Toggle caps lock if Shift key was selected (only in QWERTY mode)
+        if (!isNumericMode && cursorRow < ROWS && cursorCol < COLS) {
+            String key = qwertyLayout[cursorRow][cursorCol];
+            if (key == "shift") {
                 capsLock = !capsLock;
             }
         }
@@ -267,37 +277,66 @@ void MiniKeyboard::moveCursor(String direction) {
 }
 
 String MiniKeyboard::getCurrentChar() {
-    if (cursorRow < 4 && cursorCol < 10) {
-        String key = qwertyKeys[cursorRow][cursorCol];
-        
-        // Handle special keys
-        if (key == "|e") {
-            return "|e";  // Enter key
-        } else if (key == "<") {
-            return "<";  // Backspace
-        } else if (key == "shift") {
-            return "shift";  // Shift key (toggles caps lock)
-        } else if (key == "123") {
-            return "123";  // Number mode key (not used in mini keyboard, but return for compatibility)
-        } else if (key == " ") {
-            return " ";  // Space
-        } else if (key.length() == 1 && key >= "a" && key <= "z") {
-            // Apply caps lock to letters
-            if (capsLock) {
-                String upperKey = key;
-                upperKey.toUpperCase();
-                return upperKey;
-            }
-            return key;
+    // Nếu đang ở hàng Space (hàng 3) và không phải numeric mode - COPY TỪ Keyboard
+    if (!isNumericMode && cursorRow == 3) {
+        return " ";  // Trả về phím Space
+    }
+    
+    String key = "";
+    
+    // Use active layout based on mode
+    if (isNumericMode) {
+        if (cursorRow < 3 && cursorCol < COLS) {
+            key = numericLayout[cursorRow][cursorCol];
         }
-        
+    } else {
+        if (cursorRow < 3 && cursorCol < COLS) {
+            key = qwertyLayout[cursorRow][cursorCol];
+        }
+    }
+    
+    if (key.length() == 0) {
+        return "";
+    }
+    
+    // Handle special keys
+    if (key == "|e") {
+        return "|e";  // Enter key
+    } else if (key == "<") {
+        return "<";  // Backspace
+    } else if (key == "shift") {
+        return "shift";  // Shift key (toggles caps lock)
+    } else if (key == "123") {
+        return "123";  // Number mode toggle key
+    } else if (key == "ABC") {
+        return "ABC";  // QWERTY mode toggle key
+    } else if (key == " ") {
+        return " ";  // Space
+    } else if (key.length() == 1 && key >= "a" && key <= "z") {
+        // Apply caps lock to letters
+        if (capsLock) {
+            String upperKey = key;
+            upperKey.toUpperCase();
+            return upperKey;
+        }
         return key;
     }
-    return "";
+    
+    return key;
 }
 
 void MiniKeyboard::reset() {
     cursorRow = 0;
     cursorCol = 0;
     capsLock = false;
+    isNumericMode = false;
+}
+
+void MiniKeyboard::toggleMode() {
+    isNumericMode = !isNumericMode;
+    // Reset cursor to safe position when switching modes
+    cursorRow = 0;
+    cursorCol = 0;
+    // Refresh the display immediately using last draw position
+    draw(lastDrawX, lastDrawY);
 }

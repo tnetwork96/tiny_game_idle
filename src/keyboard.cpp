@@ -66,6 +66,7 @@ Keyboard::Keyboard(Adafruit_ST7789* tft) {
     this->textSize = 1;
     this->animationFrame = 0;  // Khởi tạo animation frame
     this->onKeySelected = nullptr;  // Khởi tạo callback = null
+    this->drawingEnabled = true;  // Enable drawing by default
     
     // Khởi tạo skin mặc định (synthwave/vaporwave theme)
     this->currentSkin = KeyboardSkins::getSynthwaveSkin();
@@ -89,6 +90,11 @@ Keyboard::~Keyboard() {
 }
 
 void Keyboard::draw() {
+    // Don't draw if drawing is disabled (e.g., when social screen is active)
+    if (!drawingEnabled) {
+        return;
+    }
+    
     // Tăng animation frame cho hiệu ứng cyberpunk
     animationFrame++;
     if (animationFrame > 1000) animationFrame = 0;  // Reset sau 1000 frame

@@ -22,6 +22,15 @@ public:
     // Get the entered username
     String getEnteredName() const { return enteredName; }
 
+    // Check if form submission was requested (Enter key on keyboard was selected and pressed)
+    bool shouldSubmitForm() const { return submitRequested; }
+
+    // Set error message to display
+    void setErrorMessage(const String& message);
+
+    // Clear error message
+    void clearError();
+
     // Reset the input state
     void reset();
 
@@ -39,6 +48,12 @@ private:
     // Cursor position for keyboard navigation
     uint16_t cursorRow;
     int8_t cursorCol;
+    
+    // Flag to indicate form submission was requested
+    bool submitRequested;
+    
+    // Error message to display
+    String errorMessage;
 };
 
 #endif

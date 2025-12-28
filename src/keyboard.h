@@ -48,6 +48,9 @@ private:
     uint16_t keyTextColor;    // Màu chữ trên phím
     uint16_t bgScreenColor;   // Màu nền màn hình
     
+    // Flag to disable drawing (e.g., when social screen is active)
+    bool drawingEnabled;
+    
     // Bảng phím chữ cái (chữ viết thường)
     static String qwertyKeysArray[3][10];
     
@@ -156,6 +159,10 @@ public:
     void setSkin(const KeyboardSkin& skin);
     KeyboardSkin getSkin() const { return currentSkin; }
     void applySkin();  // Áp dụng skin vào các biến màu sắc cũ (backward compatibility)
+    
+    // Enable/disable drawing (to prevent drawing when social screen is active)
+    void setDrawingEnabled(bool enabled) { drawingEnabled = enabled; }
+    bool isDrawingEnabled() const { return drawingEnabled; }
     
     // Lưu ý: Các hàm get skin đã được di chuyển vào namespace KeyboardSkins
     // Sử dụng KeyboardSkins::getFeminineSkin(), KeyboardSkins::getCyberpunkSkin(), etc.

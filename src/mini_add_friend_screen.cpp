@@ -6,6 +6,7 @@
 #define SOCIAL_ACCENT    0x07FF  // Cyan accent
 #define SOCIAL_TEXT      0xFFFF  // White text
 #define SOCIAL_MUTED     0x8410  // Muted gray text
+#define SOCIAL_ERROR     0xF986  // Bright Red for errors
 
 MiniAddFriendScreen::MiniAddFriendScreen(Adafruit_ST7789* tft, MiniKeyboard* keyboard) {
     this->tft = tft;
@@ -13,6 +14,8 @@ MiniAddFriendScreen::MiniAddFriendScreen(Adafruit_ST7789* tft, MiniKeyboard* key
     this->enteredName = "";
     this->cursorRow = 0;
     this->cursorCol = 0;
+    this->submitRequested = false;
+    this->errorMessage = "";
 }
 
 void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool hasFocus) {
@@ -61,10 +64,10 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
     if (keyboard != nullptr) {
         // Calculate keyboard dimensions (matching MiniKeyboard constants)
         const uint16_t KEY_WIDTH = 24;
-        const uint16_t KEY_HEIGHT = 26;
+        const uint16_t KEY_HEIGHT = 28;  // Updated to match MiniKeyboard
         const uint16_t SPACING = 3;
         const uint16_t keyboardWidth = 10 * KEY_WIDTH + 9 * SPACING;  // 267px
-        const uint16_t keyboardHeight = 4 * KEY_HEIGHT + 3 * SPACING;  // 4 rows including spacebar
+        const uint16_t keyboardHeight = 4 * KEY_HEIGHT + 3 * SPACING;  // 4 rows (3 QWERTY + 1 Spacebar)
         
         // Position keyboard at bottom of screen
         const uint16_t screenHeight = 240;
@@ -76,10 +79,38 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
         
         keyboard->draw(keyboardX, keyboardY);
     }
+    
+    // Draw error message below input box if present
+    if (errorMessage.length() > 0) {
+        tft->setTextSize(1);
+        tft->setTextColor(SOCIAL_ERROR, SOCIAL_BG_DARK);
+        // Position error message below input box with some spacing
+        uint16_t errorY = y + h + 8;
+        tft->setCursor(x, errorY);
+        
+        // Truncate error message if too long
+        String displayError = errorMessage;
+        int maxChars = (w) / 6;  // Approximate chars for text size 1
+        if (displayError.length() > maxChars) {
+            displayError = displayError.substring(0, maxChars - 3) + "...";
+        }
+        tft->print(displayError);
+    }
+}
+
+void MiniAddFriendScreen::setErrorMessage(const String& message) {
+    errorMessage = message;
+}
+
+void MiniAddFriendScreen::clearError() {
+    errorMessage = "";
 }
 
 void MiniAddFriendScreen::handleKeyPress(const String& key) {
     if (keyboard == nullptr) return;
+    
+    // Reset submit flag at start of each key press
+    submitRequested = false;
     
     // Handle navigation keys - delegate to keyboard
     if (key == "|u") {
@@ -95,13 +126,14 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         keyboard->moveCursor("right");
         return;
     } else if (key == "|e") {
-        // Enter/Select key
+        // Physical Enter key pressed - type the selected character
         keyboard->moveCursor("select");
         String currentChar = keyboard->getCurrentChar();
         
         // Handle the selected character
         if (currentChar == "|e") {
-            // Enter key - handled by parent (SocialScreen)
+            // Enter key on keyboard was selected - request form submission
+            submitRequested = true;
             return;
         } else if (currentChar == "<") {
             // Backspace - remove last character
@@ -112,6 +144,9 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         } else if (currentChar == "shift") {
             // Shift key - caps lock toggled in keyboard
             return;
+        } else if (currentChar == "123" || currentChar == "ABC") {
+            // Mode toggle keys - already handled in keyboard
+            return;
         } else if (currentChar == " ") {
             // Space
             if (enteredName.length() < MAX_NAME_LENGTH) {
@@ -119,7 +154,7 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
             }
             return;
         } else if (currentChar.length() == 1) {
-            // Regular character
+            // Regular character (letter, number, or symbol)
             if (enteredName.length() < MAX_NAME_LENGTH) {
                 enteredName += currentChar;
             }
@@ -136,6 +171,8 @@ void MiniAddFriendScreen::reset() {
     enteredName = "";
     cursorRow = 0;
     cursorCol = 0;
+    submitRequested = false;
+    errorMessage = "";
     if (keyboard != nullptr) {
         keyboard->reset();
     }

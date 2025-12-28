@@ -36,9 +36,9 @@ const unsigned char PROGMEM iconPlus[] = {
 #define SOCIAL_ERROR     0xF986  // Bright Red for offline
 
 // Layout constants
-#define SIDEBAR_WIDTH    45
-#define CONTENT_X        45
-#define CONTENT_WIDTH    275
+#define SIDEBAR_WIDTH    26
+#define CONTENT_X        26
+#define CONTENT_WIDTH    294
 #define SCREEN_HEIGHT    240
 #define TAB_HEIGHT       60
 #define TAB_PADDING      10
@@ -408,7 +408,7 @@ void SocialScreen::drawAddFriendContent() {
     uint16_t inputW = CONTENT_WIDTH - 40;
     uint16_t inputH = 40;
     uint16_t inputX = CONTENT_X + (CONTENT_WIDTH - inputW) / 2;
-    uint16_t inputY = 60;  // Fixed position to avoid keyboard overlap (keyboard occupies bottom ~85px)
+    uint16_t inputY = 45;  // Moved up from 60 to avoid keyboard overlap (keyboard height: 121px, starts at Y=115)
     
     // Delegate drawing to MiniAddFriendScreen
     if (miniAddFriend != nullptr) {
@@ -600,12 +600,13 @@ void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
 
 void SocialScreen::handleContentNavigation(const String& key) {
     if (currentTab == TAB_ADD_FRIEND) {
-        // Forward to MiniAddFriendScreen
+        // Forward to MiniAddFriendScreen - it will handle Enter key appropriately
+        // (typing selected character, or submitting if Enter key on keyboard is selected)
         if (miniAddFriend != nullptr) {
             miniAddFriend->handleKeyPress(key);
             
-            // Handle Enter key to trigger Add Friend API call
-            if (key == "|e") {
+            // Check if form should be submitted (Enter key on keyboard was selected and pressed)
+            if (miniAddFriend->shouldSubmitForm()) {
                 String friendName = miniAddFriend->getEnteredName();
                 if (friendName.length() > 0) {
                     Serial.print("Social Screen: Adding friend: ");
@@ -617,6 +618,7 @@ void SocialScreen::handleContentNavigation(const String& key) {
                         if (result.success) {
                             Serial.print("Social Screen: Friend request sent successfully: ");
                             Serial.println(result.message);
+                            miniAddFriend->clearError();  // Clear any previous error
                             miniAddFriend->reset();
                             
                             // Refresh friends list
@@ -629,7 +631,8 @@ void SocialScreen::handleContentNavigation(const String& key) {
                         } else {
                             Serial.print("Social Screen: Failed to send friend request: ");
                             Serial.println(result.message);
-                            // TODO: Display error message to user (could add error display in MiniAddFriendScreen)
+                            // Display error message to user
+                            miniAddFriend->setErrorMessage(result.message);
                         }
                     }
                 }

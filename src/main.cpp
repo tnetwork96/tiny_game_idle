@@ -68,6 +68,11 @@ void onLoginSuccess() {
         // Activate social screen
         isSocialScreenActive = true;
         
+        // Disable main keyboard drawing when social screen is active
+        if (keyboard != nullptr) {
+            keyboard->setDrawingEnabled(false);
+        }
+        
         // Auto-navigate to Add Friend tab and focus keyboard
         socialScreen->navigateToAddFriend();
         
@@ -426,6 +431,7 @@ void loop() {
         static unsigned long lastActionTime = 0;
         static unsigned long nextActionDelay = 0;
         static int actionCounter = 0;
+        static bool isTypingFriendName = false;
         
         unsigned long currentTime = millis();
         
@@ -433,6 +439,7 @@ void loop() {
         if (nextActionDelay == 0 || (currentTime - lastActionTime >= nextActionDelay)) {
             // Random action selection (0-7)
             int randomAction = (millis() + actionCounter) % 8;
+            bool timingHandled = false;  // Flag to track if timing was handled in case 7
             
             switch (randomAction) {
                 case 0:
@@ -471,14 +478,78 @@ void loop() {
                     socialScreen->handleKeyPress("|e");
                     break;
                 case 7:
-                    // Random character input (only if on Add Friend tab)
-                    if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
-                        char randomChar = 'a' + (millis() % 26);
-                        String charStr = String(randomChar);
-                        Serial.print("Social Screen: Auto-nav [Random] - Typing character: ");
-                        Serial.println(charStr);
-                        socialScreen->handleKeyPress(charStr);
-                    } else {
+                    // Type "Warrior" to add friend (only if on Add Friend tab and not currently typing)
+                    if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND && !isTypingFriendName) {
+                        Serial.println("Social Screen: Auto-nav [Random] - Typing 'Warrior' to add friend");
+                        isTypingFriendName = true;
+                        
+                        // Type the friend name using keyboard
+                        keyboard->typeString("Warrior");
+                        
+                        // Wait a bit to ensure all characters are processed (typeString has 150ms delay per char, so 7 chars = ~1050ms, add buffer)
+                        delay(2000);
+                        
+                        // Navigate to Enter key on keyboard and press it to submit
+                        // Enter key is at position [2][8] in QWERTY mode
+                        // We need to get the MiniKeyboard from MiniAddFriendScreen, but we don't have direct access
+                        // Instead, we'll use handleKeyPress to navigate to Enter key
+                        // Actually, we can use the main keyboard's moveCursorTo if it works with MiniKeyboard
+                        // But MiniKeyboard is separate. Let's use a simpler approach:
+                        // After typing, navigate to Enter key using handleKeyPress
+                        // We'll navigate down to row 2, then right to col 8
+                        // But that's complex. Better: use handleKeyPress("|e") which will select current key
+                        // But we need to be on Enter key first.
+                        
+                        // Simplest approach: After typing, the user needs to manually navigate to Enter
+                        // OR we can try to navigate programmatically using handleKeyPress
+                        // Let's navigate: move down twice to get to row 2, then right 8 times
+                        // Actually, let's use a different approach: just press Enter after a delay
+                        // The handleKeyPress("|e") will type the currently selected character
+                        // We need to ensure Enter key is selected. Let's navigate there.
+                        
+                        // Use handleKeyPress to navigate to Enter key position
+                        // Enter is at row 2, col 8. We'll navigate there manually.
+                        // But this is complex. Let's try a simpler approach:
+                        // After typing, press Enter - if Enter key is already selected, it will submit
+                        // Otherwise, we need to navigate there first.
+                        
+                        // For now, let's just press Enter - it might work if Enter is already selected
+                        // Or we can navigate there first. Let's navigate:
+                        Serial.println("Social Screen: Auto-nav [Random] - Navigating to Enter key and submitting");
+                        
+                        // Navigate to Enter key: down 2 rows, right 8 cols from top-left
+                        // But we don't know current position. Let's try to navigate to a known position first.
+                        // Actually, the simplest: use handleKeyPress with navigation keys
+                        // But we need to know current position. Let's assume we start from a known position.
+                        
+                        // Better approach: After typing, press physical Enter
+                        // This will type whatever is selected. We want Enter key to be selected.
+                        // So we need to navigate to Enter key first. Let's do that:
+                        // Press down twice to get to row 2, then right 8 times to get to col 8
+                        for (int i = 0; i < 2; i++) {
+                            socialScreen->handleKeyPress("|d");  // Move down to row 2
+                            delay(100);
+                        }
+                        for (int i = 0; i < 8; i++) {
+                            socialScreen->handleKeyPress("|r");  // Move right to col 8
+                            delay(100);
+                        }
+                        delay(200);
+                        
+                        // Now press Enter to select the Enter key and submit
+                        socialScreen->handleKeyPress("|e");
+                        
+                        // Reset typing flag
+                        isTypingFriendName = false;
+                        
+                        // Set longer delay to avoid spam (3-5 seconds)
+                        nextActionDelay = 3000 + (millis() % 2000);
+                        lastActionTime = currentTime;
+                        actionCounter++;
+                        timingHandled = true;  // Mark that we handled timing
+                        
+                        Serial.println("Social Screen: Auto-nav [Random] - Friend request submitted, waiting before next action");
+                    } else if (socialScreen->getCurrentTab() != SocialScreen::TAB_ADD_FRIEND) {
                         // If not on Add Friend tab, do a random scroll instead
                         if ((millis() % 2) == 0) {
                             socialScreen->handleKeyPress("|d");
@@ -486,14 +557,18 @@ void loop() {
                             socialScreen->handleKeyPress("|u");
                         }
                     }
+                    // If isTypingFriendName is true, skip this action (will be handled in next iteration)
                     break;
             }
             
-            lastActionTime = currentTime;
-            actionCounter++;
-            
-            // Set random delay for next action (500ms to 2000ms)
-            nextActionDelay = 500 + (millis() % 1500);
+            // Update timing only if it wasn't handled in case 7
+            if (!timingHandled) {
+                lastActionTime = currentTime;
+                actionCounter++;
+                
+                // Set random delay for next action (500ms to 2000ms)
+                nextActionDelay = 500 + (millis() % 1500);
+            }
             
             // Log every 10 actions
             if (actionCounter % 10 == 0) {
