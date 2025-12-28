@@ -440,83 +440,47 @@ void loop() {
         }
     }
     
-    // Auto-navigation flow for Add Friend - CHỈ TẬP TRUNG VÀO ADD FRIEND
+    // Auto-navigation flow for Notifications - CHỈ TẬP TRUNG VÀO NOTIFICATIONS
     if (isSocialScreenActive && socialScreen != nullptr) {
-        // Đảm bảo luôn ở tab Add Friend và focus vào keyboard
-        if (socialScreen->getCurrentTab() != SocialScreen::TAB_ADD_FRIEND) {
-            Serial.println("Add Friend: Auto-navigating to Add Friend tab");
-            socialScreen->navigateToAddFriend();
+        // Đảm bảo luôn ở tab Notifications
+        if (socialScreen->getCurrentTab() != SocialScreen::TAB_NOTIFICATIONS) {
+            Serial.println("Notifications: Auto-navigating to Notifications tab");
+            socialScreen->navigateToNotifications();
             delay(500);
         }
         
-        // Chỉ thực hiện điều hướng trên keyboard của Add Friend
-        // Không switch tab, không scroll, không move focus left/right
+        // Navigate notifications list
         static unsigned long lastActionTime = 0;
         static unsigned long nextActionDelay = 0;
         static int actionCounter = 0;
-        static bool hasTypedFriendName = false;
         
         unsigned long currentTime = millis();
         
         // Initialize or check if it's time for next action
         if (nextActionDelay == 0 || (currentTime - lastActionTime >= nextActionDelay)) {
-            if (!hasTypedFriendName) {
-                // Type friend name để test
-                Serial.println("Add Friend: Auto-nav - Typing 'Warrior' to add friend");
-                
-                // Type the friend name using MiniKeyboard (not the main keyboard)
-                MiniKeyboard* miniKeyboard = socialScreen->getMiniKeyboard();
-                if (miniKeyboard != nullptr) {
-                    miniKeyboard->typeString("Warrior");
-                }
-                
-                // Wait for typing to complete
-                delay(2000);
-                
-                // Press physical Enter key to submit (nhập xong Enter là send request)
-                Serial.println("Add Friend: Auto-nav - Pressing Enter key to submit");
-                socialScreen->handleKeyPress("|e");
-                
-                hasTypedFriendName = true;
-                nextActionDelay = 5000;  // Wait 5 seconds after submit
-                lastActionTime = currentTime;
-                actionCounter++;
-                
-                Serial.println("Add Friend: Auto-nav - Friend request submitted");
-            } else {
-                // Sau khi đã type và submit, chỉ thực hiện navigation trên keyboard để test
-                // Các hành động đơn giản: up, down, left, right trên keyboard
-                int navAction = actionCounter % 4;
-                
-                switch (navAction) {
-                    case 0:
-                        Serial.println("Add Friend: Auto-nav - Moving keyboard cursor up");
-                        socialScreen->handleKeyPress("|u");
-                        break;
-                    case 1:
-                        Serial.println("Add Friend: Auto-nav - Moving keyboard cursor down");
-                        socialScreen->handleKeyPress("|d");
-                        break;
-                    case 2:
-                        Serial.println("Add Friend: Auto-nav - Moving keyboard cursor left");
-                        socialScreen->handleKeyPress("|l");
-                        break;
-                    case 3:
-                        Serial.println("Add Friend: Auto-nav - Moving keyboard cursor right");
-                        socialScreen->handleKeyPress("|r");
-                        break;
-                }
-                
-                lastActionTime = currentTime;
-                actionCounter++;
-                
-                // Set delay for next action (1-2 seconds)
-                nextActionDelay = 1000 + (millis() % 1000);
+            // Navigate notifications list: up and down
+            int navAction = actionCounter % 2;
+            
+            switch (navAction) {
+                case 0:
+                    Serial.println("Notifications: Auto-nav - Moving down in notifications list");
+                    socialScreen->handleKeyPress("|d");
+                    break;
+                case 1:
+                    Serial.println("Notifications: Auto-nav - Moving up in notifications list");
+                    socialScreen->handleKeyPress("|u");
+                    break;
             }
+            
+            lastActionTime = currentTime;
+            actionCounter++;
+            
+            // Set delay for next action (1-2 seconds)
+            nextActionDelay = 1000 + (millis() % 1000);
             
             // Log every 10 actions
             if (actionCounter % 10 == 0) {
-                Serial.print("Add Friend: Auto-navigation - ");
+                Serial.print("Notifications: Auto-navigation - ");
                 Serial.print(actionCounter);
                 Serial.println(" actions performed");
             }

@@ -52,6 +52,9 @@ public:
 
     // Navigate to Add Friend tab and focus keyboard
     void navigateToAddFriend();
+    
+    // Navigate to Notifications tab
+    void navigateToNotifications();
 
     // Callback for when friend is added successfully
     typedef void (*OnAddFriendSuccessCallback)();

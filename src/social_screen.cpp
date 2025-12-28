@@ -170,22 +170,12 @@ void SocialScreen::drawFriendsList() {
         tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
     }
     
-    // Draw modern header with count
+    // Draw modern header
     const uint16_t headerHeight = 35;
     tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("FRIENDS");
-    
-    // Draw count if available
-    if (friendsCount > 0) {
-        tft->setTextSize(1);
-        tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-        tft->setCursor(CONTENT_X + 10, 24);
-        tft->print("[ ");
-        tft->print(friendsCount);
-        tft->print(" ]");
-    }
     
     // Draw header line
     tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
@@ -269,22 +259,12 @@ void SocialScreen::drawNotificationsList() {
         tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, SOCIAL_ACCENT);
     }
     
-    // Draw modern header with count
+    // Draw modern header
     const uint16_t headerHeight = 35;
     tft->setTextSize(1);
     tft->setTextColor(SOCIAL_TEXT, SOCIAL_BG_DARK);
     tft->setCursor(CONTENT_X + 10, 8);
     tft->print("THONG BAO");
-    
-    // Draw count if available
-    if (notificationsCount > 0) {
-        tft->setTextSize(1);
-        tft->setTextColor(SOCIAL_MUTED, SOCIAL_BG_DARK);
-        tft->setCursor(CONTENT_X + 10, 24);
-        tft->print("[ ");
-        tft->print(notificationsCount);
-        tft->print(" ]");
-    }
     
     // Draw header line
     tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, SOCIAL_ACCENT);
@@ -888,6 +868,15 @@ void SocialScreen::navigateToAddFriend() {
     if (miniAddFriend != nullptr) {
         miniAddFriend->reset();
     }
+    // Draw the screen
+    draw();
+}
+
+void SocialScreen::navigateToNotifications() {
+    // Switch to Notifications tab
+    switchTab(TAB_NOTIFICATIONS);
+    // Ensure focus is on content (notifications list)
+    focusMode = FOCUS_CONTENT;
     // Draw the screen
     draw();
 }

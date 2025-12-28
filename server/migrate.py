@@ -20,8 +20,10 @@ def get_migration_files():
         return []
     
     migration_files = []
+    import re
     for filename in sorted(os.listdir(migrations_dir)):
-        if filename.startswith('00') and filename.endswith('.py') and filename != '__init__.py':
+        # Match files that start with digits (001, 002, ..., 010, etc.)
+        if re.match(r'^\d+_.*\.py$', filename) and filename != '__init__.py':
             migration_files.append(os.path.join(migrations_dir, filename))
     
     return migration_files

@@ -19,10 +19,11 @@ def seed_notifications():
     cursor = conn.cursor()
     
     try:
-        # Get user IDs
-        cursor.execute('SELECT id, username FROM users ORDER BY id')
+        # Get user IDs with display names (nickname with fallback to username)
+        cursor.execute('SELECT id, username, COALESCE(nickname, username) as display_name FROM users ORDER BY id')
         users = cursor.fetchall()
-        user_ids = {username: user_id for user_id, username in users}
+        user_ids = {username: user_id for user_id, username, _ in users}
+        user_display_names = {user_id: display_name for user_id, _, display_name in users}
         
         if len(user_ids) < 2:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Need at least 2 users to seed notifications")
@@ -45,9 +46,10 @@ def seed_notifications():
             for j in range(num_notifications):
                 sender_username = other_users[j % len(other_users)]
                 sender_id = user_ids[sender_username]
+                sender_display_name = user_display_names.get(sender_id, sender_username)
                 
-                # Create friend request notification
-                message = f"User '{sender_username}' sent you a friend request"
+                # Create friend request notification with nickname (consistent format)
+                message = f"{sender_display_name} sent you a friend request"
                 created_at = datetime.now() - timedelta(hours=j*2)  # Stagger timestamps
                 
                 # Check if notification already exists
@@ -119,8 +121,16 @@ def seed_notifications():
                     
                     request_id = cursor.fetchone()[0]
                     
-                    # Create notification for this friend request
-                    message = f"User '{username}' sent you a friend request"
+                    # Get sender display name (nickname with fallback to username)
+                    cursor.execute('''
+                        SELECT COALESCE(nickname, username) as display_name 
+                        FROM users WHERE id = %s
+                    ''', (user_id,))
+                    sender_display = cursor.fetchone()
+                    sender_display_name = sender_display[0] if sender_display else username
+                    
+                    # Create notification for this friend request with nickname (consistent format)
+                    message = f"{sender_display_name} sent you a friend request"
                     # Check if notification already exists
                     cursor.execute('''
                         SELECT id FROM notifications 

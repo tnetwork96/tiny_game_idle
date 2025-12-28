@@ -564,19 +564,33 @@ def create_friend_request_notification(from_user_id: int, to_user_id: int, reque
     """
     Create a notification when a friend request is sent
     This function is called after a friend request is created
+    Uses nickname for display (with fallback to username)
     """
     conn = None
     try:
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Get sender username
-        cursor.execute('SELECT username FROM users WHERE id = %s', (from_user_id,))
+        # Get sender display name (nickname with fallback to username)
+        cursor.execute('''
+            SELECT COALESCE(nickname, username) as display_name 
+            FROM users WHERE id = %s
+        ''', (from_user_id,))
         sender = cursor.fetchone()
         if not sender:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Sender user {from_user_id} not found when creating notification")
             return
         
-        sender_username = sender[0]
+        sender_display_name = sender['display_name']
+        if not sender_display_name or len(sender_display_name.strip()) == 0:
+            # Fallback: get username if display_name is empty
+            cursor.execute('SELECT username FROM users WHERE id = %s', (from_user_id,))
+            username_row = cursor.fetchone()
+            if username_row:
+                sender_display_name = username_row['username']
+            else:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Could not get display name for user {from_user_id}")
+                return
         
         # Check if notification already exists for this friend request
         cursor.execute('''
@@ -588,19 +602,23 @@ def create_friend_request_notification(from_user_id: int, to_user_id: int, reque
             # Notification already exists, skip
             return
         
-        # Insert notification
+        # Insert notification with nickname-based message
+        notification_message = f"{sender_display_name} sent you a friend request"
         cursor.execute('''
             INSERT INTO notifications (user_id, type, message, related_id, read)
             VALUES (%s, 'friend_request', %s, %s, FALSE)
-        ''', (to_user_id, f"User '{sender_username}' sent you a friend request", request_id))
+        ''', (to_user_id, notification_message, request_id))
         
         conn.commit()
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Created notification for friend request {request_id}")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Created notification for friend request {request_id}: '{notification_message}'")
         
     except Exception as e:
         if conn:
             conn.rollback()
+        import traceback
+        error_trace = traceback.format_exc()
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error creating notification: {str(e)}")
+        print(f"Traceback: {error_trace}")
     finally:
         if conn:
             conn.close()
@@ -655,8 +673,9 @@ async def get_notifications(user_id: int):
         # This ensures existing friend requests are still shown
         if len(notifications) == 0:
             # Get pending friend requests sent TO this user
+            # Use nickname with fallback to username for display
             cursor.execute('''
-                SELECT fr.id, fr.created_at, u.username
+                SELECT fr.id, fr.created_at, COALESCE(u.nickname, u.username) as display_name
                 FROM friend_requests fr
                 JOIN users u ON fr.from_user_id = u.id
                 WHERE fr.to_user_id = %s AND fr.status = 'pending'
@@ -666,7 +685,7 @@ async def get_notifications(user_id: int):
             
             for row in cursor.fetchall():
                 notification_id = row['id']
-                sender_username = row['username']
+                sender_display_name = row['display_name']
                 created_at = row['created_at']
                 
                 if isinstance(created_at, datetime):
@@ -674,10 +693,12 @@ async def get_notifications(user_id: int):
                 else:
                     timestamp_str = str(created_at) + 'Z' if not str(created_at).endswith('Z') else str(created_at)
                 
+                # Use consistent message format with create_friend_request_notification()
+                notification_message = f"{sender_display_name} sent you a friend request"
                 notification = NotificationEntry(
                     id=notification_id,
                     type="friend_request",
-                    message=f"User '{sender_username}' sent you a friend request",
+                    message=notification_message,
                     timestamp=timestamp_str,
                     read=False
                 )

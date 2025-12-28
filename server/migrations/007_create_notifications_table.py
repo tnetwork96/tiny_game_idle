@@ -45,8 +45,9 @@ def up():
         # Step 2: Migrate existing friend requests to notifications
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Migrating friend requests to notifications...")
         # Get friend requests and create notifications
+        # Use nickname with fallback to username for display
         cursor.execute('''
-            SELECT fr.id, fr.to_user_id, fr.created_at, u.username
+            SELECT fr.id, fr.to_user_id, fr.created_at, COALESCE(u.nickname, u.username) as display_name
             FROM friend_requests fr
             JOIN users u ON fr.from_user_id = u.id
             WHERE fr.status = 'pending'
@@ -55,7 +56,7 @@ def up():
         friend_requests = cursor.fetchall()
         migrated_count = 0
         
-        for fr_id, to_user_id, created_at, username in friend_requests:
+        for fr_id, to_user_id, created_at, display_name in friend_requests:
             # Check if notification already exists
             cursor.execute('''
                 SELECT id FROM notifications 
@@ -65,8 +66,8 @@ def up():
             if cursor.fetchone():
                 continue
             
-            # Create notification
-            message = f"User '{username}' sent you a friend request"
+            # Create notification with nickname-based message (consistent format)
+            message = f"{display_name} sent you a friend request"
             cursor.execute('''
                 INSERT INTO notifications (user_id, type, message, related_id, read, created_at)
                 VALUES (%s, 'friend_request', %s, %s, FALSE, %s)
