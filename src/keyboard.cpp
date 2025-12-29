@@ -420,6 +420,12 @@ void Keyboard::moveCursorByCommand(String command, int x, int y) {
                 Serial.println("Keyboard::moveCursorByCommand: Callback executed");
             }
         }
+    } else if (command == "exit") {
+        // exit: treat as back/delete to allow higher-level screens to go back
+        if (onKeySelected != nullptr) {
+            onKeySelected("<");
+            Serial.println("Keyboard::moveCursorByCommand: Exit command mapped to back/delete");
+        }
     }
 }
 

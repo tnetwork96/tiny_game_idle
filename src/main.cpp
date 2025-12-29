@@ -35,6 +35,49 @@ bool autoLoginExecuted = false;
 bool autoNicknameExecuted = false;
 bool isSocialScreenActive = false;
 
+// Normalize and validate navigation command
+String normalizeNavCommand(String cmd) {
+    cmd.trim();
+    cmd.toLowerCase();
+    if (cmd == "up" || cmd == "down" || cmd == "left" || cmd == "right" || cmd == "select" || cmd == "exit") {
+        return cmd;
+    }
+    return "";
+}
+
+// Central input dispatcher: route nav commands to active screen
+void dispatchNavCommand(String command) {
+    String cmd = normalizeNavCommand(command);
+    if (cmd.length() == 0) return;
+
+    // Social screen has highest priority when active
+    if (isSocialScreenActive && socialScreen != nullptr) {
+        socialScreen->handleNavCommand(cmd);
+        return;
+    }
+
+    // Login screen when WiFi already connected
+    if (wifiManager != nullptr && wifiManager->isConnected() && loginScreen != nullptr) {
+        loginScreen->handleNavCommand(cmd);
+        return;
+    }
+
+    // WiFi selection/password flow
+    if (wifiManager != nullptr) {
+        // If in WiFi list/pwd flow, handle navigation and propagate to keyboard for typing/select
+        wifiManager->handleNavCommand(cmd);
+        if (keyboard != nullptr) {
+            keyboard->moveCursorByCommand(cmd, 0, 0);
+        }
+        return;
+    }
+
+    // Fallback: move keyboard only
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand(cmd, 0, 0);
+    }
+}
+
 // Callback function for keyboard input - routes to appropriate screen
 void onKeyboardKeySelected(String key) {
     // Route to SocialScreen if active
@@ -356,6 +399,15 @@ void setup() {
 }
 
 void loop() {
+    // Read single navigation command from Serial (left/right/up/down/select/exit)
+    if (Serial.available()) {
+        String nav = Serial.readStringUntil('\n');
+        nav.trim();
+        if (nav.length() > 0) {
+            dispatchNavCommand(nav);
+        }
+    }
+
     // Update WiFi Manager state (check connection status)
     if (wifiManager != nullptr) {
         wifiManager->update();

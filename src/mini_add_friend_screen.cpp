@@ -1,5 +1,18 @@
 #include "mini_add_friend_screen.h"
 
+// Map high-level navigation commands to existing key tokens
+static String mapNavToKey(const String& command) {
+    String cmd = command;
+    cmd.toLowerCase();
+    if (cmd == "up") return "|u";
+    if (cmd == "down") return "|d";
+    if (cmd == "left") return "|l";
+    if (cmd == "right") return "|r";
+    if (cmd == "select") return "|e";
+    if (cmd == "exit") return "<";
+    return cmd;
+}
+
 // Deep Space Arcade Theme (matching SocialScreen)
 #define SOCIAL_BG_DARK   0x0042  // Deep Midnight Blue #020817
 #define SOCIAL_HEADER    0x08A5  // Header Blue #0F172A
@@ -111,21 +124,22 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
     
     // Reset submit flag at start of each key press
     submitRequested = false;
+    String mapped = mapNavToKey(key);
     
     // Handle navigation keys - delegate to keyboard
-    if (key == "|u") {
+    if (mapped == "|u") {
         keyboard->moveCursor("up");
         return;
-    } else if (key == "|d") {
+    } else if (mapped == "|d") {
         keyboard->moveCursor("down");
         return;
-    } else if (key == "|l") {
+    } else if (mapped == "|l") {
         keyboard->moveCursor("left");
         return;
-    } else if (key == "|r") {
+    } else if (mapped == "|r") {
         keyboard->moveCursor("right");
         return;
-    } else if (key == "|e") {
+    } else if (mapped == "|e") {
         // Physical Enter key pressed
         // If there's text in input, submit form immediately
         // Otherwise, type the selected character from keyboard
@@ -169,16 +183,16 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
     
     // Handle direct character input from callback (giống LoginScreen)
     // Keyboard gốc gọi callback với currentKey (ký tự), screen xử lý trực tiếp
-    if (key.length() == 1) {
+    if (mapped.length() == 1) {
         // Ignore special keys
-        if (key == "123" || key == "ABC" || key == "shift") {
+        if (mapped == "123" || mapped == "ABC" || mapped == "shift") {
             return;
         }
         
         // Add character directly (giống LoginScreen::handleUsernameKey)
         // Validate length before adding
         if (enteredName.length() < MAX_NAME_LENGTH) {
-            enteredName += key;
+            enteredName += mapped;
             // Clear error when user starts typing
             if (errorMessage.length() > 0) {
                 errorMessage = "";
@@ -188,7 +202,7 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
     }
     
     // Handle backspace from callback
-    if (key == "<") {
+    if (mapped == "<") {
         if (enteredName.length() > 0) {
             enteredName.remove(enteredName.length() - 1);
             // Clear error when user starts editing

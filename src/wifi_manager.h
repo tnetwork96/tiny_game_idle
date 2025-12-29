@@ -50,6 +50,7 @@ public:
     void handleUp();
     void handleDown();
     void handleSelect();
+    void handleNavCommand(const String& command);
     
     // Get current state
     WiFiState getState() const { return currentState; }

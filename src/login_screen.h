@@ -29,6 +29,8 @@ public:
 
     // Handle keyboard key (coming from onKeySelected)
     void handleKeyPress(const String& key);
+    // Handle navigation commands (left/right/up/down/select/exit)
+    void handleNavCommand(String command);
     
     // Update state (called from main loop for auto-confirm)
     void update();

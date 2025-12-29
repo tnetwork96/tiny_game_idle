@@ -253,6 +253,11 @@ void MiniKeyboard::moveCursor(String direction) {
         moveCursorInternal(0, -1);
     } else if (direction == "right") {
         moveCursorInternal(0, 1);
+    } else if (direction == "exit") {
+        // exit acts like back/delete when using mini keyboard
+        if (onKeySelected != nullptr) {
+            onKeySelected("<");
+        }
     } else if (direction == "select") {
         String currentKey = getCurrentChar();
         

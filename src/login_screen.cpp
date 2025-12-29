@@ -4,6 +4,19 @@
 // Static instance pointer for callbacks
 LoginScreen* LoginScreen::instanceForCallback = nullptr;
 
+// Map high-level navigation commands to existing key tokens
+static String mapNavToKey(const String& command) {
+    String cmd = command;
+    cmd.toLowerCase();
+    if (cmd == "up") return "|u";
+    if (cmd == "down") return "|d";
+    if (cmd == "left") return "|l";
+    if (cmd == "right") return "|r";
+    if (cmd == "select") return "|e";
+    if (cmd == "exit") return "<";
+    return cmd;
+}
+
 // Deep Space Arcade Theme (matching Buddy List Screen)
 #define WIN_BG_DARK   0x0042  // Deep Midnight Blue #020817
 #define WIN_HEADER    0x08A5  // Header Blue #0F172A
@@ -130,6 +143,12 @@ void LoginScreen::drawUsernameScreen() {
 
     ensureAlphabetMode();
     keyboard->moveCursorTo(usernameCursorRow, usernameCursorCol);
+}
+
+void LoginScreen::handleNavCommand(String command) {
+    String mapped = mapNavToKey(command);
+    if (mapped.length() == 0) return;
+    handleKeyPress(mapped);
 }
 
 void LoginScreen::drawSuccessScreen() {

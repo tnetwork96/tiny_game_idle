@@ -316,6 +316,24 @@ void WiFiManager::handleSelect() {
     }
 }
 
+void WiFiManager::handleNavCommand(const String& command) {
+    String cmd = command;
+    cmd.toLowerCase();
+    if (cmd == "up") {
+        handleUp();
+    } else if (cmd == "down") {
+        handleDown();
+    } else if (cmd == "select") {
+        handleSelect();
+    } else if (cmd == "exit") {
+        // Exit/back: return to scan state
+        if (currentState == WIFI_STATE_PASSWORD || currentState == WIFI_STATE_SELECT) {
+            currentState = WIFI_STATE_SCAN;
+            wifiList->draw();
+        }
+    }
+}
+
 void WiFiManager::handleKeyboardInput(String key) {
     if (currentState == WIFI_STATE_PASSWORD) {
         // Handle password input

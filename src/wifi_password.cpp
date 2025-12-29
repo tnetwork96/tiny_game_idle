@@ -3,6 +3,19 @@
 #include <Adafruit_ST7789.h>
 #include "wifi_password.h"
 
+// Map high-level navigation commands to existing key tokens
+static String mapNavToKey(const String& command) {
+    String cmd = command;
+    cmd.toLowerCase();
+    if (cmd == "up") return "|u";
+    if (cmd == "down") return "|d";
+    if (cmd == "left") return "|l";
+    if (cmd == "right") return "|r";
+    if (cmd == "select") return "|e";
+    if (cmd == "exit") return "<";
+    return cmd;
+}
+
 WiFiPasswordScreen::WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
@@ -121,6 +134,8 @@ void WiFiPasswordScreen::draw() {
 }
 
 void WiFiPasswordScreen::handleKeyPress(String key) {
+    // Allow plain navigation commands
+    key = mapNavToKey(key);
     // Debug log để kiểm tra key được nhận
     Serial.print("WiFiPassword: Received key: '");
     Serial.print(key);

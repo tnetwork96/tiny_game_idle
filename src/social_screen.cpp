@@ -46,6 +46,19 @@ const unsigned char PROGMEM iconPlus[] = {
 // Static instance pointer for callbacks
 static SocialScreen* s_socialScreenInstance = nullptr;
 
+// Map high-level navigation commands to existing key tokens
+static String mapNavToKey(const String& command) {
+    String cmd = command;
+    cmd.toLowerCase();
+    if (cmd == "up") return "|u";
+    if (cmd == "down") return "|d";
+    if (cmd == "left") return "|l";
+    if (cmd == "right") return "|r";
+    if (cmd == "select") return "|e";
+    if (cmd == "exit") return "<";
+    return cmd;
+}
+
 SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
@@ -905,17 +918,19 @@ void SocialScreen::navigateToNotifications() {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
+    // Support direct navigation commands without pipe tokens
+    String normalized = mapNavToKey(key);
     // If on Add Friend tab and typing, forward to MiniAddFriendScreen
     if (currentTab == TAB_ADD_FRIEND && 
-        (key.length() == 1 || key == "|e" || key == "<" || key == "123" || key == "ABC")) {
+        (normalized.length() == 1 || normalized == "|e" || normalized == "<" || normalized == "123" || normalized == "ABC")) {
         // When typing in Add Friend, focus should be on content
         focusMode = FOCUS_CONTENT;
-        handleContentNavigation(key);
+        handleContentNavigation(normalized);
         return;
     }
     
     // Left/Right: Switch focus between sidebar and content
-    if (key == "|l") {
+    if (normalized == "|l") {
         // Left: Move focus to sidebar
         if (focusMode == FOCUS_CONTENT) {
             focusMode = FOCUS_SIDEBAR;
@@ -929,7 +944,7 @@ void SocialScreen::handleKeyPress(const String& key) {
             }
         }
         return;
-    } else if (key == "|r") {
+    } else if (normalized == "|r") {
         // Right: Move focus to content
         if (focusMode == FOCUS_SIDEBAR) {
             focusMode = FOCUS_CONTENT;
@@ -949,21 +964,21 @@ void SocialScreen::handleKeyPress(const String& key) {
     }
     
     // Up/Down: Navigate based on focus mode
-    if (key == "|u" || key == "|d") {
+    if (normalized == "|u" || normalized == "|d") {
         if (focusMode == FOCUS_SIDEBAR) {
             // Focus on sidebar: navigate between tabs
-            handleTabNavigation(key);
+            handleTabNavigation(normalized);
         } else if (focusMode == FOCUS_CONTENT) {
             // Focus on content: navigate within content (scroll lists)
-            handleContentNavigation(key);
+            handleContentNavigation(normalized);
         }
         return;
     }
     
     // Enter key: handle based on current tab and focus
-    if (key == "|e") {
+    if (normalized == "|e") {
         if (focusMode == FOCUS_CONTENT) {
-            handleContentNavigation(key);
+            handleContentNavigation(normalized);
         }
         // If focus is on sidebar, Enter could select the tab (but tab is already selected)
         // So we move focus to content when Enter is pressed on sidebar
@@ -976,8 +991,14 @@ void SocialScreen::handleKeyPress(const String& key) {
     
     // Forward other keys to content navigation if on Add Friend tab
     if (currentTab == TAB_ADD_FRIEND) {
-        handleContentNavigation(key);
+        handleContentNavigation(normalized);
     }
+}
+
+void SocialScreen::handleNavCommand(String command) {
+    String mapped = mapNavToKey(command);
+    if (mapped.length() == 0) return;
+    handleKeyPress(mapped);
 }
 
 void SocialScreen::parseFriendsString(const String& friendsString) {

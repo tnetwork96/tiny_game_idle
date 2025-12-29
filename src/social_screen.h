@@ -32,6 +32,8 @@ public:
 
     // Handle keyboard key (coming from onKeySelected)
     void handleKeyPress(const String& key);
+    // Handle navigation commands (left/right/up/down/select/exit)
+    void handleNavCommand(String command);
 
     // State helpers
     void setUserId(int userId) { this->userId = userId; }
