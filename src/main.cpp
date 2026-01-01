@@ -14,6 +14,7 @@
 #include "keyboard_skins_wrapper.h"
 #include "api_client.h"
 #include "social_screen.h"
+#include "chat_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -28,21 +29,28 @@ WiFiManager* wifiManager;
 LoginScreen* loginScreen;
 SocketManager* socketManager;
 SocialScreen* socialScreen;
+ChatScreen* chatScreen = nullptr;
 
     // Flag to track if auto-connect has been executed
 bool autoConnectExecuted = false;
+bool isChatScreenActive = false;
+int currentChatFriendUserId = -1;  // ID của friend đang chat (nếu ChatScreen đang mở)
 bool autoLoginExecuted = false;
 bool autoNicknameExecuted = false;
 bool isSocialScreenActive = false;
 
 // Callback function for keyboard input - routes to appropriate screen
 void onKeyboardKeySelected(String key) {
+    // Route to ChatScreen if active
+    if (isChatScreenActive && chatScreen != nullptr) {
+        chatScreen->handleKeyPress(key);
+    }
     // Route to SocialScreen if active
-    if (isSocialScreenActive && socialScreen != nullptr) {
+    else if (isSocialScreenActive && socialScreen != nullptr) {
         socialScreen->handleKeyPress(key);
     }
     // Route to LoginScreen if WiFi is connected and login screen is active
-    else if (wifiManager != nullptr && wifiManager->isConnected() && loginScreen != nullptr && !isSocialScreenActive) {
+    else if (wifiManager != nullptr && wifiManager->isConnected() && loginScreen != nullptr && !isSocialScreenActive && !isChatScreenActive) {
         loginScreen->handleKeyPress(key);
     }
     // Otherwise route to WiFi manager
@@ -53,32 +61,108 @@ void onKeyboardKeySelected(String key) {
 
 // Callback function for MiniKeyboard - routes to Add Friend screen (giống Keyboard gốc)
 void onMiniKeyboardKeySelected(String key) {
+    // Route to ChatScreen if active
+    if (isChatScreenActive && chatScreen != nullptr) {
+        chatScreen->handleKeyPress(key);
+    }
     // Route to SocialScreen if active (Add Friend tab)
-    if (isSocialScreenActive && socialScreen != nullptr) {
+    else if (isSocialScreenActive && socialScreen != nullptr) {
         socialScreen->handleKeyPress(key);
     }
 }
 
-// Callback function for socket notifications
-void onSocketNotification(int id, const String& type, const String& message, const String& timestamp, bool read) {
-    Serial.print("Main: Received socket notification - id: ");
-    Serial.print(id);
-    Serial.print(", type: ");
-    Serial.print(type);
-    Serial.print(", message: ");
-    Serial.println(message);
+
+// Callback function to open chat with a friend
+void onOpenChat(int friendUserId, const String& friendNickname) {
+    Serial.print("Main: Opening chat with friend ID: ");
+    Serial.print(friendUserId);
+    Serial.print(", nickname: ");
+    Serial.println(friendNickname);
     
-    // Forward to SocialScreen if active
-    if (isSocialScreenActive && socialScreen != nullptr) {
-        Serial.println("Main: Forwarding notification to SocialScreen...");
-        socialScreen->addNotificationFromSocket(id, type, message, timestamp, read);
-        Serial.println("Main: Notification forwarded, popup should be visible");
-    } else {
-        Serial.print("Main: ⚠️  SocialScreen not active! isSocialScreenActive=");
-        Serial.print(isSocialScreenActive);
-        Serial.print(", socialScreen=");
-        Serial.println(socialScreen != nullptr ? "exists" : "null");
+    if (chatScreen == nullptr) {
+        chatScreen = new ChatScreen(&tft, keyboard);
     }
+    
+    // Set owner user ID (lấy từ loginScreen)
+    if (loginScreen != nullptr) {
+        int ownerUserId = loginScreen->getUserId();
+        chatScreen->setOwnerUserId(ownerUserId);
+        Serial.print("Main: Set owner user ID: ");
+        Serial.println(ownerUserId);
+        
+        String ownerNickname = loginScreen->getUsername();
+        chatScreen->setOwnerNickname(ownerNickname);
+    }
+    
+    // Set friend info
+    chatScreen->setFriendUserId(friendUserId);
+    chatScreen->setFriendNickname(friendNickname);
+    
+    // Update global variable để track friend đang chat
+    currentChatFriendUserId = friendUserId;
+    
+    // Set friend status (có thể lấy từ friends list sau)
+    chatScreen->setFriendStatus(0);  // Default offline, có thể update sau
+    
+    // Load messages từ file (sau khi đã set friend info để tạo đúng tên file)
+    Serial.println("Main: Loading messages from file...");
+    chatScreen->loadMessagesFromFile();
+    
+    // Update SocketManager state để socket_manager có thể xử lý messages
+    // setChatScreen() sẽ tự động set SocketManager cho ChatScreen
+    if (socketManager != nullptr) {
+        Serial.print("Main: Setting ChatScreen for SocketManager, friendUserId: ");
+        Serial.println(friendUserId);
+        socketManager->setChatScreen(chatScreen);
+        socketManager->setChatScreenActive(true);
+        socketManager->setCurrentChatFriendUserId(friendUserId);
+        Serial.println("Main: Updated SocketManager state for chat");
+    } else {
+        Serial.println("Main: ⚠️  socketManager is NULL in onOpenChat!");
+    }
+    
+    // Set exit callback để quay lại SocialScreen
+    chatScreen->setOnExitCallback([]() {
+        Serial.println("Main: Chat screen exit callback - returning to Social Screen");
+        isChatScreenActive = false;
+        currentChatFriendUserId = -1;  // Reset khi đóng chat
+        
+        // Update SocketManager state
+        if (socketManager != nullptr) {
+            socketManager->setChatScreen(nullptr);
+            socketManager->setChatScreenActive(false);
+            socketManager->setCurrentChatFriendUserId(-1);
+        }
+        
+        isSocialScreenActive = true;
+        
+        // Update SocketManager state
+        if (socketManager != nullptr) {
+            socketManager->setSocialScreenActive(true);
+        }
+        
+        // Redraw social screen
+        if (socialScreen != nullptr) {
+            socialScreen->draw();
+        }
+    });
+    
+    // Activate chat screen
+    isChatScreenActive = true;
+    isSocialScreenActive = false;
+    
+    // Update SocketManager state
+    if (socketManager != nullptr) {
+        socketManager->setSocialScreenActive(false);
+    }
+    
+    // Disable main keyboard drawing when chat screen is active
+    if (keyboard != nullptr) {
+        keyboard->setDrawingEnabled(false);
+    }
+    
+    // Force redraw chat screen
+    chatScreen->forceRedraw();
 }
 
 // Callback function for when login is successful
@@ -99,9 +183,14 @@ void onLoginSuccess() {
             // Initialize socket connection
             socketManager->begin("192.168.1.7", 8080, "/ws");
             
-            // Register notification callback
-            socketManager->setOnNotificationCallback(onSocketNotification);
-            Serial.println("Main: Socket Manager initialized and notification callback registered");
+            // Set SocialScreen state để socket_manager có thể xử lý notification và badge
+            if (socketManager != nullptr && socialScreen != nullptr) {
+                socketManager->setSocialScreen(socialScreen);
+                socketManager->setSocialScreenActive(true);
+                Serial.println("Main: Set SocialScreen state for SocketManager");
+            }
+            
+            Serial.println("Main: Socket Manager initialized");
         }
         
         // Load data
@@ -111,13 +200,23 @@ void onLoginSuccess() {
         // Activate social screen
         isSocialScreenActive = true;
         
+        // Update SocketManager state
+        if (socketManager != nullptr) {
+            socketManager->setSocialScreenActive(true);
+        }
+        
         // Disable main keyboard drawing when social screen is active
         if (keyboard != nullptr) {
             keyboard->setDrawingEnabled(false);
         }
         
-        // Auto-navigate to Friends tab (chat)
-        socialScreen->navigateToFriends();
+        // Navigate to Notifications tab để test badge trên Friends icon
+        // (Comment out navigateToFriends() để không clear badge khi vào Friends tab)
+        // socialScreen->navigateToFriends();
+        socialScreen->navigateToNotifications();
+        
+        // Set callback để mở chat từ SocialScreen
+        socialScreen->setOnOpenChatCallback(onOpenChat);
         
         // Set callback for MiniKeyboard to route to Add Friend screen (giống Keyboard gốc)
         if (socialScreen->getMiniKeyboard() != nullptr) {
@@ -125,7 +224,7 @@ void onLoginSuccess() {
             Serial.println("Main: MiniKeyboard callback set");
         }
         
-        Serial.println("Main: Social Screen activated - Auto-navigated to Add Friend tab");
+        Serial.println("Main: Social Screen activated - Navigated to Notifications tab (for badge testing)");
     }
 }
 
@@ -476,9 +575,11 @@ void loop() {
     }
     
     // Auto-navigation flow for Friends (chat) - Đợi 10 giây rồi chuyển sang Notifications
-    if (isSocialScreenActive && socialScreen != nullptr) {
+    if (isSocialScreenActive && socialScreen != nullptr && !isChatScreenActive) {
         static unsigned long friendsTabStartTime = 0;
         static bool hasSwitchedToNotifications = false;
+        static bool notificationProcessed = false;  // Track if notification was processed
+        static bool hasCheckedUnreadFriend = false;  // Track if đã check unread friend
         
         // Nếu đang ở Friends tab
         if (socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS) {
@@ -486,7 +587,31 @@ void loop() {
             if (friendsTabStartTime == 0) {
                 friendsTabStartTime = millis();
                 hasSwitchedToNotifications = false;
+                notificationProcessed = false;  // Reset flag
+                hasCheckedUnreadFriend = false;  // Reset flag
                 Serial.println("Friends: Started timer - will switch to Notifications after 10 seconds");
+            }
+            
+            // Tự động chọn và mở chat với friend có tin nhắn chưa đọc (chỉ một lần khi vào tab)
+            if (!hasCheckedUnreadFriend) {
+                int unreadFriendIndex = socialScreen->getFirstFriendWithUnreadIndex();
+                if (unreadFriendIndex >= 0) {
+                    Serial.print("Friends: Found friend with unread messages at index: ");
+                    Serial.println(unreadFriendIndex);
+                    
+                    // Chọn friend có unread
+                    socialScreen->selectFriend(unreadFriendIndex);
+                    delay(500);  // Đợi UI update
+                    
+                    // Tự động mở chat
+                    Serial.println("Friends: Auto-opening chat with friend who has unread messages");
+                    socialScreen->openChatWithFriend(unreadFriendIndex);
+                    
+                    hasCheckedUnreadFriend = true;
+                } else {
+                    Serial.println("Friends: No friends with unread messages");
+                    hasCheckedUnreadFriend = true;  // Đánh dấu đã check, không có unread
+                }
             }
             
             // Kiểm tra nếu đã qua 10 giây (10000 milliseconds)
@@ -497,136 +622,171 @@ void loop() {
                 Serial.println("Friends: 10 seconds elapsed, switching to Notifications tab");
                 socialScreen->navigateToNotifications();
                 hasSwitchedToNotifications = true;
+                notificationProcessed = false;  // Reset để xử lý notification
                 friendsTabStartTime = 0;  // Reset timer
+                hasCheckedUnreadFriend = false;  // Reset để check lại lần sau
             }
-        } else {
-            // Nếu không ở Friends tab, reset timer
+        } 
+        // Nếu đang ở Notifications tab
+        else if (socialScreen->getCurrentTab() == SocialScreen::TAB_NOTIFICATIONS) {
+            // Reset Friends tab timer nếu đang ở Notifications
             if (friendsTabStartTime != 0) {
                 friendsTabStartTime = 0;
                 hasSwitchedToNotifications = false;
             }
             
-            // Đảm bảo luôn ở tab Friends (nếu không phải Notifications)
-            if (socialScreen->getCurrentTab() != SocialScreen::TAB_NOTIFICATIONS && 
-                socialScreen->getCurrentTab() != SocialScreen::TAB_FRIENDS) {
-                Serial.println("Friends: Auto-navigating to Friends tab (chat)");
-                socialScreen->navigateToFriends();
-                delay(500);
-            }
-        }
-        
-        // Nếu confirmation dialog đang hiển thị, tự động điều hướng sang NO và select
-        if (socialScreen->isConfirmationDialogVisible()) {
-            static unsigned long dialogShowTime = 0;
-            static bool navRightDone = false;
-            static bool selectDone = false;
+            // Timer để đợi 10 giây rồi chuyển về Friends tab
+            static unsigned long notificationsTabStartTime = 0;
+            static bool hasSwitchedToFriends = false;
             
-            if (dialogShowTime == 0) {
-                dialogShowTime = millis();
-                navRightDone = false;
-                selectDone = false;
-                Serial.println("Notifications: Confirmation dialog detected, will navigate to NO and select");
+            // Ghi lại thời gian khi vào Notifications tab (chỉ lần đầu)
+            if (notificationsTabStartTime == 0) {
+                notificationsTabStartTime = millis();
+                hasSwitchedToFriends = false;
+                Serial.println("Notifications: Started timer - will switch to Friends after 10 seconds");
             }
             
-            unsigned long currentTime = millis();
-            unsigned long elapsedTime = currentTime - dialogShowTime;
+            // Kiểm tra xem có notification không
+            int notificationsCount = socialScreen->getNotificationsCount();
             
-            // Sau 0.5 giây, điều hướng sang NO (right)
-            if (!navRightDone && elapsedTime >= 500) {
-                Serial.println("Notifications: Auto-navigation - Moving to NO (right)");
-                socialScreen->handleKeyPress("|r");  // Move right to NO button
-                navRightDone = true;
-            }
-            
-            // Sau 1 giây, tự động chọn NO
-            if (!selectDone && navRightDone && elapsedTime >= 1000) {
-                Serial.println("Notifications: Auto-selecting NO in confirmation dialog");
-                socialScreen->handleKeyPress("|e");  // Select NO (now selected)
-                selectDone = true;
-                dialogShowTime = 0;  // Reset for next time
-                navRightDone = false;  // Reset flags
-            }
-        } else {
-            // Nếu không có dialog, tìm và chọn thông báo đầu tiên (friend request)
-            static unsigned long lastActionTime = 0;
-            static unsigned long nextActionDelay = 0;
-            static int actionCounter = 0;
-            static bool firstNotificationSelected = false;
-            
-            // Reset flag nếu dialog đã đóng (để có thể tìm thông báo tiếp theo)
-            static bool wasDialogVisible = false;
-            if (wasDialogVisible && !socialScreen->isConfirmationDialogVisible()) {
-                // Dialog vừa đóng, reset flag để tìm thông báo tiếp theo
-                firstNotificationSelected = false;
-                Serial.println("Notifications: Dialog closed, resetting to find next notification");
-                // Đợi một chút trước khi tìm tiếp
-                lastActionTime = millis();
-                nextActionDelay = 1000;
-            }
-            wasDialogVisible = socialScreen->isConfirmationDialogVisible();
-            
-            unsigned long currentTime = millis();
-            
-            // Tìm và chọn thông báo đầu tiên (friend request)
-            if (!firstNotificationSelected) {
-                int firstRequestIndex = socialScreen->getFirstFriendRequestIndex();
-                if (firstRequestIndex >= 0) {
-                    Serial.print("Notifications: Found first friend request notification at index: ");
-                    Serial.println(firstRequestIndex);
+            // Nếu có notification và chưa xử lý hết
+            if (notificationsCount > 0 && !notificationProcessed) {
+                // Track state để xử lý từng notification một
+                static bool waitingForDialogClose = false;
+                static unsigned long dialogCloseWaitTime = 0;
+                
+                // Nếu confirmation dialog đang hiển thị, tự động điều hướng sang NO và select
+                if (socialScreen->isConfirmationDialogVisible()) {
+                    static unsigned long dialogShowTime = 0;
+                    static bool navRightDone = false;
+                    static bool selectDone = false;
                     
-                    // Chọn notification đầu tiên
-                    socialScreen->selectNotification(firstRequestIndex);
-                    delay(300);  // Đợi một chút để UI update
+                    if (dialogShowTime == 0) {
+                        dialogShowTime = millis();
+                        navRightDone = false;
+                        selectDone = false;
+                        Serial.println("Notifications: Confirmation dialog detected, will navigate to NO and select");
+                    }
                     
-                    // Nhấn Enter để mở confirmation dialog
-                    Serial.println("Notifications: Pressing Enter to open confirmation dialog");
-                    socialScreen->handleKeyPress("|e");
+                    unsigned long currentTime = millis();
+                    unsigned long elapsedTime = currentTime - dialogShowTime;
                     
-                    firstNotificationSelected = true;
-                    lastActionTime = currentTime;
-                    nextActionDelay = 2000;  // Đợi 2 giây trước khi tiếp tục
-                } else {
-                    // Không có friend request, chỉ navigate bình thường
-                    Serial.println("Notifications: No unread friend requests found");
-                    firstNotificationSelected = true;  // Đánh dấu đã check
+                    // Sau 0.5 giây, điều hướng sang NO (right)
+                    if (!navRightDone && elapsedTime >= 500) {
+                        Serial.println("Notifications: Auto-navigation - Moving to NO (right)");
+                        socialScreen->handleKeyPress("|r");  // Move right to NO button
+                        navRightDone = true;
+                    }
+                    
+                    // Sau 1 giây, tự động chọn NO
+                    if (!selectDone && navRightDone && elapsedTime >= 1000) {
+                        Serial.println("Notifications: Auto-selecting NO in confirmation dialog");
+                        socialScreen->handleKeyPress("|e");  // Select NO (now selected)
+                        selectDone = true;
+                        dialogShowTime = 0;  // Reset for next time
+                        navRightDone = false;  // Reset flags
+                        waitingForDialogClose = true;  // Đợi dialog đóng
+                        dialogCloseWaitTime = millis();  // Ghi lại thời gian bắt đầu đợi
+                        Serial.println("Notifications: Notification processed, waiting for dialog to close");
+                    }
+                }
+                // Nếu đang đợi dialog đóng
+                else if (waitingForDialogClose) {
+                    unsigned long currentTime = millis();
+                    unsigned long waitTime = currentTime - dialogCloseWaitTime;
+                    
+                    // Đợi 1 giây sau khi dialog đóng để UI update và notification được xóa
+                    if (waitTime >= 1000) {
+                        waitingForDialogClose = false;
+                        dialogCloseWaitTime = 0;
+                        
+                        // Kiểm tra lại số lượng notifications
+                        int newCount = socialScreen->getNotificationsCount();
+                        Serial.print("Notifications: Dialog closed. Remaining notifications: ");
+                        Serial.println(newCount);
+                        
+                        // Nếu vẫn còn notifications, tiếp tục xử lý (reset để tìm notification đầu tiên)
+                        if (newCount > 0) {
+                            Serial.println("Notifications: Continuing to process next notification");
+                            // Reset để tiếp tục xử lý notification tiếp theo
+                            // (firstNotificationSelected sẽ được reset trong else block)
+                        } else {
+                            // Không còn notification nào, đánh dấu đã xử lý hết
+                            Serial.println("Notifications: All notifications processed");
+                            notificationProcessed = true;
+                        }
+                    }
+                }
+                // Nếu không có dialog và không đang đợi, tìm và chọn thông báo đầu tiên
+                else {
+                    static bool firstNotificationSelected = false;
+                    
+                    // Tìm và chọn thông báo đầu tiên (friend request)
+                    if (!firstNotificationSelected) {
+                        int firstRequestIndex = socialScreen->getFirstFriendRequestIndex();
+                        if (firstRequestIndex >= 0) {
+                            Serial.print("Notifications: Found friend request notification at index: ");
+                            Serial.println(firstRequestIndex);
+                            
+                            // Chọn notification đầu tiên
+                            socialScreen->selectNotification(firstRequestIndex);
+                            delay(300);  // Đợi một chút để UI update
+                            
+                            // Nhấn Enter để mở confirmation dialog
+                            Serial.println("Notifications: Pressing Enter to open confirmation dialog");
+                            socialScreen->handleKeyPress("|e");
+                            
+                            firstNotificationSelected = true;
+                        } else {
+                            // Không có friend request, đánh dấu đã xử lý
+                            Serial.println("Notifications: No unread friend requests found");
+                            firstNotificationSelected = true;
+                            notificationProcessed = true;  // No notifications to process
+                        }
+                    }
+                    // Nếu đã chọn notification nhưng dialog chưa mở, reset để thử lại
+                    else if (!socialScreen->isConfirmationDialogVisible() && !waitingForDialogClose) {
+                        // Reset để tìm notification tiếp theo
+                        firstNotificationSelected = false;
+                    }
                 }
             }
-            
-            // Navigate notifications list (nếu không có friend request hoặc đã xử lý xong)
-            if (firstNotificationSelected && (nextActionDelay == 0 || (currentTime - lastActionTime >= nextActionDelay))) {
-                // Navigate notifications list: up and down
-                int navAction = actionCounter % 2;
+            // Nếu không có notification hoặc đã xử lý xong, đợi 10 giây rồi chuyển về Friends tab
+            else if (notificationsCount == 0 || notificationProcessed) {
+                unsigned long currentTime = millis();
+                unsigned long elapsedTime = currentTime - notificationsTabStartTime;
                 
-                switch (navAction) {
-                    case 0:
-                        Serial.println("Notifications: Auto-nav - Moving down in notifications list");
-                        socialScreen->handleKeyPress("|d");
-                        break;
-                    case 1:
-                        Serial.println("Notifications: Auto-nav - Moving up in notifications list");
-                        socialScreen->handleKeyPress("|u");
-                        break;
-                }
-                
-                lastActionTime = currentTime;
-                actionCounter++;
-                
-                // Set delay for next action (1-2 seconds)
-                nextActionDelay = 1000 + (millis() % 1000);
-                
-                // Log every 10 actions
-                if (actionCounter % 10 == 0) {
-                    Serial.print("Notifications: Auto-navigation - ");
-                    Serial.print(actionCounter);
-                    Serial.println(" actions performed");
+                // Đợi 10 giây rồi chuyển về Friends tab
+                if (!hasSwitchedToFriends && elapsedTime >= 10000) {
+                    Serial.println("Notifications: 10 seconds elapsed, switching to Friends tab");
+                    socialScreen->navigateToFriends();
+                    hasSwitchedToFriends = true;
+                    notificationsTabStartTime = 0;  // Reset timer
+                    notificationProcessed = false;  // Reset for next cycle
                 }
             }
+        } 
+        // Nếu ở tab khác, đảm bảo chuyển về Friends
+        else {
+            // Reset timer
+            if (friendsTabStartTime != 0) {
+                friendsTabStartTime = 0;
+                hasSwitchedToNotifications = false;
+                notificationProcessed = false;
+            }
+            
+            // Reset Notifications tab timer variables (không cần làm gì vì static variables sẽ tự reset khi vào Notifications tab)
         }
     }
     
     // Không cần gọi socketManager->update() nữa
     // Task đã chạy while(true) tự động sau khi begin()
     // Task xử lý tất cả: webSocket.loop(), keep-alive ping, etc.
+    
+    // Update ChatScreen decor animation if active
+    if (isChatScreenActive && chatScreen != nullptr) {
+        chatScreen->updateDecorAnimation();
+    }
     
     // Popup notification disabled - no need to update popup
     

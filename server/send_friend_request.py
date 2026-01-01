@@ -378,20 +378,8 @@ def main():
     fail_count = 0
     skipped_count = 0
     
-    # Kết nối WebSocket cho player2 (người nhận) trước
-    print(f"🔌 Đang kết nối WebSocket cho {CURRENT_USERNAME} (user_id: {to_user_id})...")
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
-    player2_ws = loop.run_until_complete(connect_websocket(to_user_id))
-    if player2_ws:
-        websocket_connections[to_user_id] = player2_ws
-        print(f"✅ WebSocket đã kết nối cho {CURRENT_USERNAME}")
-    else:
-        print(f"⚠️  Không thể kết nối WebSocket cho {CURRENT_USERNAME} (sẽ thử lại sau mỗi request)")
+    # Không cần kết nối WebSocket trước vì sẽ dùng API endpoint
+    print(f"💡 Notification sẽ được gửi qua API endpoint (giả lập như server gửi)")
     print()
     
     # Gửi friend request từ từng user đến player2
@@ -432,9 +420,9 @@ def main():
             print(f"✅ {result.get('message', 'Thành công')}")
             success_count += 1
             
-            # Giả lập gửi notification qua WebSocket đến player2
+            # Gửi notification qua WebSocket đến player2 (sử dụng API endpoint như server)
             try:
-                # Lấy notification_id từ database (notification mới nhất của player2)
+                # Lấy notification message từ database (notification mới nhất của player2)
                 from psycopg2.extras import RealDictCursor
                 conn = get_db_connection()
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
@@ -452,50 +440,31 @@ def main():
                 conn.close()
                 
                 if notification:
-                    # Tạo notification data
-                    notification_data = {
-                        "id": notification['id'],
-                        "type": notification['type'],
-                        "message": notification['message'],
-                        "timestamp": notification['created_at'].isoformat() if isinstance(notification['created_at'], datetime) else str(notification['created_at']),
-                        "read": False
-                    }
-                    
-                    # Gửi qua WebSocket đến player2
+                    # Gửi notification qua API endpoint (giả lập như server gửi)
                     print(f"   🔔 Đang gửi notification qua WebSocket đến {CURRENT_USERNAME}...", end=" ")
                     
-                    if USE_SERVER_WEBSOCKET:
-                        # Sử dụng WebSocketManager từ server
-                        try:
-                            loop = asyncio.get_event_loop()
-                        except RuntimeError:
-                            loop = asyncio.new_event_loop()
-                            asyncio.set_event_loop(loop)
+                    url = f"{BASE_URL}/api/test/notification"
+                    payload = {
+                        "user_id": to_user_id,
+                        "message": notification['message'],
+                        "notification_type": notification['type']
+                    }
+                    
+                    try:
+                        response = requests.post(url, json=payload, timeout=5)
+                        response.raise_for_status()
+                        result = response.json()
                         
-                        sent = loop.run_until_complete(websocket_manager.send_notification_to_user(to_user_id, notification_data))
-                        if sent:
+                        if result.get("success"):
                             print("✅")
                         else:
-                            print("⚠️  (User chưa kết nối WebSocket)")
-                    else:
-                        # Fallback: sử dụng WebSocket connection riêng (có thể không hoạt động)
-                        if to_user_id not in websocket_connections:
-                            ws = loop.run_until_complete(connect_websocket(to_user_id))
-                            if ws:
-                                websocket_connections[to_user_id] = ws
-                        
-                        if to_user_id in websocket_connections:
-                            sent = loop.run_until_complete(send_notification_via_websocket(to_user_id, notification_data))
-                            if sent:
-                                print("✅")
-                            else:
-                                print("⚠️  (Không thể gửi)")
-                        else:
-                            print("⚠️  (WebSocket chưa kết nối)")
+                            print(f"⚠️  {result.get('message', 'Không thể gửi')}")
+                    except requests.exceptions.RequestException as e:
+                        print(f"⚠️  Lỗi API: {e}")
                 else:
                     print(f"   ⚠️  Không tìm thấy notification trong database")
             except Exception as e:
-                print(f"   ⚠️  Lỗi khi gửi notification qua WebSocket: {e}")
+                print(f"   ⚠️  Lỗi khi gửi notification: {e}")
         else:
             error_msg = result.get('message', 'Lỗi không xác định')
             print(f"❌ {error_msg}")
@@ -503,8 +472,8 @@ def main():
         
         print()
     
-    # Đóng tất cả WebSocket connections (chỉ nếu dùng connection riêng)
-    if not USE_SERVER_WEBSOCKET and websocket_connections:
+    # Đóng tất cả WebSocket connections
+    if websocket_connections:
         print("🔌 Đang đóng WebSocket connections...")
         try:
             loop = asyncio.get_event_loop()

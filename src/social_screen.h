@@ -62,6 +62,15 @@ public:
     // Navigate to Friends tab (chat)
     void navigateToFriends();
     
+    // Open chat with friend at index
+    void openChatWithFriend(int friendIndex);
+    
+    // Callback type for opening chat
+    typedef void (*OnOpenChatCallback)(int friendUserId, const String& friendNickname);
+    void setOnOpenChatCallback(OnOpenChatCallback callback) {
+        onOpenChatCallback = callback;
+    }
+    
     // Check if confirmation dialog is visible
     bool isConfirmationDialogVisible() const {
         return confirmationDialog != nullptr && confirmationDialog->isVisible();
@@ -70,11 +79,28 @@ public:
     // Get notifications count
     int getNotificationsCount() const { return notificationsCount; }
     
+    // Redraw sidebar (to update badges)
+    void redrawSidebar();
+    
+    // Set unread chat status (deprecated - use addUnreadChatForFriend instead)
+    void setHasUnreadChat(bool hasUnread);
+    
+    // Manage unread chat messages per friend
+    void addUnreadChatForFriend(int friendUserId);
+    void clearUnreadChatForFriend(int friendUserId);
+    int getUnreadCountForFriend(int friendUserId) const;
+    
     // Get first friend request notification index (returns -1 if none)
     int getFirstFriendRequestIndex() const;
     
+    // Get first friend with unread messages index (returns -1 if none)
+    int getFirstFriendWithUnreadIndex() const;
+    
     // Select notification by index (for auto-navigation)
     void selectNotification(int index);
+    
+    // Select friend by index (for auto-navigation)
+    void selectFriend(int index);
     
     // Remove notification by ID (optimistic update before server reload)
     void removeNotificationById(int notificationId);
@@ -108,7 +134,9 @@ private:
     // Friends data
     struct FriendItem {
         String nickname;  // Display name (nickname or username fallback)
+        int userId;       // User ID để track unread messages
         bool online;
+        int unreadCount;  // Số lượng tin nhắn chưa đọc từ friend này
     };
     FriendItem* friends;
     int friendsCount;
@@ -126,6 +154,7 @@ private:
 
     // Callbacks
     OnAddFriendSuccessCallback onAddFriendSuccessCallback;
+    OnOpenChatCallback onOpenChatCallback;
 
     // Drawing helpers
     void drawBackground();
@@ -179,6 +208,9 @@ private:
     
     // Red dot badge for unread notifications
     bool hasUnreadNotification;
+    
+    // Red dot badge for unread chat messages
+    bool hasUnreadChatFlag;
 };
 
 #endif

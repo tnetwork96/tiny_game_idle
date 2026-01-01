@@ -206,8 +206,8 @@ async def register(request: RegisterRequest):
 async def get_friends_list(user_id: int):
     """
     Get list of friends as simple string format for ESP32
-    Format: "nickname1,online1|nickname2,online2|..."
-    Example: "User123,0|Admin,0|TestUser,1|"
+    Format: "nickname1,userId1,online1|nickname2,userId2,online2|..."
+    Example: "User123,5,0|Admin,3,0|TestUser,7,1|"
     online: 0 = offline, 1 = online
     Note: friends table only contains accepted friendships (no status column)
     Uses nickname for display, falls back to username if nickname is NULL
@@ -219,8 +219,9 @@ async def get_friends_list(user_id: int):
         
         # Get all friends for this user (all records in friends table are accepted)
         # Use COALESCE to fallback to username if nickname is NULL
+        # Include friend_id (user.id) for tracking unread messages
         cursor.execute('''
-            SELECT COALESCE(u.nickname, u.username) as display_name
+            SELECT u.id as friend_id, COALESCE(u.nickname, u.username) as display_name
             FROM friends f
             JOIN users u ON f.friend_id = u.id
             WHERE f.user_id = %s
@@ -230,8 +231,9 @@ async def get_friends_list(user_id: int):
         friends_list = []
         for row in cursor.fetchall():
             display_name = row['display_name']
+            friend_id = row['friend_id']
             online = "0"  # Default to offline (0), can be updated later with WebSocket status
-            friends_list.append(f"{display_name},{online}")
+            friends_list.append(f"{display_name},{friend_id},{online}")
         
         # Join with | separator
         result_string = "|".join(friends_list)

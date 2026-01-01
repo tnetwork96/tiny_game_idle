@@ -6,6 +6,14 @@
 #include <WebSocketsClient.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <freertos/semphr.h>
+
+// Typing indicator constants
+#define TYPING_AUTO_STOP_INTERVAL 3000  // 3 seconds
+
+// Forward declaration
+class ChatScreen;
+class SocialScreen;
 
 class SocketManager {
 private:
@@ -26,12 +34,61 @@ private:
     unsigned long lastPingTime;
     unsigned long pingInterval;  // Send ping every 30 seconds
     
+    // Typing indicator state
+    unsigned long lastTypingTime;
+    int currentTypingToUserId;
+    
     // User ID for init message
     int userId;
+    
+    // ChatScreen pointer and state (để xử lý message display)
+    ChatScreen* chatScreen;
+    bool isChatScreenActive;
+    int currentChatFriendUserId;
+    
+    // SocialScreen pointer and state (để xử lý notification và badge)
+    SocialScreen* socialScreen;
+    bool isSocialScreenActive;
+    
+    // Semaphore for thread-safe file access
+    SemaphoreHandle_t fileMutex;
     
     // Notification callback
     typedef void (*OnNotificationCallback)(int id, const String& type, const String& message, const String& timestamp, bool read);
     OnNotificationCallback onNotificationCallback;
+    
+    // Chat message callback
+    typedef void (*OnChatMessageCallback)(int fromUserId, const String& fromNickname, const String& message, const String& messageId, const String& timestamp);
+    OnChatMessageCallback onChatMessageCallback;
+    
+    // Chat message display callback - returns true if message was displayed in active chat
+    typedef bool (*OnChatMessageDisplayCallback)(int fromUserId, const String& message);
+    OnChatMessageDisplayCallback onChatMessageDisplayCallback;
+    
+    // Chat badge callback - xử lý badge khi message chưa được hiển thị
+    typedef void (*OnChatBadgeCallback)(int fromUserId, const String& fromNickname);
+    OnChatBadgeCallback onChatBadgeCallback;
+    
+    // Typing indicator callback
+    typedef void (*OnTypingIndicatorCallback)(int fromUserId, const String& fromNickname, bool isTyping);
+    OnTypingIndicatorCallback onTypingIndicatorCallback;
+    
+    // Delivery status callback
+    typedef void (*OnDeliveryStatusCallback)(const String& messageId, const String& status, const String& timestamp);
+    OnDeliveryStatusCallback onDeliveryStatusCallback;
+    
+    // Read receipt callback
+    typedef void (*OnReadReceiptCallback)(const String& messageId, const String& timestamp);
+    OnReadReceiptCallback onReadReceiptCallback;
+    
+    // Helper to parse JSON chat message
+    void parseChatMessage(const String& message);
+    void parseTypingIndicator(const String& message, bool isTyping);
+    void parseDeliveryStatus(const String& message, const String& status);
+    void parseReadReceipt(const String& message);
+    
+    // Helper to save chat message to file
+    void saveChatMessageToFile(int fromUserId, int toUserId, const String& message, bool isFromUser);
     
     // Callback handlers
     void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length);
@@ -75,6 +132,46 @@ public:
         onNotificationCallback = callback;
     }
     
+    // Set chat message callback
+    void setOnChatMessageCallback(OnChatMessageCallback callback) {
+        onChatMessageCallback = callback;
+    }
+    
+    // Set chat message display callback
+    void setOnChatMessageDisplayCallback(OnChatMessageDisplayCallback callback) {
+        onChatMessageDisplayCallback = callback;
+    }
+    
+    // Set chat badge callback
+    void setOnChatBadgeCallback(OnChatBadgeCallback callback) {
+        onChatBadgeCallback = callback;
+    }
+    
+    // Set typing indicator callback
+    void setOnTypingIndicatorCallback(OnTypingIndicatorCallback callback) {
+        onTypingIndicatorCallback = callback;
+    }
+    
+    // Set delivery status callback
+    void setOnDeliveryStatusCallback(OnDeliveryStatusCallback callback) {
+        onDeliveryStatusCallback = callback;
+    }
+    
+    // Set read receipt callback
+    void setOnReadReceiptCallback(OnReadReceiptCallback callback) {
+        onReadReceiptCallback = callback;
+    }
+    
+    // Send chat message
+    void sendChatMessage(int toUserId, const String& message, const String& messageId = "");
+    
+    // Send typing indicator
+    void sendTypingStart(int toUserId);
+    void sendTypingStop(int toUserId);
+    
+    // Send read receipt
+    void sendReadReceipt(int toUserId, const String& messageId);
+    
     // Set user ID for init message (call before or after begin)
     void setUserId(int userId) {
         this->userId = userId;
@@ -85,9 +182,28 @@ public:
             initMessage += "}";
             String msgCopy = initMessage;
             webSocket.sendTXT(msgCopy);
-            Serial.print("Socket Manager: Sent updated init message with user_id: ");
-            Serial.println(userId);
         }
+    }
+    
+    // Set ChatScreen state (để xử lý message display)
+    // Tự động set SocketManager cho ChatScreen để ChatScreen có thể gửi messages
+    void setChatScreen(ChatScreen* chatScreen);
+    
+    void setChatScreenActive(bool active) {
+        this->isChatScreenActive = active;
+    }
+    
+    void setCurrentChatFriendUserId(int friendUserId) {
+        this->currentChatFriendUserId = friendUserId;
+    }
+    
+    // Set SocialScreen state (để xử lý notification và badge)
+    void setSocialScreen(SocialScreen* socialScreen) {
+        this->socialScreen = socialScreen;
+    }
+    
+    void setSocialScreenActive(bool active) {
+        this->isSocialScreenActive = active;
     }
 };
 

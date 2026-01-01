@@ -8,6 +8,9 @@
 #include <FS.h>
 #include <SPIFFS.h>
 
+// Forward declaration
+class SocketManager;
+
 // Callback type for exiting chat screen
 typedef void (*ExitCallback)();
 
@@ -75,6 +78,9 @@ private:
     // Nickname
     String ownerNickname;   // Tên của chủ sở hữu (người dùng)
     String friendNickname;  // Tên của người bạn (người khác)
+    int ownerUserId;        // ID của owner (current user)
+    int friendUserId;       // ID của friend đang chat
+    SocketManager* socketManager;  // Socket manager để gửi messages
     uint8_t friendStatus;   // Trạng thái bạn (offline/online/typing)
     
     // Màu sắc
@@ -155,7 +161,6 @@ private:
     // Lưu/tải lịch sử chat
     String getChatHistoryFileName();  // Tạo tên file từ nickname
     void saveMessagesToFile();        // Lưu tin nhắn vào file
-    void loadMessagesFromFile();       // Tải tin nhắn từ file (lazy load: chỉ 5 tin nhắn đầu)
     bool loadMoreMessages(int count = 5);  // Load thêm tin nhắn cũ hơn khi scroll lên
     
     // File reading helpers (Facebook-style efficient reading)
@@ -167,6 +172,8 @@ private:
     int calculateLinesForMessages(const ChatMessage* msgs, int msgCount) const;  // Calculate total lines for messages
 
 public:
+    // Lưu/tải lịch sử chat (public methods)
+    void loadMessagesFromFile();       // Tải tin nhắn từ file (lazy load: chỉ 5 tin nhắn đầu)
     // Constructor
     ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard);
     
@@ -179,6 +186,9 @@ public:
     // Force a full screen redraw (clears screen and redraws everything)
     // Use this when switching to Chat Screen from another screen
     void forceRedraw();
+    
+    // Redraw only messages area (public method for external use)
+    void redrawMessages();
     
     // Xử lý khi nhấn phím
     void handleKeyPress(String key);
@@ -242,9 +252,18 @@ public:
     void setOwnerNickname(String nickname) { ownerNickname = nickname; }
     String getFriendNickname() const { return friendNickname; }
     void setFriendNickname(String nickname) { friendNickname = nickname; }
+    // Owner user ID
+    void setOwnerUserId(int userId) { ownerUserId = userId; }
+    int getOwnerUserId() const { return ownerUserId; }
+    // Friend user ID
+    void setFriendUserId(int userId) { friendUserId = userId; }
+    int getFriendUserId() const { return friendUserId; }
     // Status: 0 = offline, 1 = online, 2 = typing
     void setFriendStatus(uint8_t status);
     uint8_t getFriendStatus() const { return friendStatus; }
+    
+    // Set SocketManager để gửi messages
+    void setSocketManager(SocketManager* socketMgr);
     
     // Setter cho decor elements
     void setShowTitleBarGradient(bool show) { showTitleBarGradient = show; }

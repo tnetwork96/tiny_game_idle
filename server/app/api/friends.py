@@ -50,6 +50,33 @@ def get_db_connection():
     """Get PostgreSQL database connection"""
     return psycopg2.connect(DATABASE_URL)
 
+def are_friends(user_id1: int, user_id2: int) -> bool:
+    """
+    Check if two users are friends.
+    Returns True if friendship exists (bidirectional check).
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Check if friendship exists in either direction
+        cursor.execute('''
+            SELECT id FROM friends 
+            WHERE (user_id = %s AND friend_id = %s) OR (user_id = %s AND friend_id = %s)
+            LIMIT 1
+        ''', (user_id1, user_id2, user_id2, user_id1))
+        
+        result = cursor.fetchone()
+        cursor.close()
+        return result is not None
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error checking friendship: {str(e)}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
 @router.post("/friend-requests/accept", response_model=AcceptFriendRequestResponse)
 async def accept_friend_request(request: AcceptFriendRequestRequest):
     """

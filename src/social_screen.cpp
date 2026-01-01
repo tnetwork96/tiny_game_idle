@@ -69,6 +69,7 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->notificationsScrollOffset = 0;
     
     this->onAddFriendSuccessCallback = nullptr;
+    this->onOpenChatCallback = nullptr;
     this->pendingAcceptNotificationId = -1;
     
     // Notification popup
@@ -78,6 +79,9 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     
     // Red dot badge for unread notifications
     this->hasUnreadNotification = false;
+    
+    // Red dot badge for unread chat messages
+    this->hasUnreadChatFlag = false;
     
     // Create semaphore for thread-safe notifications access
     notificationsMutex = xSemaphoreCreateMutex();
@@ -166,6 +170,22 @@ void SocialScreen::drawTab(int tabIndex, bool isSelected) {
 void SocialScreen::drawFriendsIcon(uint16_t x, uint16_t y, uint16_t color) {
     // Draw bitmap icon (16x16)
     tft->drawBitmap(x, y, iconUserList, 16, 16, color);
+    
+    // Draw red dot badge if there are unread chat messages
+    if (hasUnreadChatFlag) {
+        // Draw small red circle at top-right corner of icon (16x16 icon)
+        const uint16_t badgeSize = 6;
+        const uint16_t badgeX = x + 16 - badgeSize;  // Top-right corner
+        const uint16_t badgeY = y;
+        const uint16_t badgeCenterX = badgeX + badgeSize/2;
+        const uint16_t badgeCenterY = badgeY + badgeSize/2;
+        const uint16_t badgeRadius = badgeSize/2;
+        
+        // Draw red filled circle
+        tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
+        // Draw white border for better visibility
+        tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
+    }
 }
 
 void SocialScreen::drawNotificationsIcon(uint16_t x, uint16_t y, uint16_t color) {
@@ -205,6 +225,67 @@ void SocialScreen::drawSidebar() {
     for (int i = 0; i < 3; i++) {
         drawTab(i, (i == currentTab));
     }
+}
+
+void SocialScreen::redrawSidebar() {
+    // Redraw sidebar to update badges
+    drawSidebar();
+}
+
+void SocialScreen::setHasUnreadChat(bool hasUnread) {
+    hasUnreadChatFlag = hasUnread;
+}
+
+void SocialScreen::addUnreadChatForFriend(int friendUserId) {
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].userId == friendUserId) {
+            friends[i].unreadCount++;
+            Serial.print("Social Screen: Added unread chat for friend ");
+            Serial.print(friends[i].nickname);
+            Serial.print(" (userId: ");
+            Serial.print(friendUserId);
+            Serial.print("). Unread count: ");
+            Serial.println(friends[i].unreadCount);
+            
+            // Redraw friend card nếu đang visible và đang ở Friends tab
+            if (currentTab == TAB_FRIENDS) {
+                redrawFriendCard(i, (i == selectedFriendIndex));
+            }
+            return;
+        }
+    }
+    Serial.print("Social Screen: ⚠️  Friend with userId ");
+    Serial.print(friendUserId);
+    Serial.println(" not found in friends list");
+}
+
+void SocialScreen::clearUnreadChatForFriend(int friendUserId) {
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].userId == friendUserId) {
+            if (friends[i].unreadCount > 0) {
+                friends[i].unreadCount = 0;
+                Serial.print("Social Screen: Cleared unread chat for friend ");
+                Serial.print(friends[i].nickname);
+                Serial.print(" (userId: ");
+                Serial.println(friendUserId);
+                
+                // Redraw friend card
+                if (currentTab == TAB_FRIENDS) {
+                    redrawFriendCard(i, (i == selectedFriendIndex));
+                }
+            }
+            return;
+        }
+    }
+}
+
+int SocialScreen::getUnreadCountForFriend(int friendUserId) const {
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].userId == friendUserId) {
+            return friends[i].unreadCount;
+        }
+    }
+    return 0;
 }
 
 void SocialScreen::drawFriendsList() {
@@ -275,6 +356,33 @@ void SocialScreen::drawFriendsList() {
                 nickname = nickname.substring(0, maxWidth - 3) + "...";
             }
             tft->print(nickname);
+            
+            // Draw unread badge nếu có tin nhắn chưa đọc
+            if (friends[i].unreadCount > 0) {
+                const uint16_t badgeSize = 8;
+                const uint16_t badgeX = cardX + cardW - badgeSize - 8;  // Right side
+                const uint16_t badgeY = cardY + 4;  // Top
+                const uint16_t badgeCenterX = badgeX + badgeSize/2;
+                const uint16_t badgeCenterY = badgeY + badgeSize/2;
+                const uint16_t badgeRadius = badgeSize/2;
+                
+                // Draw red filled circle
+                tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
+                // Draw white border
+                tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
+                
+                // Draw số lượng (nếu <= 9)
+                tft->setTextSize(1);
+                tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+                if (friends[i].unreadCount <= 9) {
+                    tft->setCursor(badgeCenterX - 2, badgeCenterY - 3);
+                    tft->print(friends[i].unreadCount);
+                } else {
+                    // Hiển thị "9+"
+                    tft->setCursor(badgeCenterX - 3, badgeCenterY - 3);
+                    tft->print("9+");
+                }
+            }
             
             // Draw online status text (right-aligned)
             tft->setTextColor(SOCIAL_MUTED, cardBgColor);
@@ -511,6 +619,33 @@ void SocialScreen::redrawFriendCard(int index, bool isSelected) {
     }
     tft->print(nickname);
     
+    // Draw unread badge nếu có tin nhắn chưa đọc
+    if (friends[index].unreadCount > 0) {
+        const uint16_t badgeSize = 8;
+        const uint16_t badgeX = cardX + cardW - badgeSize - 8;  // Right side
+        const uint16_t badgeY = cardY + 4;  // Top
+        const uint16_t badgeCenterX = badgeX + badgeSize/2;
+        const uint16_t badgeCenterY = badgeY + badgeSize/2;
+        const uint16_t badgeRadius = badgeSize/2;
+        
+        // Draw red filled circle
+        tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
+        // Draw white border
+        tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
+        
+        // Draw số lượng (nếu <= 9)
+        tft->setTextSize(1);
+        tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+        if (friends[index].unreadCount <= 9) {
+            tft->setCursor(badgeCenterX - 2, badgeCenterY - 3);
+            tft->print(friends[index].unreadCount);
+        } else {
+            // Hiển thị "9+"
+            tft->setCursor(badgeCenterX - 3, badgeCenterY - 3);
+            tft->print("9+");
+        }
+    }
+    
     // Draw online status text
     tft->setTextColor(SOCIAL_MUTED, cardBgColor);
     String statusText = friends[index].online ? "Online" : "Offline";
@@ -722,6 +857,11 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 redrawFriendCard(oldIndex, false);
                 redrawFriendCard(selectedFriendIndex, true);
             }
+        } else if (key == "|e") {
+            // Enter: Mở chat với friend được chọn
+            if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+                openChatWithFriend(selectedFriendIndex);
+            }
         } else if (key == "<") {
             // Handle Backspace key for removing friend
             if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount && userId > 0 && serverHost.length() > 0) {
@@ -904,6 +1044,14 @@ void SocialScreen::switchTab(Tab newTab) {
             Serial.println("Social Screen: Cleared hasUnreadNotification (switched to notifications tab)");
         }
         
+        // Clear red dot badge on Friends icon when switching to friends tab (chat)
+        // Note: Unread count trên từng friend card vẫn giữ nguyên để user biết friend nào có tin nhắn
+        if (newTab == TAB_FRIENDS && hasUnreadChatFlag) {
+            hasUnreadChatFlag = false;
+            Serial.println("Social Screen: Cleared hasUnreadChatFlag on Friends icon (switched to friends tab)");
+            Serial.println("Social Screen: Note: Unread badges on friend cards are preserved");
+        }
+        
         currentTab = newTab;
         // Auto-focus input when switching to Add Friend tab
         if (newTab == TAB_ADD_FRIEND) {
@@ -954,6 +1102,38 @@ void SocialScreen::navigateToFriends() {
     focusMode = FOCUS_CONTENT;
     // Draw the screen
     draw();
+}
+
+void SocialScreen::openChatWithFriend(int friendIndex) {
+    if (friendIndex < 0 || friendIndex >= friendsCount) {
+        Serial.println("Social Screen: Invalid friend index");
+        return;
+    }
+    
+    FriendItem* friendItem = &friends[friendIndex];
+    if (friendItem->userId <= 0) {
+        Serial.println("Social Screen: Invalid friend userId");
+        return;
+    }
+    
+    Serial.print("Social Screen: Opening chat with friend: ");
+    Serial.print(friendItem->nickname);
+    Serial.print(" (ID: ");
+    Serial.print(friendItem->userId);
+    Serial.println(")");
+    
+    // Clear unread count cho friend này khi mở chat
+    clearUnreadChatForFriend(friendItem->userId);
+    
+    // Redraw friend card to remove badge
+    redrawFriendCard(friendIndex, true);
+    
+    // Call callback để main.cpp mở ChatScreen
+    if (onOpenChatCallback != nullptr) {
+        onOpenChatCallback(friendItem->userId, friendItem->nickname);
+    } else {
+        Serial.println("Social Screen: ⚠️  onOpenChatCallback is null!");
+    }
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
@@ -1042,7 +1222,7 @@ void SocialScreen::parseFriendsString(const String& friendsString) {
         return;
     }
     
-    // Parse format: "user1,0|user2,1|..."
+    // Parse format: "user1,userId1,0|user2,userId2,1|..."
     // Count entries first
     int count = 1;
     for (int i = 0; i < friendsString.length(); i++) {
@@ -1060,13 +1240,32 @@ void SocialScreen::parseFriendsString(const String& friendsString) {
     for (int i = 0; i <= friendsString.length(); i++) {
         if (i == friendsString.length() || friendsString.charAt(i) == '|') {
             String entry = friendsString.substring(startPos, i);
-            int commaPos = entry.indexOf(',');
-            
-            if (commaPos > 0 && entryIndex < friendsCount) {
-                friends[entryIndex].nickname = entry.substring(0, commaPos);
-                String onlineStr = entry.substring(commaPos + 1);
-                friends[entryIndex].online = (onlineStr == "1");
-                entryIndex++;
+            if (entry.length() > 0) {
+                // Parse: "nickname,userId,online"
+                int comma1 = entry.indexOf(',');
+                if (comma1 > 0) {
+                    friends[entryIndex].nickname = entry.substring(0, comma1);
+                    
+                    int comma2 = entry.indexOf(',', comma1 + 1);
+                    if (comma2 > comma1) {
+                        // Parse userId
+                        String userIdStr = entry.substring(comma1 + 1, comma2);
+                        friends[entryIndex].userId = userIdStr.toInt();
+                        
+                        // Parse online status
+                        String onlineStr = entry.substring(comma2 + 1);
+                        friends[entryIndex].online = (onlineStr == "1");
+                    } else {
+                        // Fallback: old format "nickname,online" (no userId)
+                        String onlineStr = entry.substring(comma1 + 1);
+                        friends[entryIndex].userId = -1;  // Unknown userId
+                        friends[entryIndex].online = (onlineStr == "1");
+                    }
+                    
+                    // Initialize unread count
+                    friends[entryIndex].unreadCount = 0;
+                    entryIndex++;
+                }
             }
             
             startPos = i + 1;
@@ -1449,6 +1648,21 @@ int SocialScreen::getFirstFriendRequestIndex() const {
     return -1;
 }
 
+int SocialScreen::getFirstFriendWithUnreadIndex() const {
+    if (friends == nullptr || friendsCount == 0) {
+        return -1;
+    }
+    
+    // Find first friend with unread messages
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].unreadCount > 0) {
+            return i;
+        }
+    }
+    
+    return -1;
+}
+
 void SocialScreen::selectNotification(int index) {
     if (index >= 0 && index < notificationsCount) {
         selectedNotificationIndex = index;
@@ -1467,6 +1681,35 @@ void SocialScreen::selectNotification(int index) {
         
         // Redraw to show selection
         drawContentArea();
+    }
+}
+
+void SocialScreen::selectFriend(int index) {
+    if (index < 0 || index >= friendsCount) {
+        Serial.println("Social Screen: Invalid friend index for selection");
+        return;
+    }
+    
+    int oldIndex = selectedFriendIndex;
+    selectedFriendIndex = index;
+    
+    // Adjust scroll if needed
+    const uint16_t cardHeight = 32;
+    const uint16_t cardSpacing = 4;
+    const uint16_t headerHeight = 35;
+    const uint16_t startY = headerHeight + 4;
+    const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+    
+    if (selectedFriendIndex < friendsScrollOffset) {
+        friendsScrollOffset = selectedFriendIndex;
+        drawContentArea();  // Full redraw if scroll changed
+    } else if (selectedFriendIndex >= friendsScrollOffset + visibleItems) {
+        friendsScrollOffset = selectedFriendIndex - visibleItems + 1;
+        drawContentArea();  // Full redraw if scroll changed
+    } else {
+        // Partial redraw: unselect old, select new
+        redrawFriendCard(oldIndex, false);
+        redrawFriendCard(selectedFriendIndex, true);
     }
 }
 

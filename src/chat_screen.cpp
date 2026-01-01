@@ -2,6 +2,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include "chat_screen.h"
+#include "socket_manager.h"
 #include <FS.h>
 #include <SPIFFS.h>
 
@@ -65,6 +66,9 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     // Khởi tạo nickname mặc định
     this->ownerNickname = "You";      // Tên mặc định của người dùng
     this->friendNickname = "Other";    // Tên mặc định của người khác
+    this->ownerUserId = -1;            // Chưa có owner user ID
+    this->friendUserId = -1;           // Chưa có friend được chọn
+    this->socketManager = nullptr;     // Chưa set socket manager
     
     // Khởi tạo SPIFFS
     if (!SPIFFS.begin(true)) {
@@ -1023,6 +1027,14 @@ void ChatScreen::draw() {
     needsInputRedraw = false;
 }
 
+void ChatScreen::redrawMessages() {
+    // Set flag để drawMessages() được gọi
+    needsMessagesRedraw = true;
+    needsRedraw = true;
+    // Gọi drawMessages() trực tiếp
+    drawMessages();
+}
+
 void ChatScreen::handleKeyPress(String key) {
     // Xử lý các phím đặc biệt
     if (key == "|e") {
@@ -1100,7 +1112,30 @@ void ChatScreen::sendMessage() {
             tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, OFFLINE_RED);
             return;
         }
-        addMessage(currentMessage, true);
+        addMessage(currentMessage, true);  // Thêm vào UI và lưu file
+        
+        // Debug: Kiểm tra socketManager và friendUserId
+        Serial.print("Chat: Debug - socketManager: ");
+        Serial.print(socketManager != nullptr ? "OK" : "NULL");
+        Serial.print(", friendUserId: ");
+        Serial.println(friendUserId);
+        
+        // Gửi message qua socket đến server
+        if (socketManager != nullptr && friendUserId > 0) {
+            Serial.print("Chat: Sending message via socket to user ");
+            Serial.println(friendUserId);
+            socketManager->sendChatMessage(friendUserId, currentMessage);
+        } else {
+            Serial.println("Chat: ⚠️  Cannot send message - socketManager or friendUserId not set");
+            if (socketManager == nullptr) {
+                Serial.println("Chat: ⚠️  socketManager is NULL!");
+            }
+            if (friendUserId <= 0) {
+                Serial.print("Chat: ⚠️  friendUserId is invalid: ");
+                Serial.println(friendUserId);
+            }
+        }
+        
         currentMessage = "";
         inputCursorPos = 0;
         needsInputRedraw = true;
@@ -1316,26 +1351,28 @@ void ChatScreen::clearMessages() {
 }
 
 String ChatScreen::getChatHistoryFileName() {
-    // Tạo tên file từ owner và friend nickname
-    // Format: "/owner_friend.txt"
-    // Ví dụ: "/Tí Đô_Bạn.txt"
+    // Tạo tên file từ user IDs
+    // Format: "/<min_user_id>-<max_user_id>.txt"
+    // Ví dụ: user 1 chat với user 5 → "/1-5.txt"
+    //        user 5 chat với user 1 → "/1-5.txt" (cùng file)
+    
+    if (ownerUserId <= 0 || friendUserId <= 0) {
+        Serial.println("Chat: ⚠️  Invalid user IDs for file name generation");
+        return "/invalid.txt";
+    }
+    
+    // Đảm bảo tên file nhất quán: luôn dùng min-max
+    int minId = (ownerUserId < friendUserId) ? ownerUserId : friendUserId;
+    int maxId = (ownerUserId > friendUserId) ? ownerUserId : friendUserId;
+    
     String fileName = "/";
-    fileName += ownerNickname;
-    fileName += "_";
-    fileName += friendNickname;
+    fileName += String(minId);
+    fileName += "-";
+    fileName += String(maxId);
     fileName += ".txt";
     
-    // Loại bỏ ký tự không hợp lệ trong tên file (thay space và ký tự đặc biệt)
-    fileName.replace(" ", "_");
-    fileName.replace("/", "_");
-    fileName.replace("\\", "_");
-    fileName.replace(":", "_");
-    fileName.replace("*", "_");
-    fileName.replace("?", "_");
-    fileName.replace("\"", "_");
-    fileName.replace("<", "_");
-    fileName.replace(">", "_");
-    fileName.replace("|", "_");
+    Serial.print("Chat: Generated file name: ");
+    Serial.println(fileName);
     
     return fileName;
 }
@@ -1823,6 +1860,10 @@ void ChatScreen::setFriendStatus(uint8_t status) {
     friendStatus = status;
     // Chỉ cần vẽ lại title bar để cập nhật dot
     drawTitle();
+}
+
+void ChatScreen::setSocketManager(SocketManager* socketMgr) {
+    this->socketManager = socketMgr;
 }
 
 void ChatScreen::enableAllDecor() {
