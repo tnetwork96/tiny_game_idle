@@ -8,7 +8,9 @@ logger = logging.getLogger(__name__)
 
 class WebSocketManager:
     def __init__(self):
-        self.active_connections: Dict[str, WebSocket] = {}
+        self.active_connections: Dict[str, WebSocket] = {}  # client_id -> WebSocket
+        self.user_to_client: Dict[int, str] = {}  # user_id -> client_id
+        self.client_to_user: Dict[str, int] = {}  # client_id -> user_id
     
     async def connect(self, websocket: WebSocket, client_id: str):
         await websocket.accept()
@@ -21,7 +23,46 @@ class WebSocketManager:
     async def disconnect(self, client_id: str):
         if client_id in self.active_connections:
             del self.active_connections[client_id]
+            # Remove user_id mapping if exists
+            if client_id in self.client_to_user:
+                user_id = self.client_to_user[client_id]
+                if user_id in self.user_to_client and self.user_to_client[user_id] == client_id:
+                    del self.user_to_client[user_id]
+                del self.client_to_user[client_id]
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] WebSocket client disconnected: {client_id}")
+    
+    async def send_notification_to_user(self, user_id: int, notification_data: dict):
+        """
+        Send notification to a specific user via WebSocket.
+        Returns True if sent successfully, False if user not connected.
+        """
+        if user_id not in self.user_to_client:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ User {user_id} not connected via WebSocket")
+            return False
+        
+        client_id = self.user_to_client[user_id]
+        if client_id not in self.active_connections:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Client {client_id} for user {user_id} not in active connections")
+            # Clean up stale mapping
+            if user_id in self.user_to_client:
+                del self.user_to_client[user_id]
+            if client_id in self.client_to_user:
+                del self.client_to_user[client_id]
+            return False
+        
+        websocket = self.active_connections[client_id]
+        try:
+            message = {
+                "type": "notification",
+                "notification": notification_data
+            }
+            await websocket.send_text(json.dumps(message))
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Sent notification to user {user_id} (client {client_id})")
+            return True
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error sending notification to user {user_id}: {str(e)}")
+            logger.error(f"Error sending notification: {str(e)}", exc_info=True)
+            return False
     
     async def handle_message(self, websocket: WebSocket, message: str, client_id: str):
         try:
@@ -47,6 +88,7 @@ class WebSocketManager:
             # Handle init message
             if message_type == "init":
                 device = data.get("device", "unknown")
+                user_id = data.get("user_id", None)
                 client_ip = websocket.client.host if websocket.client else "unknown"
                 
                 print("=" * 60)
@@ -54,9 +96,23 @@ class WebSocketManager:
                 print(f"  Client ID: {client_id}")
                 print(f"  Client IP: {client_ip}")
                 print(f"  Device: {device}")
+                if user_id is not None:
+                    print(f"  User ID: {user_id}")
                 print(f"  Full Message:")
                 print(json.dumps(data, indent=4))
                 print("=" * 60)
+                
+                # Store user_id mapping if provided
+                if user_id is not None:
+                    # Remove old mapping if user_id was already connected
+                    if user_id in self.user_to_client:
+                        old_client_id = self.user_to_client[user_id]
+                        if old_client_id in self.client_to_user:
+                            del self.client_to_user[old_client_id]
+                    # Store new mapping
+                    self.user_to_client[user_id] = client_id
+                    self.client_to_user[client_id] = user_id
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mapped user_id {user_id} to client_id {client_id}")
                 
                 # Send acknowledgment
                 ack = {

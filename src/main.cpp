@@ -59,6 +59,28 @@ void onMiniKeyboardKeySelected(String key) {
     }
 }
 
+// Callback function for socket notifications
+void onSocketNotification(int id, const String& type, const String& message, const String& timestamp, bool read) {
+    Serial.print("Main: Received socket notification - id: ");
+    Serial.print(id);
+    Serial.print(", type: ");
+    Serial.print(type);
+    Serial.print(", message: ");
+    Serial.println(message);
+    
+    // Forward to SocialScreen if active
+    if (isSocialScreenActive && socialScreen != nullptr) {
+        Serial.println("Main: Forwarding notification to SocialScreen...");
+        socialScreen->addNotificationFromSocket(id, type, message, timestamp, read);
+        Serial.println("Main: Notification forwarded, popup should be visible");
+    } else {
+        Serial.print("Main: ⚠️  SocialScreen not active! isSocialScreenActive=");
+        Serial.print(isSocialScreenActive);
+        Serial.print(", socialScreen=");
+        Serial.println(socialScreen != nullptr ? "exists" : "null");
+    }
+}
+
 // Callback function for when login is successful
 void onLoginSuccess() {
     Serial.println("Main: Login successful, switching to Social Screen...");
@@ -68,6 +90,19 @@ void onLoginSuccess() {
         int userId = loginScreen->getUserId();
         socialScreen->setUserId(userId);
         socialScreen->setServerInfo("192.168.1.7", 8080);
+        
+        // Initialize and configure Socket Manager
+        if (socketManager != nullptr) {
+            // Set user ID for socket init message
+            socketManager->setUserId(userId);
+            
+            // Initialize socket connection
+            socketManager->begin("192.168.1.7", 8080, "/ws");
+            
+            // Register notification callback
+            socketManager->setOnNotificationCallback(onSocketNotification);
+            Serial.println("Main: Socket Manager initialized and notification callback registered");
+        }
         
         // Load data
         socialScreen->loadFriends();
@@ -561,6 +596,8 @@ void loop() {
     // Không cần gọi socketManager->update() nữa
     // Task đã chạy while(true) tự động sau khi begin()
     // Task xử lý tất cả: webSocket.loop(), keep-alive ping, etc.
+    
+    // Popup notification disabled - no need to update popup
     
     delay(100);
 }

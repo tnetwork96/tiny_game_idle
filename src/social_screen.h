@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 #include "keyboard.h"
 #include "mini_keyboard.h"
 #include "mini_add_friend_screen.h"
@@ -73,6 +75,12 @@ public:
     
     // Remove notification by ID (optimistic update before server reload)
     void removeNotificationById(int notificationId);
+    
+    // Add notification from socket (thread-safe)
+    void addNotificationFromSocket(int id, const String& type, const String& message, const String& timestamp, bool read);
+    
+    // Notification popup management
+    void updateNotificationPopup();  // Check if popup should be hidden (call in loop)
 
     // Callback for when friend is added successfully
     typedef void (*OnAddFriendSuccessCallback)();
@@ -109,6 +117,9 @@ private:
     int notificationsCount;
     int selectedNotificationIndex;
     int notificationsScrollOffset;
+    
+    // Semaphore for thread-safe access to notifications array
+    SemaphoreHandle_t notificationsMutex;
 
     // Callbacks
     OnAddFriendSuccessCallback onAddFriendSuccessCallback;
@@ -151,6 +162,17 @@ private:
     
     // Store notification ID for accept action
     int pendingAcceptNotificationId;
+    
+    // Notification popup/toast
+    String popupMessage;
+    unsigned long popupShowTime;
+    bool popupVisible;
+    static const unsigned long POPUP_DURATION = 5000;  // 5 seconds
+    
+    // Draw notification popup
+    void drawNotificationPopup();
+    void showNotificationPopup(const String& message);
+    void hideNotificationPopup();
 };
 
 #endif

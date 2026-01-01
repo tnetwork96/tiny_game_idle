@@ -71,6 +71,17 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->onAddFriendSuccessCallback = nullptr;
     this->pendingAcceptNotificationId = -1;
     
+    // Notification popup
+    this->popupMessage = "";
+    this->popupShowTime = 0;
+    this->popupVisible = false;
+    
+    // Create semaphore for thread-safe notifications access
+    notificationsMutex = xSemaphoreCreateMutex();
+    if (notificationsMutex == NULL) {
+        Serial.println("Social Screen: Failed to create notifications mutex!");
+    }
+    
     // Set static instance for callbacks
     s_socialScreenInstance = this;
 }
@@ -83,6 +94,11 @@ SocialScreen::~SocialScreen() {
     }
     if (confirmationDialog != nullptr) {
         delete confirmationDialog;
+    }
+    // Delete semaphore
+    if (notificationsMutex != NULL) {
+        vSemaphoreDelete(notificationsMutex);
+        notificationsMutex = NULL;
     }
     s_socialScreenInstance = nullptr;
 }
@@ -414,6 +430,8 @@ void SocialScreen::draw() {
     if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
         confirmationDialog->draw();
     }
+    
+    // Popup notification disabled - notifications will only show in notifications tab
 }
 
 void SocialScreen::handleTabNavigation(const String& key) {
@@ -905,6 +923,8 @@ void SocialScreen::navigateToNotifications() {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
+    // Popup notification disabled - no need to check or hide popup
+    
     // If on Add Friend tab and typing, forward to MiniAddFriendScreen
     if (currentTab == TAB_ADD_FRIEND && 
         (key.length() == 1 || key == "|e" || key == "<" || key == "123" || key == "ABC")) {
@@ -1033,17 +1053,42 @@ void SocialScreen::clearFriends() {
 }
 
 void SocialScreen::clearNotifications() {
-    if (notifications != nullptr) {
-        delete[] notifications;
-        notifications = nullptr;
+    // Lock semaphore for thread-safe access
+    if (notificationsMutex != NULL && xSemaphoreTake(notificationsMutex, portMAX_DELAY) == pdTRUE) {
+        if (notifications != nullptr) {
+            delete[] notifications;
+            notifications = nullptr;
+        }
+        notificationsCount = 0;
+        selectedNotificationIndex = 0;
+        notificationsScrollOffset = 0;
+        xSemaphoreGive(notificationsMutex);
+    } else {
+        // Fallback if mutex not available
+        if (notifications != nullptr) {
+            delete[] notifications;
+            notifications = nullptr;
+        }
+        notificationsCount = 0;
+        selectedNotificationIndex = 0;
+        notificationsScrollOffset = 0;
     }
-    notificationsCount = 0;
-    selectedNotificationIndex = 0;
-    notificationsScrollOffset = 0;
 }
 
 void SocialScreen::removeNotificationById(int notificationId) {
+    // Lock semaphore for thread-safe access
+    if (notificationsMutex == NULL) {
+        Serial.println("Social Screen: Notifications mutex not initialized!");
+        return;
+    }
+    
+    if (xSemaphoreTake(notificationsMutex, portMAX_DELAY) != pdTRUE) {
+        Serial.println("Social Screen: Failed to take notifications mutex!");
+        return;
+    }
+    
     if (notifications == nullptr || notificationsCount == 0) {
+        xSemaphoreGive(notificationsMutex);
         return;
     }
     
@@ -1060,6 +1105,7 @@ void SocialScreen::removeNotificationById(int notificationId) {
         Serial.print("Social Screen: Notification ID ");
         Serial.print(notificationId);
         Serial.println(" not found in current list");
+        xSemaphoreGive(notificationsMutex);
         return;
     }
     
@@ -1071,7 +1117,9 @@ void SocialScreen::removeNotificationById(int notificationId) {
     // Create new array without the removed notification
     if (notificationsCount == 1) {
         // Last notification, just clear
-        clearNotifications();
+        delete[] notifications;
+        notifications = nullptr;
+        notificationsCount = 0;
         selectedNotificationIndex = -1;
         notificationsScrollOffset = 0;
     } else {
@@ -1104,6 +1152,8 @@ void SocialScreen::removeNotificationById(int notificationId) {
     
     Serial.print("Social Screen: After removal, notifications count: ");
     Serial.println(notificationsCount);
+    
+    xSemaphoreGive(notificationsMutex);
 }
 
 void SocialScreen::loadFriends() {
@@ -1142,12 +1192,30 @@ void SocialScreen::loadNotifications() {
     Serial.println("Social Screen: Loading notifications...");
     ApiClient::NotificationsResult result = ApiClient::getNotifications(userId, serverHost, serverPort);
     
+    // Lock semaphore for thread-safe access
+    if (notificationsMutex == NULL) {
+        Serial.println("Social Screen: Notifications mutex not initialized!");
+        return;
+    }
+    
+    if (xSemaphoreTake(notificationsMutex, portMAX_DELAY) != pdTRUE) {
+        Serial.println("Social Screen: Failed to take notifications mutex!");
+        return;
+    }
+    
     if (result.success) {
         Serial.print("Social Screen: Received ");
         Serial.print(result.count);
         Serial.println(" notifications from server");
         
-        clearNotifications();
+        // Clear existing notifications
+        if (notifications != nullptr) {
+            delete[] notifications;
+            notifications = nullptr;
+        }
+        notificationsCount = 0;
+        selectedNotificationIndex = 0;
+        notificationsScrollOffset = 0;
         
         // Filter out read notifications - only keep unread ones
         int unreadCount = 0;
@@ -1191,12 +1259,26 @@ void SocialScreen::loadNotifications() {
     } else {
         Serial.print("Social Screen: Failed to load notifications: ");
         Serial.println(result.message);
-        clearNotifications();
+        // Clear existing notifications
+        if (notifications != nullptr) {
+            delete[] notifications;
+            notifications = nullptr;
+        }
+        notificationsCount = 0;
+        selectedNotificationIndex = 0;
+        notificationsScrollOffset = 0;
     }
+    
+    // Unlock semaphore before drawing (drawing reads the array, but we unlock first)
+    xSemaphoreGive(notificationsMutex);
     
     // Redraw if currently showing notifications tab
     if (currentTab == TAB_NOTIFICATIONS) {
-        drawContentArea();
+        // Lock again for reading during draw
+        if (xSemaphoreTake(notificationsMutex, portMAX_DELAY) == pdTRUE) {
+            drawContentArea();
+            xSemaphoreGive(notificationsMutex);
+        }
     }
 }
 
@@ -1459,6 +1541,210 @@ void SocialScreen::doCancelAcceptFriendRequest() {
             drawContentArea();  // Redraw notifications list
         } else {
             draw();  // Full redraw if on different tab
+        }
+    }
+}
+
+void SocialScreen::addNotificationFromSocket(int id, const String& type, const String& message, const String& timestamp, bool read) {
+    // Lock semaphore for thread-safe access
+    if (notificationsMutex == NULL) {
+        Serial.println("Social Screen: Notifications mutex not initialized!");
+        return;
+    }
+    
+    if (xSemaphoreTake(notificationsMutex, portMAX_DELAY) != pdTRUE) {
+        Serial.println("Social Screen: Failed to take notifications mutex!");
+        return;
+    }
+    
+    // Check if notification already exists (avoid duplicates)
+    // Check by both ID and message to handle test notifications with same ID but different messages
+    bool notificationExists = false;
+    if (notifications != nullptr && notificationsCount > 0) {
+        for (int i = 0; i < notificationsCount; i++) {
+            // Check if same ID AND same message (to allow same ID with different messages for testing)
+            if (notifications[i].id == id && notifications[i].message == message) {
+                notificationExists = true;
+                Serial.print("Social Screen: Notification ID ");
+                Serial.print(id);
+                Serial.print(" with message \"");
+                Serial.print(message);
+                Serial.println("\" already exists, skipping");
+                break;
+            }
+        }
+    }
+    
+    // Only add if it doesn't exist
+    if (!notificationExists) {
+        Serial.print("Social Screen: Adding notification from socket - id: ");
+        Serial.print(id);
+        Serial.print(", type: ");
+        Serial.print(type);
+        Serial.print(", message: ");
+        Serial.println(message);
+        
+        // Create new array with one more element
+        ApiClient::NotificationEntry* newNotifications = new ApiClient::NotificationEntry[notificationsCount + 1];
+        
+        // Copy existing notifications
+        for (int i = 0; i < notificationsCount; i++) {
+            newNotifications[i] = notifications[i];
+        }
+        
+        // Add new notification at the beginning (most recent first)
+        newNotifications[notificationsCount].id = id;
+        newNotifications[notificationsCount].type = type;
+        newNotifications[notificationsCount].message = message;
+        newNotifications[notificationsCount].timestamp = timestamp;
+        newNotifications[notificationsCount].read = read;
+        
+        // Only keep unread notifications
+        if (read) {
+            // If notification is read, don't add it to the list
+            delete[] newNotifications;
+            Serial.println("Social Screen: Notification is read, not adding to list");
+        } else {
+            // Delete old array and update
+            if (notifications != nullptr) {
+                delete[] notifications;
+            }
+            notifications = newNotifications;
+            notificationsCount++;
+            
+            // Update selection if needed
+            if (selectedNotificationIndex < 0 && notificationsCount > 0) {
+                selectedNotificationIndex = 0;
+            }
+            
+            Serial.print("Social Screen: Notification added. Total count: ");
+            Serial.println(notificationsCount);
+        }
+    }
+    
+    // Unlock semaphore
+    xSemaphoreGive(notificationsMutex);
+    
+    // Update UI if notification was added successfully (only if on notifications tab)
+    if (!notificationExists && !read) {
+        Serial.println("Social Screen: Notification added successfully");
+        
+        // Only redraw if we're on notifications tab
+        if (currentTab == TAB_NOTIFICATIONS) {
+            Serial.println("Social Screen: On notifications tab, redrawing content area...");
+            // Redraw notifications list (this is called from main task, so it's safe)
+            // Note: drawContentArea() reads notifications array, but we've already unlocked
+            // We need to lock again when reading, but since we're in main task context,
+            // we can safely redraw. However to be safe, let's lock during redraw too.
+            if (xSemaphoreTake(notificationsMutex, portMAX_DELAY) == pdTRUE) {
+                drawContentArea();
+                xSemaphoreGive(notificationsMutex);
+            }
+        } else {
+            // If not on notifications tab, do nothing - notification will be visible when user switches to notifications tab
+            Serial.println("Social Screen: Not on notifications tab, doing nothing. Notification will be visible when user switches to notifications tab");
+        }
+    }
+}
+
+void SocialScreen::drawNotificationPopup() {
+    if (!popupVisible || popupMessage.length() == 0) {
+        Serial.print("Social Screen: drawNotificationPopup skipped - visible=");
+        Serial.print(popupVisible);
+        Serial.print(", messageLen=");
+        Serial.println(popupMessage.length());
+        return;
+    }
+    
+    Serial.println("Social Screen: Drawing notification popup...");
+    
+    // Popup dimensions
+    const uint16_t popupWidth = 280;
+    const uint16_t popupHeight = 80;
+    const uint16_t popupX = (320 - popupWidth) / 2;  // Center horizontally
+    const uint16_t popupY = 20;  // Top of screen
+    const uint16_t cornerRadius = 8;
+    const uint16_t padding = 12;
+    
+    // Draw popup background with rounded corners
+    tft->fillRoundRect(popupX, popupY, popupWidth, popupHeight, cornerRadius, SOCIAL_HEADER);
+    tft->drawRoundRect(popupX, popupY, popupWidth, popupHeight, cornerRadius, SOCIAL_ACCENT);
+    
+    // Draw accent line at top
+    tft->drawFastHLine(popupX + 4, popupY + 2, popupWidth - 8, SOCIAL_ACCENT);
+    
+    // Draw notification icon (bell) on left
+    const uint16_t iconSize = 16;
+    const uint16_t iconX = popupX + padding;
+    const uint16_t iconY = popupY + (popupHeight - iconSize) / 2;
+    drawNotificationsIcon(iconX, iconY, SOCIAL_SUCCESS);
+    
+    // Draw message text
+    tft->setTextSize(1);
+    tft->setTextColor(SOCIAL_TEXT, SOCIAL_HEADER);
+    
+    // Calculate text area
+    const uint16_t textX = popupX + padding + iconSize + 8;
+    const uint16_t textY = popupY + padding;
+    const uint16_t textWidth = popupWidth - (textX - popupX) - padding;
+    const uint16_t textHeight = popupHeight - padding * 2;
+    
+    // Truncate message if too long
+    String displayMessage = popupMessage;
+    int maxChars = textWidth / 6;  // Approximate chars per line
+    int maxLines = textHeight / 10;  // Approximate lines
+    
+    if (displayMessage.length() > maxChars * maxLines) {
+        displayMessage = displayMessage.substring(0, maxChars * maxLines - 3) + "...";
+    }
+    
+    // Draw message (can wrap to 2 lines)
+    tft->setCursor(textX, textY);
+    if (displayMessage.length() > maxChars) {
+        // Try to wrap at space
+        int spacePos = displayMessage.lastIndexOf(' ', maxChars);
+        if (spacePos > 0) {
+            tft->print(displayMessage.substring(0, spacePos));
+            tft->setCursor(textX, textY + 12);
+            String secondLine = displayMessage.substring(spacePos + 1);
+            if (secondLine.length() > maxChars) {
+                secondLine = secondLine.substring(0, maxChars - 3) + "...";
+            }
+            tft->print(secondLine);
+        } else {
+            // No space found, just truncate
+            tft->print(displayMessage.substring(0, maxChars - 3) + "...");
+        }
+    } else {
+        tft->print(displayMessage);
+    }
+}
+
+void SocialScreen::showNotificationPopup(const String& message) {
+    popupMessage = message;
+    popupShowTime = millis();
+    popupVisible = true;
+    Serial.print("Social Screen: Showing notification popup: ");
+    Serial.println(message);
+}
+
+void SocialScreen::hideNotificationPopup() {
+    if (popupVisible) {
+        popupVisible = false;
+        popupMessage = "";
+        popupShowTime = 0;
+        // Redraw to remove popup
+        draw();
+    }
+}
+
+void SocialScreen::updateNotificationPopup() {
+    if (popupVisible && popupShowTime > 0) {
+        unsigned long currentTime = millis();
+        unsigned long elapsed = currentTime - popupShowTime;
+        
+        if (elapsed >= POPUP_DURATION) {
+            hideNotificationPopup();
         }
     }
 }

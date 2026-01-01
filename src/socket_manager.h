@@ -26,10 +26,20 @@ private:
     unsigned long lastPingTime;
     unsigned long pingInterval;  // Send ping every 30 seconds
     
+    // User ID for init message
+    int userId;
+    
+    // Notification callback
+    typedef void (*OnNotificationCallback)(int id, const String& type, const String& message, const String& timestamp, bool read);
+    OnNotificationCallback onNotificationCallback;
+    
     // Callback handlers
     void onWebSocketEvent(WStype_t type, uint8_t * payload, size_t length);
     static void webSocketEvent(WStype_t type, uint8_t * payload, size_t length);
     static SocketManager* instance;
+    
+    // Helper to parse JSON notification
+    void parseNotificationMessage(const String& message);
     
     // FreeRTOS task function
     static void socketTask(void* parameter);
@@ -59,6 +69,26 @@ public:
     
     // Get instance (for static callback)
     static SocketManager* getInstance() { return instance; }
+    
+    // Set notification callback
+    void setOnNotificationCallback(OnNotificationCallback callback) {
+        onNotificationCallback = callback;
+    }
+    
+    // Set user ID for init message (call before or after begin)
+    void setUserId(int userId) {
+        this->userId = userId;
+        // If already connected, send updated init message
+        if (isConnected && initialized) {
+            String initMessage = "{\"type\":\"init\",\"device\":\"ESP32\",\"user_id\":";
+            initMessage += String(userId);
+            initMessage += "}";
+            String msgCopy = initMessage;
+            webSocket.sendTXT(msgCopy);
+            Serial.print("Socket Manager: Sent updated init message with user_id: ");
+            Serial.println(userId);
+        }
+    }
 };
 
 #endif

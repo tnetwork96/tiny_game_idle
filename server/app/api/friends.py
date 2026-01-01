@@ -9,6 +9,7 @@ from psycopg2.extras import RealDictCursor
 import os
 from typing import Optional
 from datetime import datetime
+from app.api.websocket import websocket_manager
 
 router = APIRouter(prefix="/api", tags=["friends"])
 
@@ -246,15 +247,36 @@ async def accept_friend_request(request: AcceptFriendRequestRequest):
                 WHERE user_id = %s AND type = 'friend_request_accepted' AND related_id = %s
             ''', (from_user_id, friend_request_id))
             
+            notification_id = None
+            notification_created_at = None
+            notification_message = None
+            
             if not cursor.fetchone():
                 # Create acceptance notification for sender
                 notification_message = f"{recipient_display_name} accepted your friend request"
                 cursor.execute('''
                     INSERT INTO notifications (user_id, type, message, related_id, read)
                     VALUES (%s, 'friend_request_accepted', %s, %s, FALSE)
+                    RETURNING id, created_at
                 ''', (from_user_id, notification_message, friend_request_id))
+                
+                notification_result = cursor.fetchone()
+                notification_id = notification_result['id'] if notification_result else None
+                notification_created_at = notification_result['created_at'] if notification_result else None
             
+            # Commit all database operations together
             conn.commit()
+            
+            # Send notification via WebSocket if user is connected and notification was created
+            if notification_id is not None and notification_message is not None:
+                notification_data = {
+                "id": notification_id,
+                "type": "friend_request_accepted",
+                "message": notification_message,
+                "timestamp": notification_created_at.isoformat() if notification_created_at else datetime.now().isoformat(),
+                "read": False
+            }
+                await websocket_manager.send_notification_to_user(from_user_id, notification_data)
             
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} accepted by user {request.user_id} (from {from_user_id})")
             return AcceptFriendRequestResponse(
@@ -629,4 +651,55 @@ async def remove_friend(user_id: int, friend_id: int):
     finally:
         if conn:
             conn.close()
+
+# Test endpoint để gửi notification qua WebSocket
+class TestNotificationRequest(BaseModel):
+    user_id: int
+    message: str
+    notification_type: Optional[str] = "friend_request"
+
+class TestNotificationResponse(BaseModel):
+    success: bool
+    message: str
+
+@router.post("/test/notification", response_model=TestNotificationResponse)
+async def test_send_notification(request: TestNotificationRequest):
+    """
+    Test endpoint để gửi notification qua WebSocket đến user
+    Dùng để test tính năng socket notification
+    """
+    try:
+        # Generate unique ID based on timestamp to avoid duplicates
+        import time
+        unique_id = int(time.time() * 1000) % 1000000  # Use milliseconds timestamp as ID
+        
+        notification_data = {
+            "id": unique_id,  # Unique ID for each test notification
+            "type": request.notification_type,
+            "message": request.message,
+            "timestamp": datetime.now().isoformat(),
+            "read": False
+        }
+        
+        result = await websocket_manager.send_notification_to_user(request.user_id, notification_data)
+        
+        if result:
+            return TestNotificationResponse(
+                success=True,
+                message=f"Notification sent successfully to user {request.user_id}"
+            )
+        else:
+            return TestNotificationResponse(
+                success=False,
+                message=f"User {request.user_id} not connected via WebSocket"
+            )
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Test notification error: {str(e)}")
+        print(f"Traceback: {error_trace}")
+        return TestNotificationResponse(
+            success=False,
+            message=f"Error: {str(e)}"
+        )
 

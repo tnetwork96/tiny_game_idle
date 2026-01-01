@@ -1,0 +1,11 @@
+{
+  "type": "notification",
+  "notification": {
+    "id": 12345,
+    "type": "friend_request",
+    "message": "PlayerOne sent you a friend request",
+    "timestamp": "2025-01-15T10:30:00.000000",
+    "read": false
+  }
+}
+
