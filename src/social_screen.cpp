@@ -76,6 +76,9 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->popupShowTime = 0;
     this->popupVisible = false;
     
+    // Red dot badge for unread notifications
+    this->hasUnreadNotification = false;
+    
     // Create semaphore for thread-safe notifications access
     notificationsMutex = xSemaphoreCreateMutex();
     if (notificationsMutex == NULL) {
@@ -168,6 +171,22 @@ void SocialScreen::drawFriendsIcon(uint16_t x, uint16_t y, uint16_t color) {
 void SocialScreen::drawNotificationsIcon(uint16_t x, uint16_t y, uint16_t color) {
     // Draw bitmap icon (16x16)
     tft->drawBitmap(x, y, iconBell, 16, 16, color);
+    
+    // Draw red dot badge if there are unread notifications
+    if (hasUnreadNotification) {
+        // Draw small red circle at top-right corner of icon (16x16 icon)
+        const uint16_t badgeSize = 6;
+        const uint16_t badgeX = x + 16 - badgeSize;  // Top-right corner
+        const uint16_t badgeY = y;
+        const uint16_t badgeCenterX = badgeX + badgeSize/2;
+        const uint16_t badgeCenterY = badgeY + badgeSize/2;
+        const uint16_t badgeRadius = badgeSize/2;
+        
+        // Draw red filled circle
+        tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
+        // Draw white border for better visibility
+        tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
+    }
 }
 
 void SocialScreen::drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t color) {
@@ -879,6 +898,12 @@ void SocialScreen::handleContentNavigation(const String& key) {
 
 void SocialScreen::switchTab(Tab newTab) {
     if (currentTab != newTab) {
+        // Clear red dot badge when switching to notifications tab
+        if (newTab == TAB_NOTIFICATIONS && hasUnreadNotification) {
+            hasUnreadNotification = false;
+            Serial.println("Social Screen: Cleared hasUnreadNotification (switched to notifications tab)");
+        }
+        
         currentTab = newTab;
         // Auto-focus input when switching to Add Friend tab
         if (newTab == TAB_ADD_FRIEND) {
@@ -917,6 +942,15 @@ void SocialScreen::navigateToNotifications() {
     // Switch to Notifications tab
     switchTab(TAB_NOTIFICATIONS);
     // Ensure focus is on content (notifications list)
+    focusMode = FOCUS_CONTENT;
+    // Draw the screen
+    draw();
+}
+
+void SocialScreen::navigateToFriends() {
+    // Switch to Friends tab (chat)
+    switchTab(TAB_FRIENDS);
+    // Ensure focus is on content (friends list)
     focusMode = FOCUS_CONTENT;
     // Draw the screen
     draw();
@@ -1625,11 +1659,21 @@ void SocialScreen::addNotificationFromSocket(int id, const String& type, const S
     // Unlock semaphore
     xSemaphoreGive(notificationsMutex);
     
-    // Update UI if notification was added successfully (only if on notifications tab)
+    // Update UI if notification was added successfully
     if (!notificationExists && !read) {
         Serial.println("Social Screen: Notification added successfully");
         
-        // Only redraw if we're on notifications tab
+        // Set red dot badge if NOT on notifications tab
+        if (currentTab != TAB_NOTIFICATIONS) {
+            if (!hasUnreadNotification) {
+                hasUnreadNotification = true;
+                Serial.println("Social Screen: Set hasUnreadNotification = true (not on notifications tab), redrawing sidebar to show badge");
+                // Redraw sidebar to show red dot badge
+                drawSidebar();
+            }
+        }
+        
+        // Only redraw content if we're on notifications tab
         if (currentTab == TAB_NOTIFICATIONS) {
             Serial.println("Social Screen: On notifications tab, redrawing content area...");
             // Redraw notifications list (this is called from main task, so it's safe)
@@ -1641,8 +1685,8 @@ void SocialScreen::addNotificationFromSocket(int id, const String& type, const S
                 xSemaphoreGive(notificationsMutex);
             }
         } else {
-            // If not on notifications tab, do nothing - notification will be visible when user switches to notifications tab
-            Serial.println("Social Screen: Not on notifications tab, doing nothing. Notification will be visible when user switches to notifications tab");
+            // If not on notifications tab, notification will be visible when user switches to notifications tab
+            Serial.println("Social Screen: Not on notifications tab, badge shown. Notification will be visible when user switches to notifications tab");
         }
     }
 }

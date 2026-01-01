@@ -116,8 +116,8 @@ void onLoginSuccess() {
             keyboard->setDrawingEnabled(false);
         }
         
-        // Auto-navigate to Add Friend tab and focus keyboard
-        socialScreen->navigateToAddFriend();
+        // Auto-navigate to Friends tab (chat)
+        socialScreen->navigateToFriends();
         
         // Set callback for MiniKeyboard to route to Add Friend screen (giống Keyboard gốc)
         if (socialScreen->getMiniKeyboard() != nullptr) {
@@ -475,13 +475,44 @@ void loop() {
         }
     }
     
-    // Auto-navigation flow for Notifications - Chọn thông báo đầu tiên và điều hướng sang NO rồi select
+    // Auto-navigation flow for Friends (chat) - Đợi 10 giây rồi chuyển sang Notifications
     if (isSocialScreenActive && socialScreen != nullptr) {
-        // Đảm bảo luôn ở tab Notifications
-        if (socialScreen->getCurrentTab() != SocialScreen::TAB_NOTIFICATIONS) {
-            Serial.println("Notifications: Auto-navigating to Notifications tab");
-            socialScreen->navigateToNotifications();
-            delay(500);
+        static unsigned long friendsTabStartTime = 0;
+        static bool hasSwitchedToNotifications = false;
+        
+        // Nếu đang ở Friends tab
+        if (socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS) {
+            // Ghi lại thời gian khi vào Friends tab (chỉ lần đầu)
+            if (friendsTabStartTime == 0) {
+                friendsTabStartTime = millis();
+                hasSwitchedToNotifications = false;
+                Serial.println("Friends: Started timer - will switch to Notifications after 10 seconds");
+            }
+            
+            // Kiểm tra nếu đã qua 10 giây (10000 milliseconds)
+            unsigned long currentTime = millis();
+            unsigned long elapsedTime = currentTime - friendsTabStartTime;
+            
+            if (!hasSwitchedToNotifications && elapsedTime >= 10000) {
+                Serial.println("Friends: 10 seconds elapsed, switching to Notifications tab");
+                socialScreen->navigateToNotifications();
+                hasSwitchedToNotifications = true;
+                friendsTabStartTime = 0;  // Reset timer
+            }
+        } else {
+            // Nếu không ở Friends tab, reset timer
+            if (friendsTabStartTime != 0) {
+                friendsTabStartTime = 0;
+                hasSwitchedToNotifications = false;
+            }
+            
+            // Đảm bảo luôn ở tab Friends (nếu không phải Notifications)
+            if (socialScreen->getCurrentTab() != SocialScreen::TAB_NOTIFICATIONS && 
+                socialScreen->getCurrentTab() != SocialScreen::TAB_FRIENDS) {
+                Serial.println("Friends: Auto-navigating to Friends tab (chat)");
+                socialScreen->navigateToFriends();
+                delay(500);
+            }
         }
         
         // Nếu confirmation dialog đang hiển thị, tự động điều hướng sang NO và select

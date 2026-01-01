@@ -59,6 +59,9 @@ public:
     // Navigate to Notifications tab
     void navigateToNotifications();
     
+    // Navigate to Friends tab (chat)
+    void navigateToFriends();
+    
     // Check if confirmation dialog is visible
     bool isConfirmationDialogVisible() const {
         return confirmationDialog != nullptr && confirmationDialog->isVisible();
@@ -173,6 +176,9 @@ private:
     void drawNotificationPopup();
     void showNotificationPopup(const String& message);
     void hideNotificationPopup();
+    
+    // Red dot badge for unread notifications
+    bool hasUnreadNotification;
 };
 
 #endif
