@@ -12,6 +12,33 @@
 #include "api_client.h"
 #include "confirmation_dialog.h"
 
+// Theme/Skin Configuration Structure
+// Separates visual configuration from logic for easy theme swapping
+struct SocialTheme {
+    // 1. Color Palette
+    uint16_t colorBg;           // Background
+    uint16_t colorSidebarBg;    // Sidebar Background
+    uint16_t colorCardBg;       // Item/Card Background
+    uint16_t colorHighlight;    // Selected Item Background
+    uint16_t colorAccent;       // Primary Accent (Cyan, etc.)
+    uint16_t colorTextMain;     // Primary Text
+    uint16_t colorTextMuted;    // Secondary Text/Offline status
+    uint16_t colorSuccess;      // Online/Active
+    uint16_t colorError;        // Offline/Error
+    
+    // 2. Layout Metrics (The "Skeleton")
+    uint8_t  tabHeight;         // Sidebar tab height
+    uint8_t  rowHeight;         // Friend list row height
+    uint8_t  sidebarWidth;      // Sidebar width
+    uint8_t  cornerRadius;      // Border radius for rounded elements
+    uint8_t  itemPadding;       // General padding
+    uint8_t  headerHeight;      // Content header height
+    
+    // 3. Decor Flags (Feature toggles)
+    bool     showTabBorders;    // Toggle tab borders
+    bool     useFloatingTabs;   // Floating pill vs full background
+};
+
 // Social screen with sidebar tabs: Friends, Notifications, Add Friend
 class SocialScreen {
 public:
@@ -129,6 +156,9 @@ private:
     MiniKeyboard* miniKeyboard;
     MiniAddFriendScreen* miniAddFriend;
     ConfirmationDialog* confirmationDialog;
+    
+    // Theme configuration (hot-swappable visual style)
+    SocialTheme currentTheme;
 
     // Current state
     Tab currentTab;
