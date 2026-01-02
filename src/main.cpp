@@ -172,7 +172,9 @@ void onLoginSuccess() {
     if (loginScreen != nullptr && socialScreen != nullptr) {
         // Set user ID and server info
         int userId = loginScreen->getUserId();
+        String username = loginScreen->getUsername();
         socialScreen->setUserId(userId);
+        socialScreen->setOwnerNickname(username);
         socialScreen->setServerInfo("192.168.1.7", 8080);
         
         // Initialize and configure Socket Manager
@@ -790,6 +792,39 @@ void loop() {
     // Update ChatScreen decor animation if active
     if (isChatScreenActive && chatScreen != nullptr) {
         chatScreen->updateDecorAnimation();
+    }
+    
+    // --- Auto demo: navigate to Games tab and enter queue ---
+    if (!isChatScreenActive && socialScreen != nullptr) {
+        static unsigned long lastGameFlow = 0;
+        static bool inGames = false;
+        static bool queued = false;
+        unsigned long now = millis();
+        
+        // Only run when not already in waiting state
+        if (socialScreen->getScreenState() != SocialScreen::STATE_WAITING_GAME) {
+            // Every 30s, go to Games tab, wait briefly, then auto-select the first game
+            if (!inGames && (now - lastGameFlow >= 30000)) {
+                Serial.println("AutoDemo: Switching to Games tab");
+                socialScreen->navigateToGames();
+                inGames = true;
+                queued = false;
+                lastGameFlow = now;
+            } else if (inGames && !queued && (now - lastGameFlow >= 2000)) {
+                // After 2s in Games tab, auto-press Enter to queue the first game
+                Serial.println("AutoDemo: Auto-selecting first game (Caro) to enter queue");
+                socialScreen->handleKeyPress("|e");
+                queued = true;
+                lastGameFlow = now;
+            } else if (inGames && queued && (now - lastGameFlow >= 12000)) {
+                // After some time, return to Friends tab to reset cycle
+                Serial.println("AutoDemo: Returning to Friends tab after queue demo");
+                socialScreen->navigateToFriends();
+                inGames = false;
+                queued = false;
+                lastGameFlow = now;
+            }
+        }
     }
     
     // Popup notification disabled - no need to update popup

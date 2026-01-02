@@ -1,4 +1,5 @@
 #include "social_screen.h"
+#include "game_lobby_screen.h"
 
 // 16x16 "User List" (Friends/Buddy List)
 const unsigned char PROGMEM iconUserList[] = {
@@ -22,6 +23,19 @@ const unsigned char PROGMEM iconPlus[] = {
     0x7f, 0xfe, 0x01, 0x80, 0x01, 0x80, 0x01, 0x80, 
     0x01, 0x80, 0x01, 0x80, 0x00, 0x00, 0x00, 0x00
 };
+
+// 16x16 "Gamepad" (Game Hub)
+const unsigned char PROGMEM iconGamepad[] = {
+    0x00, 0x00, 0x0f, 0xf0, 0x18, 0x18, 0x20, 0x04,
+    0x27, 0xE4, 0x2f, 0xf4, 0x2f, 0xf4, 0x27, 0xe4,
+    0x20, 0x04, 0x18, 0x18, 0x0f, 0xf0, 0x00, 0x00,
+    0x04, 0x20, 0x0e, 0x70, 0x04, 0x20, 0x00, 0x00
+};
+
+// Game list (shared)
+static const char* GAME_NAMES[]  = { "Caro", "Seahorse Chess", "Chess", "Snake", "Tetris", "Pong" };
+static const char* GAME_STATUS[] = { "Play", "Dev", "Dev", "Dev", "Dev", "Dev" };
+static const int TOTAL_GAMES = 6;
 
 // Theme Definition: Deep Space Arcade
 // All visual configuration is centralized here for easy theme swapping
@@ -66,6 +80,7 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->miniKeyboard = new MiniKeyboard(tft);
     this->miniAddFriend = new MiniAddFriendScreen(tft, miniKeyboard);
     this->confirmationDialog = new ConfirmationDialog(tft);
+    this->gameLobby = new GameLobbyScreen(tft, themeDeepSpace);
     
     // Initialize theme (hot-swappable - change this line to switch skins)
     this->currentTheme = themeDeepSpace;
@@ -85,9 +100,13 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->notificationsCount = 0;
     this->selectedNotificationIndex = 0;
     this->notificationsScrollOffset = 0;
+    this->selectedGameIndex = 0;
+    this->pendingGameName = "";
+    this->screenState = STATE_NORMAL;
     
     this->onAddFriendSuccessCallback = nullptr;
     this->onOpenChatCallback = nullptr;
+    this->onGameSelectedCallback = nullptr;
     this->pendingAcceptNotificationId = -1;
     
     // Notification popup
@@ -119,6 +138,9 @@ SocialScreen::~SocialScreen() {
     }
     if (confirmationDialog != nullptr) {
         delete confirmationDialog;
+    }
+    if (gameLobby != nullptr) {
+        delete gameLobby;
     }
     // Delete semaphore
     if (notificationsMutex != NULL) {
@@ -192,8 +214,13 @@ void SocialScreen::drawTab(int tabIndex, bool isSelected) {
         case TAB_ADD_FRIEND:
             drawAddFriendIcon(iconX, iconY, iconColor);
             break;
+        case TAB_GAMES:
+            drawGamepadIcon(iconX, iconY, iconColor);
+            break;
     }
 }
+
+// Draw a "LoL-style" game lobby / matchmaking screen (Removed, now using GameLobbyScreen)
 
 void SocialScreen::drawFriendsIcon(uint16_t x, uint16_t y, uint16_t color) {
     // Draw bitmap icon (16x16)
@@ -242,6 +269,11 @@ void SocialScreen::drawAddFriendIcon(uint16_t x, uint16_t y, uint16_t color) {
     tft->drawBitmap(x, y, iconPlus, 16, 16, color);
 }
 
+void SocialScreen::drawGamepadIcon(uint16_t x, uint16_t y, uint16_t color) {
+    // Draw bitmap icon (16x16)
+    tft->drawBitmap(x, y, iconGamepad, 16, 16, color);
+}
+
 void SocialScreen::drawSidebar() {
     // Draw sidebar background with darker color
     tft->fillRect(0, 0, currentTheme.sidebarWidth, SCREEN_HEIGHT, currentTheme.colorSidebarBg);
@@ -250,7 +282,7 @@ void SocialScreen::drawSidebar() {
     tft->drawFastVLine(currentTheme.sidebarWidth - 1, 0, SCREEN_HEIGHT, currentTheme.colorTextMuted);
     
     // Draw all tabs
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 4; i++) {
         drawTab(i, (i == currentTab));
     }
 }
@@ -578,6 +610,72 @@ void SocialScreen::drawAddFriendContent() {
     // Keyboard is drawn by MiniAddFriendScreen::draw()
 }
 
+void SocialScreen::drawGameMenu() {
+    // Clear content area
+    tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, currentTheme.colorBg);
+    
+    // Focus indicator
+    if (focusMode == FOCUS_CONTENT) {
+        tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+        tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+    }
+    
+    // Header
+    const uint16_t headerHeight = currentTheme.headerHeight;
+    tft->setTextSize(1);
+    tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorBg);
+    tft->setCursor(CONTENT_X + 10, 8);
+    tft->print("GAME CENTER");
+    tft->drawFastHLine(CONTENT_X + 10, headerHeight - 2, CONTENT_WIDTH - 20, currentTheme.colorAccent);
+    
+    // Game list data (expanded)
+    // Compact layout constants
+    const uint16_t GAME_ROW_HEIGHT = 28;
+    const uint16_t GAME_ROW_SPACING = 2;
+    const uint16_t startY = headerHeight + 4;
+    
+    // Visible items (for potential scrolling)
+    const int visibleItems = (SCREEN_HEIGHT - startY) / (GAME_ROW_HEIGHT + GAME_ROW_SPACING);
+    // Optional scrollOffset could be added; for now assume selectedGameIndex is in range
+    
+    for (int i = 0; i < TOTAL_GAMES; i++) {
+        uint16_t y = startY + i * (GAME_ROW_HEIGHT + GAME_ROW_SPACING);
+        uint16_t pillX = CONTENT_X + 10;
+        uint16_t pillW = CONTENT_WIDTH - 20;
+        uint16_t pillH = 22;  // slim highlight height
+        uint16_t pillY = y + (GAME_ROW_HEIGHT - pillH) / 2;
+        bool isSelected = (i == selectedGameIndex);
+        
+        // Background: only draw pill when selected; else keep clean background
+        if (isSelected) {
+            tft->fillRoundRect(pillX, pillY, pillW, pillH, 4, currentTheme.colorHighlight);
+            // Accent bar inside pill (left)
+            tft->fillRect(pillX, pillY + 2, 2, pillH - 4, currentTheme.colorAccent);
+        }
+        
+        // Text positions (text-only)
+        uint16_t nameX = pillX + 8;
+        uint16_t nameY = y + (GAME_ROW_HEIGHT - 8) / 2;  // center for size 1 font
+        
+        // Game name (left aligned, clean text)
+        tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorCardBg);
+        tft->setTextSize(1);
+        tft->setCursor(nameX, nameY);
+        tft->print(GAME_NAMES[i]);
+        
+        // Status (right aligned)
+        bool isReady = (i == GAME_CARO);
+        uint16_t statusColor = isReady ? currentTheme.colorSuccess : currentTheme.colorTextMuted;
+        const char* statusText = GAME_STATUS[i];
+        int statusWidth = strlen(statusText) * 6; // approx width size1
+        uint16_t statusX = pillX + pillW - statusWidth - 8;
+        uint16_t statusY = nameY;
+        tft->setTextColor(statusColor, currentTheme.colorCardBg);
+        tft->setCursor(statusX, statusY);
+        tft->print(statusText);
+    }
+}
+
 void SocialScreen::drawContentArea() {
     switch (currentTab) {
         case TAB_FRIENDS:
@@ -589,10 +687,23 @@ void SocialScreen::drawContentArea() {
         case TAB_ADD_FRIEND:
             drawAddFriendContent();
             break;
+        case TAB_GAMES:
+            drawGameMenu();
+            break;
     }
 }
 
 void SocialScreen::draw() {
+    if (screenState == STATE_WAITING_GAME) {
+        if (gameLobby != nullptr) {
+            gameLobby->draw();
+        }
+        if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+            confirmationDialog->draw();
+        }
+        return;
+    }
+    
     drawBackground();
     drawSidebar();
     drawContentArea();
@@ -613,7 +724,7 @@ void SocialScreen::handleTabNavigation(const String& key) {
         }
     } else if (key == "|d") {
         // Move to next tab
-        if (currentTab < TAB_ADD_FRIEND) {
+        if (currentTab < TAB_GAMES) {
             switchTab((Tab)(currentTab + 1));
         }
     }
@@ -1023,6 +1134,38 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 redrawNotificationCard(selectedNotificationIndex, true);
             }
         }
+    } else if (currentTab == TAB_GAMES) {
+        int oldIndex = selectedGameIndex;
+        if (key == "|u" && selectedGameIndex > 0) {
+            selectedGameIndex--;
+            drawContentArea();
+        } else if (key == "|d" && selectedGameIndex < TOTAL_GAMES - 1) {
+            selectedGameIndex++;
+            drawContentArea();
+        } else if (key == "|e") {
+            // Enter game room lobby
+            screenState = STATE_WAITING_GAME;
+            pendingGameName = String(GAME_NAMES[selectedGameIndex]);
+            
+            // Get current user's name
+            String hostName = (ownerNickname.length() > 0) ? ownerNickname : "Host";
+            gameLobby->setup(pendingGameName, hostName);
+            
+            // Convert current friends to lobby friends
+            if (friendsCount > 0) {
+                GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
+                for (int i = 0; i < friendsCount; i++) {
+                    miniFriends[i] = {friends[i].nickname, friends[i].online};
+                }
+                gameLobby->setFriends(miniFriends, friendsCount);
+                // Note: In a real app, we'd need to manage the lifecycle of this array.
+                // For this simple implementation, let's just pass it.
+            }
+
+            Serial.print("Social Screen: Entered room for game ");
+            Serial.println(pendingGameName);
+            draw();
+        }
     }
 }
 
@@ -1059,6 +1202,7 @@ void SocialScreen::switchTab(Tab newTab) {
         friendsScrollOffset = 0;
         selectedNotificationIndex = 0;
         notificationsScrollOffset = 0;
+        selectedGameIndex = 0;
         draw();
     }
 }
@@ -1080,6 +1224,15 @@ void SocialScreen::navigateToNotifications() {
     // Switch to Notifications tab
     switchTab(TAB_NOTIFICATIONS);
     // Ensure focus is on content (notifications list)
+    focusMode = FOCUS_CONTENT;
+    // Draw the screen
+    draw();
+}
+
+void SocialScreen::navigateToGames() {
+    // Switch to Games tab
+    switchTab(TAB_GAMES);
+    // Ensure focus is on content (game list)
     focusMode = FOCUS_CONTENT;
     // Draw the screen
     draw();
@@ -1127,6 +1280,25 @@ void SocialScreen::openChatWithFriend(int friendIndex) {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
+    // If in game waiting state: delegate to lobby screen
+    if (screenState == STATE_WAITING_GAME) {
+        if (gameLobby != nullptr) {
+            // Add a special case for exiting the lobby
+            if (key == "<" || key == "|b") {
+                Serial.println("Social Screen: Leaving game room, returning to games tab");
+                screenState = STATE_NORMAL;
+                pendingGameName = "";
+                // Ensure we are on Games tab to show menu again
+                switchTab(TAB_GAMES);
+                focusMode = FOCUS_CONTENT;
+                draw();
+                return;
+            }
+            gameLobby->handleKeyPress(key);
+        }
+        return;
+    }
+    
     // Popup notification disabled - no need to check or hide popup
     
     // If on Add Friend tab and typing, forward to MiniAddFriendScreen
@@ -1456,6 +1628,20 @@ void SocialScreen::onUserStatusUpdate(int userId, const String& status) {
     // Convert status string to bool
     bool isOnline = (status == "online");
     s_socialScreenInstance->updateFriendStatus(userId, isOnline);
+}
+
+void SocialScreen::onGameComingSoonConfirm() {
+    if (s_socialScreenInstance != nullptr && s_socialScreenInstance->confirmationDialog != nullptr) {
+        s_socialScreenInstance->confirmationDialog->hide();
+        s_socialScreenInstance->draw();
+    }
+}
+
+void SocialScreen::onGameComingSoonCancel() {
+    if (s_socialScreenInstance != nullptr && s_socialScreenInstance->confirmationDialog != nullptr) {
+        s_socialScreenInstance->confirmationDialog->hide();
+        s_socialScreenInstance->draw();
+    }
 }
 
 void SocialScreen::loadNotifications() {
