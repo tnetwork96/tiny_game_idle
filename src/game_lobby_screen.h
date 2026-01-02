@@ -31,6 +31,7 @@ public:
     
     // Setters for dynamic data
     void setGuest(const String& name);
+    void setGuestReady(bool ready);
     void clearGuest();
     void setFriends(MiniFriend* friends, int count);
 

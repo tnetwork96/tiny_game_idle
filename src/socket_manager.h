@@ -84,6 +84,10 @@ private:
     // User status update callback
     typedef void (*OnUserStatusUpdateCallback)(int userId, const String& status);
     OnUserStatusUpdateCallback onUserStatusUpdateCallback;
+
+    // Game event callback
+    typedef void (*OnGameEventCallback)(const String& eventType, int sessionId, const String& gameType, const String& status, int userId, bool accepted, bool ready, const String& userNickname);
+    OnGameEventCallback onGameEventCallback;
     
     // Helper to parse JSON chat message
     void parseChatMessage(const String& message);
@@ -91,6 +95,7 @@ private:
     void parseDeliveryStatus(const String& message, const String& status);
     void parseReadReceipt(const String& message);
     void parseUserStatusUpdate(const String& message);
+    void parseGameEvent(const String& message);
     
     // Helper to save chat message to file
     void saveChatMessageToFile(int fromUserId, int toUserId, const String& message, bool isFromUser);
@@ -170,6 +175,10 @@ public:
     // Set user status update callback
     void setOnUserStatusUpdateCallback(OnUserStatusUpdateCallback callback) {
         onUserStatusUpdateCallback = callback;
+    }
+    // Set game event callback
+    void setOnGameEventCallback(OnGameEventCallback callback) {
+        onGameEventCallback = callback;
     }
     
     // Send chat message

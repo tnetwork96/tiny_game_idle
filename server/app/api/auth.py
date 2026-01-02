@@ -65,7 +65,10 @@ class SendFriendRequestResponse(BaseModel):
     status: Optional[str] = None  # "pending", "accepted", "rejected"
 
 # Database connection string from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://tinygame:tinygame123@localhost:5432/tiny_game",
+)
 
 def get_db_connection():
     """Get PostgreSQL database connection"""

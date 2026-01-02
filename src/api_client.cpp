@@ -159,6 +159,74 @@ void ApiClient::parseFriendRequestResponse(const String& response, FriendRequest
     }
 }
 
+// Helper: Parse game session response string
+void ApiClient::parseGameSessionResponse(const String& response, GameSessionResult& result) {
+    result.success = false;
+    result.message = "";
+    result.sessionId = -1;
+    result.status = "";
+    result.participantCount = 0;
+
+    int successIdx = response.indexOf("\"success\":");
+    if (successIdx >= 0) {
+        int valueStart = response.indexOf(":", successIdx) + 1;
+        int valueEnd = response.indexOf(",", valueStart);
+        if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+        String successStr = response.substring(valueStart, valueEnd);
+        successStr.trim();
+        result.success = (successStr == "true");
+    }
+
+    int messageIdx = response.indexOf("\"message\":\"");
+    if (messageIdx >= 0) {
+        int valueStart = messageIdx + 10;
+        int valueEnd = response.indexOf("\"", valueStart);
+        if (valueEnd > valueStart) {
+            result.message = response.substring(valueStart, valueEnd);
+        }
+    }
+
+    int sessionIdx = response.indexOf("\"session_id\":");
+    if (sessionIdx >= 0) {
+        int valueStart = response.indexOf(":", sessionIdx) + 1;
+        int valueEnd = response.indexOf(",", valueStart);
+        if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+        String sessionStr = response.substring(valueStart, valueEnd);
+        sessionStr.trim();
+        if (sessionStr.length() > 0 && sessionStr != "null") {
+            result.sessionId = sessionStr.toInt();
+        }
+    }
+
+    int statusIdx = response.indexOf("\"status\":\"");
+    if (statusIdx >= 0) {
+        int valueStart = statusIdx + 9;
+        int valueEnd = response.indexOf("\"", valueStart);
+        if (valueEnd > valueStart) {
+            result.status = response.substring(valueStart, valueEnd);
+        }
+    }
+
+    // Approximate participant count by counting occurrences of "{"
+    int participantsIdx = response.indexOf("\"participants\":[");
+    if (participantsIdx >= 0) {
+        int arrayStart = response.indexOf("[", participantsIdx);
+        int arrayEnd = response.indexOf("]", participantsIdx);
+        if (arrayStart >= 0 && arrayEnd > arrayStart) {
+            String arrayBody = response.substring(arrayStart, arrayEnd);
+            int count = 0;
+            int pos = 0;
+            while (true) {
+                int bracePos = arrayBody.indexOf("{", pos);
+                if (bracePos < 0) break;
+                count++;
+                pos = bracePos + 1;
+            }
+            result.participantCount = count;
+        }
+    }
+}
+
 ApiClient::LoginResult ApiClient::checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port) {
     LoginResult result;
     result.success = false;
@@ -437,6 +505,218 @@ ApiClient::FriendsListResult ApiClient::getFriends(int userId, const String& ser
         result.message = "HTTP error: " + String(httpCode);
     }
     
+    http.end();
+    return result;
+}
+
+ApiClient::GameSessionResult ApiClient::createGameSession(int hostUserId, const String& gameType, int maxPlayers, const int* participantIds, int participantCount, const String& serverHost, uint16_t port) {
+    GameSessionResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = -1;
+    result.status = "";
+    result.participantCount = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/create";
+    Serial.print("API Client: Creating game session at: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    // Build participant_ids array
+    String payload = "{\"host_user_id\":";
+    payload += String(hostUserId);
+    payload += ",\"game_type\":\"";
+    payload += gameType;
+    payload += "\",\"max_players\":";
+    payload += String(maxPlayers);
+    payload += ",\"participant_ids\":[";
+    for (int i = 0; i < participantCount; i++) {
+        payload += String(participantIds[i]);
+        if (i < participantCount - 1) payload += ",";
+    }
+    payload += "]}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        parseGameSessionResponse(response, result);
+    } else {
+        Serial.print("API Client: Create game session failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
+ApiClient::GameSessionResult ApiClient::respondGameInvite(int sessionId, int userId, bool accept, const String& serverHost, uint16_t port) {
+    GameSessionResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = sessionId;
+    result.status = "";
+    result.participantCount = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/respond";
+    Serial.print("API Client: Responding to game invite: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    String payload = "{\"user_id\":";
+    payload += String(userId);
+    payload += ",\"accept\":";
+    payload += accept ? "true" : "false";
+    payload += ",\"ready_on_accept\":";
+    payload += accept ? "true" : "false";
+    payload += "}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        parseGameSessionResponse(response, result);
+    } else {
+        Serial.print("API Client: Respond invite failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
+ApiClient::GameSessionResult ApiClient::setGameReady(int sessionId, int userId, bool ready, const String& serverHost, uint16_t port) {
+    GameSessionResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = sessionId;
+    result.status = "";
+    result.participantCount = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/ready";
+    Serial.print("API Client: Setting ready state at: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    String payload = "{\"user_id\":";
+    payload += String(userId);
+    payload += ",\"ready\":";
+    payload += ready ? "true" : "false";
+    payload += "}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        parseGameSessionResponse(response, result);
+    } else {
+        Serial.print("API Client: Ready toggle failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
+ApiClient::GameSessionResult ApiClient::leaveGameSession(int sessionId, int userId, const String& serverHost, uint16_t port) {
+    GameSessionResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = sessionId;
+    result.status = "";
+    result.participantCount = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/leave";
+    Serial.print("API Client: Leaving game session: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    String payload = "{\"user_id\":";
+    payload += String(userId);
+    payload += "}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        parseGameSessionResponse(response, result);
+    } else {
+        Serial.print("API Client: Leave session failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
     http.end();
     return result;
 }

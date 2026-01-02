@@ -134,6 +134,8 @@ public:
     
     // Add notification from socket (thread-safe)
     void addNotificationFromSocket(int id, const String& type, const String& message, const String& timestamp, bool read);
+    // Add/refresh game invite from socket
+    void addGameInviteFromSocket(int sessionId, const String& gameType, const String& status, const String& eventType, const String& hostNickname = "");
     
     // Notification popup management
     void updateNotificationPopup();  // Check if popup should be hidden (call in loop)
@@ -149,6 +151,8 @@ public:
     
     // Static callback wrapper for user status update
     static void onUserStatusUpdate(int userId, const String& status);
+    // Static callback for game events (join/ready)
+    static void onGameEvent(const String& eventType, int sessionId, const String& gameType, const String& status, int userId, bool accepted, bool ready, const String& userNickname);
     
     // Static callbacks for Game Hub dialogs
     static void onGameComingSoonConfirm();
@@ -194,6 +198,19 @@ private:
     int notificationsCount;
     int selectedNotificationIndex;
     int notificationsScrollOffset;
+
+    // Game invites pushed via socket
+    struct GameInviteItem {
+        int sessionId;
+        String gameType;
+        String status;
+        String eventType;
+        String hostNickname;
+    };
+    static const int MAX_GAME_INVITES = 5;
+    GameInviteItem gameInvites[MAX_GAME_INVITES];
+    int gameInviteCount;
+    int selectedGameInviteIndex;
     
     // Games data (Game Hub)
     int selectedGameIndex;

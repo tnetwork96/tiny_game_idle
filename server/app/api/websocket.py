@@ -73,6 +73,35 @@ class WebSocketManager:
             logger.error(f"Error sending notification: {str(e)}", exc_info=True)
             return False
     
+    async def send_game_event(self, user_id: int, event_data: dict) -> bool:
+        """
+        Send a game-related event to a specific user.
+        Payload format: {"type":"game_event","event":{...}}
+        """
+        if user_id not in self.user_to_client:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ User {user_id} not connected via WebSocket")
+            return False
+
+        client_id = self.user_to_client[user_id]
+        if client_id not in self.active_connections:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Client {client_id} for user {user_id} not in active connections")
+            if user_id in self.user_to_client:
+                del self.user_to_client[user_id]
+            if client_id in self.client_to_user:
+                del self.client_to_user[client_id]
+            return False
+
+        websocket = self.active_connections[client_id]
+        try:
+            message = {"type": "game_event", "event": event_data}
+            await websocket.send_text(json.dumps(message))
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Sent game event to user {user_id} (client {client_id})")
+            return True
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error sending game event to user {user_id}: {str(e)}")
+            logger.error(f"Error sending game event: {str(e)}", exc_info=True)
+            return False
+    
     def _check_rate_limit(self, user_id: int) -> bool:
         """Check if user has exceeded rate limit. Returns True if allowed, False if rate limited."""
         now = datetime.now()
@@ -148,7 +177,10 @@ class WebSocketManager:
                 import psycopg2
                 from psycopg2.extras import RealDictCursor
                 import os
-                DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
+                DATABASE_URL = os.getenv(
+                    "DATABASE_URL",
+                    "postgresql://tinygame:tinygame123@localhost:5432/tiny_game",
+                )
                 conn = psycopg2.connect(DATABASE_URL)
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute('''
@@ -207,7 +239,10 @@ class WebSocketManager:
                 import psycopg2
                 from psycopg2.extras import RealDictCursor
                 import os
-                DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://tinygame:tinygame123@db:5432/tiny_game")
+                DATABASE_URL = os.getenv(
+                    "DATABASE_URL",
+                    "postgresql://tinygame:tinygame123@localhost:5432/tiny_game",
+                )
                 conn = psycopg2.connect(DATABASE_URL)
                 cursor = conn.cursor(cursor_factory=RealDictCursor)
                 cursor.execute('''

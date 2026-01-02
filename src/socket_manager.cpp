@@ -35,6 +35,7 @@ SocketManager::SocketManager() {
     onDeliveryStatusCallback = nullptr;
     onReadReceiptCallback = nullptr;
     onUserStatusUpdateCallback = nullptr;
+    onGameEventCallback = nullptr;
     
     // Typing indicator state
     lastTypingTime = 0;
@@ -277,6 +278,9 @@ void SocketManager::onWebSocketEvent(WStype_t type, uint8_t * payload, size_t le
                     // Handle user status update
                     Serial.println("Socket Manager: ✅ Received user_status_update - parsing...");
                     parseUserStatusUpdate(message);
+                } else if (message.indexOf("\"type\":\"game_event\"") >= 0 || message.indexOf("\"type\": \"game_event\"") >= 0) {
+                    Serial.println("Socket Manager: ✅ Received game_event - parsing...");
+                    parseGameEvent(message);
                 } else {
                     // Handle other received messages here
                     Serial.print("Socket Manager: ⚠️  Unknown message type. Full message: ");
@@ -947,6 +951,185 @@ void SocketManager::parseUserStatusUpdate(const String& message) {
         onUserStatusUpdateCallback(userId, status);
     } else {
         Serial.println("Socket Manager: ⚠️ No callback set for user status update");
+    }
+}
+
+void SocketManager::parseGameEvent(const String& message) {
+    Serial.println("Socket Manager: parseGameEvent() called");
+
+    String eventType = "";
+    String gameType = "";
+    String status = "";
+    String hostNickname = "";
+    String userNickname = "";
+    int sessionId = -1;
+    int userId = -1;
+    bool accepted = false;
+    bool ready = false;
+
+    // Server sends nested: {"type": "game_event", "event": {"event_type": ...}}
+    // Find the "event": { ... } block
+    int eventKeyPos = message.indexOf("\"event\":");
+    int searchStart = 0;
+    
+    if (eventKeyPos >= 0) {
+        // Find the opening brace after "event": (skip spaces)
+        int bracePos = eventKeyPos + 8; // Start after "event":
+        while (bracePos < message.length() && message.charAt(bracePos) == ' ') {
+            bracePos++;
+        }
+        if (bracePos < message.length() && message.charAt(bracePos) == '{') {
+            searchStart = bracePos + 1; // Start searching from inside the event object
+            Serial.print("Socket Manager: Found nested event object at position ");
+            Serial.println(bracePos);
+        }
+    }
+
+    // Try multiple formats for event_type
+    int eventTypeKeyPos = message.indexOf("\"event_type\"", searchStart);
+    if (eventTypeKeyPos >= 0) {
+        // Find the colon after "event_type"
+        int colonPos = message.indexOf(":", eventTypeKeyPos);
+        if (colonPos >= 0) {
+            // Skip colon and any spaces
+            int valueStart = colonPos + 1;
+            while (valueStart < message.length() && (message.charAt(valueStart) == ' ' || message.charAt(valueStart) == '\t')) {
+                valueStart++;
+            }
+            // Should be a quote now
+            if (valueStart < message.length() && message.charAt(valueStart) == '"') {
+                valueStart++; // Skip opening quote
+                int valueEnd = message.indexOf('"', valueStart);
+                if (valueEnd > valueStart) {
+                    eventType = message.substring(valueStart, valueEnd);
+                    Serial.print("Socket Manager: eventType found: ");
+                    Serial.println(eventType);
+                }
+            }
+        }
+    }
+    
+    if (eventType.length() == 0) {
+        Serial.print("Socket Manager: ⚠️  Could not parse event_type. eventTypeKeyPos=");
+        Serial.print(eventTypeKeyPos);
+        Serial.print(", searchStart=");
+        Serial.println(searchStart);
+    }
+
+    int sessionStart = message.indexOf("\"session_id\":", searchStart);
+    if (sessionStart >= 0) {
+        int valueStart = message.indexOf(":", sessionStart) + 1;
+        int valueEnd = message.indexOf(",", valueStart);
+        if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+        if (valueEnd > valueStart) {
+            sessionId = message.substring(valueStart, valueEnd).toInt();
+        }
+    }
+
+    int gameStart = message.indexOf("\"game_type\":\"", searchStart);
+    if (gameStart < 0) {
+        gameStart = message.indexOf("\"game_type\": \"", searchStart);
+        if (gameStart >= 0) gameStart += 13;
+    } else {
+        gameStart += 12;
+    }
+    if (gameStart >= 0) {
+        int gameEnd = message.indexOf('"', gameStart);
+        if (gameEnd > gameStart) {
+            gameType = message.substring(gameStart, gameEnd);
+        }
+    }
+
+    int statusStart = message.indexOf("\"status\":\"", searchStart);
+    if (statusStart < 0) {
+        statusStart = message.indexOf("\"status\": \"", searchStart);
+        if (statusStart >= 0) statusStart += 11;
+    } else {
+        statusStart += 10;
+    }
+    if (statusStart >= 0) {
+        int statusEnd = message.indexOf('"', statusStart);
+        if (statusEnd > statusStart) {
+            status = message.substring(statusStart, statusEnd);
+        }
+    }
+
+    int userStart = message.indexOf("\"user_id\":", searchStart);
+    if (userStart >= 0) {
+        int valueStart = message.indexOf(":", userStart) + 1;
+        int valueEnd = message.indexOf(",", valueStart);
+        if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+        if (valueEnd > valueStart) {
+            userId = message.substring(valueStart, valueEnd).toInt();
+        }
+    }
+
+    int accStart = message.indexOf("\"accepted\":", searchStart);
+    if (accStart >= 0) {
+        int valueStart = message.indexOf(":", accStart) + 1;
+        String v = message.substring(valueStart, valueStart + 6);
+        v.trim();
+        accepted = v.startsWith("true");
+    }
+
+    int readyStart = message.indexOf("\"ready\":", searchStart);
+    if (readyStart >= 0) {
+        int valueStart = message.indexOf(":", readyStart) + 1;
+        String v = message.substring(valueStart, valueStart + 6);
+        v.trim();
+        ready = v.startsWith("true");
+    }
+
+    int hostStart = message.indexOf("\"host_nickname\":\"", searchStart);
+    if (hostStart < 0) {
+        hostStart = message.indexOf("\"host_nickname\": \"", searchStart);
+        if (hostStart >= 0) hostStart += 18;
+    } else {
+        hostStart += 17;
+    }
+    if (hostStart >= 0) {
+        int hostEnd = message.indexOf('"', hostStart);
+        if (hostEnd > hostStart) {
+            hostNickname = message.substring(hostStart, hostEnd);
+        }
+    }
+
+    int userNickStart = message.indexOf("\"user_nickname\":\"", searchStart);
+    if (userNickStart < 0) {
+        userNickStart = message.indexOf("\"user_nickname\": \"", searchStart);
+        if (userNickStart >= 0) userNickStart += 18;
+    } else {
+        userNickStart += 17;
+    }
+    if (userNickStart >= 0) {
+        int userNickEnd = message.indexOf('"', userNickStart);
+        if (userNickEnd > userNickStart) {
+            userNickname = message.substring(userNickStart, userNickEnd);
+        }
+    }
+
+    if (eventType.length() == 0) {
+        Serial.print("Socket Manager: ⚠️  Game event missing event_type. Raw: ");
+        Serial.println(message);
+        eventType = "unknown";
+    }
+
+    Serial.print("Socket Manager: Game event -> type: ");
+    Serial.print(eventType);
+    Serial.print(", session: ");
+    Serial.print(sessionId);
+    Serial.print(", game: ");
+    Serial.print(gameType);
+    Serial.print(", status: ");
+    Serial.println(status);
+
+    if (onGameEventCallback != nullptr) {
+        onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+    }
+
+    // Also surface as notification for UI reuse
+    if (socialScreen != nullptr) {
+        socialScreen->addGameInviteFromSocket(sessionId, gameType, status, eventType, hostNickname);
     }
 }
 

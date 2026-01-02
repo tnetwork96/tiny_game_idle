@@ -100,6 +100,15 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->notificationsCount = 0;
     this->selectedNotificationIndex = 0;
     this->notificationsScrollOffset = 0;
+    this->gameInviteCount = 0;
+    this->selectedGameInviteIndex = -1;
+    for (int i = 0; i < MAX_GAME_INVITES; i++) {
+        gameInvites[i].sessionId = -1;
+        gameInvites[i].gameType = "";
+        gameInvites[i].status = "";
+        gameInvites[i].eventType = "";
+        gameInvites[i].hostNickname = "";
+    }
     this->selectedGameIndex = 0;
     this->pendingGameName = "";
     this->screenState = STATE_NORMAL;
@@ -632,7 +641,38 @@ void SocialScreen::drawGameMenu() {
     // Compact layout constants
     const uint16_t GAME_ROW_HEIGHT = 28;
     const uint16_t GAME_ROW_SPACING = 2;
-    const uint16_t startY = headerHeight + 4;
+    uint16_t startY = headerHeight + 4;
+    
+    // Show incoming game invites (compact list)
+    if (gameInviteCount > 0) {
+        tft->setTextSize(1);
+        tft->setTextColor(currentTheme.colorAccent, currentTheme.colorBg);
+        tft->setCursor(CONTENT_X + 10, startY);
+        tft->print("INVITES");
+        startY += 14;
+        
+        int invitesToShow = (gameInviteCount < 3) ? gameInviteCount : 3;
+        for (int i = 0; i < invitesToShow; i++) {
+            uint16_t y = startY + i * 14;
+            bool highlighted = (i == selectedGameInviteIndex);
+            if (highlighted) {
+                tft->fillRoundRect(CONTENT_X + 8, y - 2, CONTENT_WIDTH - 16, 14, 3, currentTheme.colorHighlight);
+                tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorHighlight);
+            } else {
+                tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorBg);
+            }
+            String line = "#" + String(gameInvites[i].sessionId) + " ";
+            line += gameInvites[i].gameType;
+            line += " (" + gameInvites[i].status + ")";
+            tft->setCursor(CONTENT_X + 12, y);
+            int maxWidth = (CONTENT_WIDTH - 24) / 6;
+            if (line.length() > maxWidth) {
+                line = line.substring(0, maxWidth - 3) + "...";
+            }
+            tft->print(line);
+        }
+        startY += invitesToShow * 14 + 6;
+    }
     
     // Visible items (for potential scrolling)
     const int visibleItems = (SCREEN_HEIGHT - startY) / (GAME_ROW_HEIGHT + GAME_ROW_SPACING);
@@ -1135,14 +1175,91 @@ void SocialScreen::handleContentNavigation(const String& key) {
             }
         }
     } else if (currentTab == TAB_GAMES) {
-        int oldIndex = selectedGameIndex;
-        if (key == "|u" && selectedGameIndex > 0) {
-            selectedGameIndex--;
-            drawContentArea();
-        } else if (key == "|d" && selectedGameIndex < TOTAL_GAMES - 1) {
-            selectedGameIndex++;
-            drawContentArea();
+        // Invite navigation and actions
+        if (gameInviteCount > 0 && selectedGameInviteIndex < 0) {
+            selectedGameInviteIndex = 0;
+        }
+
+        if (gameInviteCount > 0 && selectedGameInviteIndex >= 0) {
+            if (key == "|u") {
+                if (selectedGameInviteIndex > 0) {
+                    selectedGameInviteIndex--;
+                } else {
+                    selectedGameInviteIndex = -1;  // Move focus to game list
+                }
+                drawContentArea();
+                return;
+            } else if (key == "|d") {
+                if (selectedGameInviteIndex < gameInviteCount - 1) {
+                    selectedGameInviteIndex++;
+                } else {
+                    selectedGameInviteIndex = -1;  // Move focus to game list
+                }
+                drawContentArea();
+                return;
+            } else if (key == "|e") {
+                if (userId > 0 && serverHost.length() > 0) {
+                    int sessionId = gameInvites[selectedGameInviteIndex].sessionId;
+                    ApiClient::GameSessionResult result = ApiClient::respondGameInvite(sessionId, userId, true, serverHost, serverPort);
+                    Serial.print("Social Screen: Accept invite result: ");
+                    Serial.println(result.message);
+                    for (int j = selectedGameInviteIndex; j < gameInviteCount - 1; j++) {
+                        gameInvites[j] = gameInvites[j + 1];
+                    }
+                    gameInviteCount = (gameInviteCount > 0) ? gameInviteCount - 1 : 0;
+                    if (gameInviteCount == 0) {
+                        selectedGameInviteIndex = -1;
+                    } else if (selectedGameInviteIndex >= gameInviteCount) {
+                        selectedGameInviteIndex = gameInviteCount - 1;
+                    }
+                    drawContentArea();
+                }
+                return;
+            } else if (key == "|l") {
+                if (userId > 0 && serverHost.length() > 0) {
+                    int sessionId = gameInvites[selectedGameInviteIndex].sessionId;
+                    ApiClient::GameSessionResult result = ApiClient::respondGameInvite(sessionId, userId, false, serverHost, serverPort);
+                    Serial.print("Social Screen: Decline invite result: ");
+                    Serial.println(result.message);
+                    for (int j = selectedGameInviteIndex; j < gameInviteCount - 1; j++) {
+                        gameInvites[j] = gameInvites[j + 1];
+                    }
+                    gameInviteCount = (gameInviteCount > 0) ? gameInviteCount - 1 : 0;
+                    if (gameInviteCount == 0) {
+                        selectedGameInviteIndex = -1;
+                    } else if (selectedGameInviteIndex >= gameInviteCount) {
+                        selectedGameInviteIndex = gameInviteCount - 1;
+                    }
+                    drawContentArea();
+                }
+                return;
+            }
+        }
+
+        // Game list navigation
+        if (key == "|u") {
+            if (gameInviteCount > 0 && selectedGameInviteIndex == -1) {
+                // Jump back to invites
+                selectedGameInviteIndex = gameInviteCount - 1;
+                drawContentArea();
+                return;
+            }
+            if (selectedGameInviteIndex < 0 && selectedGameIndex > 0) {
+                selectedGameIndex--;
+                drawContentArea();
+                return;
+            }
+        } else if (key == "|d") {
+            if (selectedGameInviteIndex < 0 && selectedGameIndex < TOTAL_GAMES - 1) {
+                selectedGameIndex++;
+                drawContentArea();
+                return;
+            }
         } else if (key == "|e") {
+            if (selectedGameInviteIndex >= 0 && gameInviteCount > 0) {
+                // Already handled above
+                return;
+            }
             // Enter game room lobby
             screenState = STATE_WAITING_GAME;
             pendingGameName = String(GAME_NAMES[selectedGameIndex]);
@@ -1203,6 +1320,7 @@ void SocialScreen::switchTab(Tab newTab) {
         selectedNotificationIndex = 0;
         notificationsScrollOffset = 0;
         selectedGameIndex = 0;
+        selectedGameInviteIndex = (gameInviteCount > 0) ? 0 : -1;
         draw();
     }
 }
@@ -1608,6 +1726,16 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
                 // If not on friends tab, just log (will update when user navigates to friends tab)
                 Serial.println("Social Screen: Status changed but not on friends tab - will update when navigated");
             }
+
+            // Nếu đang ở lobby chờ, cập nhật danh sách bạn trong lobby với online flag mới
+            if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && friendsCount > 0) {
+                GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
+                for (int j = 0; j < friendsCount; j++) {
+                    miniFriends[j] = {friends[j].nickname, friends[j].online};
+                }
+                gameLobby->setFriends(miniFriends, friendsCount);
+                gameLobby->draw();  // refresh lobby list with status dots
+            }
             
             return;
         }
@@ -1628,6 +1756,52 @@ void SocialScreen::onUserStatusUpdate(int userId, const String& status) {
     // Convert status string to bool
     bool isOnline = (status == "online");
     s_socialScreenInstance->updateFriendStatus(userId, isOnline);
+}
+
+void SocialScreen::onGameEvent(const String& eventType, int sessionId, const String& gameType, const String& status, int userId, bool accepted, bool ready, const String& userNickname) {
+    if (s_socialScreenInstance == nullptr) {
+        Serial.println("Social Screen: ⚠️ onGameEvent called but instance not set");
+        return;
+    }
+
+    SocialScreen* self = s_socialScreenInstance;
+
+    Serial.print("Social Screen: onGameEvent type=");
+    Serial.print(eventType);
+    Serial.print(" session=");
+    Serial.print(sessionId);
+    Serial.print(" status=");
+    Serial.print(status);
+    Serial.print(" user=");
+    Serial.print(userId);
+    Serial.print(" accepted=");
+    Serial.print(accepted ? "true" : "false");
+    Serial.print(" ready=");
+    Serial.print(ready ? "true" : "false");
+    Serial.print(" nickname=");
+    Serial.println(userNickname);
+
+    // Chỉ quan tâm các event liên quan game (invite/respond/ready)
+    bool isGameEventType = (eventType == "respond") || (eventType == "ready") || (eventType == "invite");
+    // Fallback: nếu eventType unknown nhưng có accepted/ready, vẫn xử lý như join event
+    bool isJoinEvent = (eventType == "respond" && accepted) || (eventType == "ready" && ready) || 
+                       (eventType == "unknown" && (accepted || ready));
+    if (!isGameEventType && !isJoinEvent) {
+        return;
+    }
+
+    // Chỉ cập nhật guest khi đúng loại event (join/ready)
+    if (self->screenState == STATE_WAITING_GAME && self->gameLobby != nullptr) {
+        if (isJoinEvent) {
+            // Use nickname from server, fallback to "User<id>" if empty
+            String guestName = userNickname.length() > 0 ? userNickname : ("User" + String(userId));
+            self->gameLobby->setGuest(guestName);
+            self->gameLobby->setGuestReady(ready);
+            self->gameLobby->draw();
+        }
+    }
+
+    // Không tự chuyển tab hay thay đổi screenState ở đây để tránh "nhảy màn hình"
 }
 
 void SocialScreen::onGameComingSoonConfirm() {
@@ -2158,6 +2332,78 @@ void SocialScreen::addNotificationFromSocket(int id, const String& type, const S
         } else {
             // If not on notifications tab, notification will be visible when user switches to notifications tab
             Serial.println("Social Screen: Not on notifications tab, badge shown. Notification will be visible when user switches to notifications tab");
+        }
+    }
+}
+
+void SocialScreen::addGameInviteFromSocket(int sessionId, const String& gameType, const String& status, const String& eventType, const String& hostNickname) {
+    if (sessionId <= 0) {
+        return;
+    }
+
+    int targetIndex = -1;
+    for (int i = 0; i < gameInviteCount; i++) {
+        if (gameInvites[i].sessionId == sessionId) {
+            targetIndex = i;
+            break;
+        }
+    }
+
+    // Remove invite if cancelled
+    if (status == "cancelled") {
+        if (targetIndex >= 0) {
+            for (int j = targetIndex; j < gameInviteCount - 1; j++) {
+                gameInvites[j] = gameInvites[j + 1];
+            }
+            gameInviteCount = (gameInviteCount > 0) ? gameInviteCount - 1 : 0;
+            Serial.print("Social Screen: Removed cancelled game invite ");
+            Serial.println(sessionId);
+            if (currentTab == TAB_GAMES) {
+                drawContentArea();
+            }
+        }
+        return;
+    }
+
+    if (targetIndex < 0) {
+        if (gameInviteCount < MAX_GAME_INVITES) {
+            targetIndex = gameInviteCount;
+            gameInviteCount++;
+        } else {
+            // Shift to make room and overwrite the last slot
+            for (int j = 0; j < MAX_GAME_INVITES - 1; j++) {
+                gameInvites[j] = gameInvites[j + 1];
+            }
+            targetIndex = MAX_GAME_INVITES - 1;
+        }
+    }
+
+    gameInvites[targetIndex].sessionId = sessionId;
+    gameInvites[targetIndex].gameType = gameType;
+    gameInvites[targetIndex].status = status;
+    gameInvites[targetIndex].eventType = eventType;
+    gameInvites[targetIndex].hostNickname = hostNickname;
+    if (gameInviteCount > 0 && selectedGameInviteIndex < 0) {
+        selectedGameInviteIndex = 0;
+    }
+
+    Serial.print("Social Screen: Added/updated game invite ");
+    Serial.print(sessionId);
+    Serial.print(" status: ");
+    Serial.println(status);
+
+    // Nếu đang ở lobby chờ, không vẽ lại Game Center để tránh bị "văng" khỏi lobby
+    if (screenState == STATE_WAITING_GAME) {
+        return;
+    }
+
+    if (currentTab == TAB_GAMES) {
+        drawContentArea();
+    } else {
+        // Reuse notification badge to signal new game invites
+        if (!hasUnreadNotification) {
+            hasUnreadNotification = true;
+            drawSidebar();
         }
     }
 }

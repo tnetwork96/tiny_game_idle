@@ -50,6 +50,14 @@ public:
         int friendshipId;  // For accept response
         String status;  // "pending", "accepted", "rejected"
     };
+
+    struct GameSessionResult {
+        bool success;
+        String message;
+        int sessionId;
+        String status;
+        int participantCount;
+    };
     
     static LoginResult checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port);
     static bool createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port);
@@ -61,6 +69,10 @@ public:
     static FriendRequestResult rejectFriendRequest(int userId, int notificationId, const String& serverHost, uint16_t port);
     static FriendRequestResult cancelFriendRequest(int fromUserId, int toUserId, const String& serverHost, uint16_t port);
     static FriendRequestResult removeFriend(int userId, int friendId, const String& serverHost, uint16_t port);
+    static GameSessionResult createGameSession(int hostUserId, const String& gameType, int maxPlayers, const int* participantIds, int participantCount, const String& serverHost, uint16_t port);
+    static GameSessionResult respondGameInvite(int sessionId, int userId, bool accept, const String& serverHost, uint16_t port);
+    static GameSessionResult setGameReady(int sessionId, int userId, bool ready, const String& serverHost, uint16_t port);
+    static GameSessionResult leaveGameSession(int sessionId, int userId, const String& serverHost, uint16_t port);
     static void printResponse(const String& response);
     
 private:
@@ -68,6 +80,7 @@ private:
     static void parseLoginResponse(const String& response, LoginResult& result);
     static bool parseRegisterResponse(const String& response);
     static void parseFriendRequestResponse(const String& response, FriendRequestResult& result);
+    static void parseGameSessionResponse(const String& response, GameSessionResult& result);
 };
 
 #endif

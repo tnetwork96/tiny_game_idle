@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.websocket import websocket_endpoint
 from app.api.auth import router as auth_router
 from app.api.friends import router as friends_router
+from app.api.games import router as games_router
 from datetime import datetime
 import uvicorn
 
@@ -24,6 +25,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth_router)
 app.include_router(friends_router)
+app.include_router(games_router)
 
 @app.on_event("startup")
 async def startup_event():

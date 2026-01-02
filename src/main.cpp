@@ -194,6 +194,8 @@ void onLoginSuccess() {
             
             // Set callback for user status updates
             socketManager->setOnUserStatusUpdateCallback(SocialScreen::onUserStatusUpdate);
+            // Set callback for game events (invites/respond/ready)
+            socketManager->setOnGameEventCallback(SocialScreen::onGameEvent);
             Serial.println("Main: Set user status update callback");
             
             Serial.println("Main: Socket Manager initialized");

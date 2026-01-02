@@ -25,6 +25,10 @@ void GameLobbyScreen::setGuest(const String& name) {
     this->players[1] = {name, false, false};
 }
 
+void GameLobbyScreen::setGuestReady(bool ready) {
+    this->players[1].isReady = ready;
+}
+
 void GameLobbyScreen::clearGuest() {
     this->players[1] = {"", false, true};
 }
@@ -57,12 +61,6 @@ void GameLobbyScreen::draw() {
     drawPlayerSlots();
     drawStartButton();
 
-    // Simulation: Match Found after 5 seconds
-    if (players[1].isEmpty && (millis() - startTimeSimulation > 5000)) {
-        setGuest("GuestPlayer");
-        Serial.println("Lobby Simulation: Match Found!");
-        draw(); // Redraw with guest
-    }
 }
 
 void GameLobbyScreen::drawFriendBox() {
@@ -88,10 +86,16 @@ void GameLobbyScreen::drawFriendBox() {
         }
 
         tft->setTextSize(1);
-        tft->setCursor(boxX + 10, y + 8);
+        tft->setCursor(boxX + 16, y + 8);
         String name = lobbyFriends[i].name;
         if (name.length() > 10) name = name.substring(0, 8);
         tft->print(name);
+
+        // Status dot
+        uint16_t dotX = boxX + 8;
+        uint16_t dotY = y + itemH / 2;
+        uint16_t dotColor = lobbyFriends[i].online ? theme.colorSuccess : theme.colorTextMuted;
+        tft->fillCircle(dotX, dotY, 3, dotColor);
     }
 }
 
@@ -124,8 +128,13 @@ void GameLobbyScreen::drawPlayerCard(uint16_t x, uint16_t y, uint16_t w, uint16_
         tft->setTextColor(theme.colorAccent);
         tft->print("HOST / READY");
     } else {
-        tft->setTextColor(theme.colorSuccess);
-        tft->print("CONNECTED");
+        if (player.isReady) {
+            tft->setTextColor(theme.colorSuccess);
+            tft->print("READY");
+        } else {
+            tft->setTextColor(theme.colorTextMuted);
+            tft->print("INVITED");
+        }
     }
 }
 
