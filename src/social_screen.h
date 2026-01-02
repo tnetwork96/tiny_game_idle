@@ -175,6 +175,12 @@ private:
     void redrawFriendCard(int index, bool isSelected);
     void redrawNotificationCard(int index, bool isSelected);
     
+    // Friend item drawing helper (extracted for cleaner code)
+    void drawFriendItem(uint16_t x, uint16_t y, uint16_t w, uint16_t h, FriendItem* friendItem, bool isSelected);
+    
+    // Messenger-style status indicator (simple filled/hollow circle)
+    void drawStatusIndicator(uint16_t x, uint16_t y, bool isOnline);
+    
     // Icon drawing helpers (bitmap icons are 16x16)
     void drawFriendsIcon(uint16_t x, uint16_t y, uint16_t color);
     void drawNotificationsIcon(uint16_t x, uint16_t y, uint16_t color);

@@ -40,7 +40,7 @@ const unsigned char PROGMEM iconPlus[] = {
 #define CONTENT_X        26
 #define CONTENT_WIDTH    294
 #define SCREEN_HEIGHT    240
-#define TAB_HEIGHT       60
+#define TAB_HEIGHT       40  // Reduced from 60 for scalability (fit 6+ tabs)
 #define TAB_PADDING      10
 
 // Static instance pointer for callbacks
@@ -115,35 +115,45 @@ void SocialScreen::drawBackground() {
 }
 
 void SocialScreen::drawTab(int tabIndex, bool isSelected) {
-    uint16_t y = tabIndex * TAB_HEIGHT;
+    uint16_t tabY = tabIndex * TAB_HEIGHT;
     
-    // Draw tab background - inactive tabs use darker background
-    uint16_t bgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_SIDEBAR_BG;
-    tft->fillRect(0, y, SIDEBAR_WIDTH, TAB_HEIGHT, bgColor);
+    // Draw default background (always use sidebar background)
+    tft->fillRect(0, tabY, SIDEBAR_WIDTH, TAB_HEIGHT, SOCIAL_SIDEBAR_BG);
     
-    // Draw glowing left border for selected tab (3px wide cyan bar)
+    // If selected, draw a "floating pill" highlight with margins
     if (isSelected) {
-        tft->fillRect(0, y, 3, TAB_HEIGHT, SOCIAL_ACCENT);
-        // Add subtle glow effect with a lighter line
-        tft->drawFastVLine(3, y, TAB_HEIGHT, SOCIAL_HIGHLIGHT);
+        const uint16_t margin = 2;
+        const uint16_t pillX = margin;
+        const uint16_t pillY = tabY + margin;
+        const uint16_t pillW = SIDEBAR_WIDTH - (margin * 2);
+        const uint16_t pillH = TAB_HEIGHT - (margin * 2);
+        const uint16_t cornerRadius = 3;
+        
+        // Draw rounded rectangle "pill" background
+        tft->fillRoundRect(pillX, pillY, pillW, pillH, cornerRadius, SOCIAL_HIGHLIGHT);
+        
+        // Draw shorter vertical cyan accent bar (centered, 20px height)
+        const uint16_t accentHeight = 20;
+        const uint16_t accentY = tabY + (TAB_HEIGHT - accentHeight) / 2;
+        tft->fillRect(1, accentY, 2, accentHeight, SOCIAL_ACCENT);
     }
     
-    // Draw focus indicator: right border when sidebar has focus and this tab is selected
+    // Draw focus indicator on right edge when sidebar has focus
     if (isSelected && focusMode == FOCUS_SIDEBAR) {
-        // Draw right border to indicate sidebar focus (bright)
-        tft->drawFastVLine(SIDEBAR_WIDTH - 2, y, TAB_HEIGHT, SOCIAL_ACCENT);
-        tft->drawFastVLine(SIDEBAR_WIDTH - 1, y, TAB_HEIGHT, SOCIAL_ACCENT);
+        // Bright right border when sidebar focused
+        tft->drawFastVLine(SIDEBAR_WIDTH - 2, tabY + 4, TAB_HEIGHT - 8, SOCIAL_ACCENT);
+        tft->drawFastVLine(SIDEBAR_WIDTH - 1, tabY + 4, TAB_HEIGHT - 8, SOCIAL_ACCENT);
     } else if (isSelected && focusMode == FOCUS_CONTENT) {
         // Dimmed right border when content has focus
-        tft->drawFastVLine(SIDEBAR_WIDTH - 1, y, TAB_HEIGHT, SOCIAL_MUTED);
+        tft->drawFastVLine(SIDEBAR_WIDTH - 1, tabY + 4, TAB_HEIGHT - 8, SOCIAL_MUTED);
     }
     
     // Calculate icon position (centered in tab)
     uint16_t iconSize = 16;  // Bitmap is 16x16
     uint16_t iconX = (SIDEBAR_WIDTH - iconSize) / 2;
-    uint16_t iconY = y + (TAB_HEIGHT - iconSize) / 2;
+    uint16_t iconY = tabY + (TAB_HEIGHT - iconSize) / 2;
     
-    // Icon color: bright when selected and sidebar focused, muted when inactive
+    // Icon color: bright when selected, muted when inactive
     uint16_t iconColor;
     if (isSelected && focusMode == FOCUS_SIDEBAR) {
         iconColor = SOCIAL_TEXT;  // White when active and focused
@@ -288,6 +298,77 @@ int SocialScreen::getUnreadCountForFriend(int friendUserId) const {
     return 0;
 }
 
+void SocialScreen::drawStatusIndicator(uint16_t x, uint16_t y, bool isOnline) {
+    const uint16_t radius = 4;  // 8px diameter
+    
+    if (isOnline) {
+        // Online: Solid filled circle (Active/Present)
+        tft->fillCircle(x, y, radius, SOCIAL_SUCCESS);
+    } else {
+        // Offline: Hollow circle ring (Inactive/Away)
+        tft->drawCircle(x, y, radius, SOCIAL_MUTED);
+        tft->drawCircle(x, y, radius - 1, SOCIAL_MUTED);  // 2px thick ring for visibility
+    }
+}
+
+void SocialScreen::drawFriendItem(uint16_t x, uint16_t y, uint16_t w, uint16_t h, FriendItem* friendItem, bool isSelected) {
+    const uint16_t cornerRadius = 3;
+    const uint16_t statusDotX = 12;  // Status dot at 12px from left
+    const uint16_t nameStartX = 24;  // Text starts at 24px (12px gap from dot)
+    
+    // 1. Draw card background (flat color, no border)
+    uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
+    tft->fillRoundRect(x, y, w, h, cornerRadius, cardBgColor);
+    
+    // 2. Draw Messenger-style status indicator (centered vertically)
+    uint16_t dotAbsX = x + statusDotX;
+    uint16_t dotAbsY = y + h / 2;
+    drawStatusIndicator(dotAbsX, dotAbsY, friendItem->online);
+    
+    // 3. Draw Nickname (white text, left aligned after status dot)
+    tft->setTextSize(1);
+    tft->setTextColor(SOCIAL_TEXT, cardBgColor);
+    uint16_t nicknameY = y + (h - 8) / 2;  // Vertically center text (font height ~8px)
+    tft->setCursor(x + nameStartX, nicknameY);
+    
+    String nickname = friendItem->nickname;
+    // Calculate max width for nickname (reserve space for unread badge)
+    int availableWidth = w - nameStartX - 10;
+    if (friendItem->unreadCount > 0) {
+        availableWidth -= 24;  // Reserve space for badge
+    }
+    int maxChars = availableWidth / 6;  // Approximate 6px per char
+    if (nickname.length() > maxChars) {
+        nickname = nickname.substring(0, maxChars - 3) + "...";
+    }
+    tft->print(nickname);
+    
+    // 4. Draw unread badge (notification pill on right side) if unread count > 0
+    if (friendItem->unreadCount > 0) {
+        const uint16_t badgeRadius = 8;
+        const uint16_t badgeX = x + w - badgeRadius - 8;
+        const uint16_t badgeY = y + h / 2;  // Vertically centered
+        
+        // Draw red filled circle
+        tft->fillCircle(badgeX, badgeY, badgeRadius, ST77XX_RED);
+        // Draw white border for contrast
+        tft->drawCircle(badgeX, badgeY, badgeRadius, ST77XX_WHITE);
+        
+        // Draw count text (centered)
+        tft->setTextSize(1);
+        tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
+        if (friendItem->unreadCount <= 9) {
+            // Single digit - center it
+            tft->setCursor(badgeX - 3, badgeY - 4);
+            tft->print(friendItem->unreadCount);
+        } else {
+            // Display "9+"
+            tft->setCursor(badgeX - 6, badgeY - 4);
+            tft->print("9+");
+        }
+    }
+}
+
 void SocialScreen::drawFriendsList() {
     // Clear content area
     tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, SOCIAL_BG_DARK);
@@ -315,8 +396,8 @@ void SocialScreen::drawFriendsList() {
         tft->setCursor(CONTENT_X + 10, 60);
         tft->print("No friends yet");
     } else {
-        const uint16_t cardHeight = 32;
-        const uint16_t cardSpacing = 4;  // 2px padding on each side = 4px total
+        const uint16_t cardHeight = 32;  // Compact height for minimalist style
+        const uint16_t cardSpacing = 4;
         const uint16_t startY = headerHeight + 4;
         const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
         
@@ -332,64 +413,9 @@ void SocialScreen::drawFriendsList() {
             uint16_t cardX = CONTENT_X + 8;
             uint16_t cardY = y;
             uint16_t cardW = CONTENT_WIDTH - 16;
-            uint16_t cardR = 4;  // Rounded corner radius
             
-            // Draw card background
-            uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
-            tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
-            
-            // Draw online/offline indicator (larger, 6px radius)
-            uint16_t statusColor = friends[i].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
-            uint16_t dotX = cardX + 12;
-            uint16_t dotY = cardY + cardHeight / 2;
-            tft->fillCircle(dotX, dotY, 6, statusColor);
-            tft->drawCircle(dotX, dotY, 6, statusColor);
-            
-            // Draw nickname (truncate if too long)
-            tft->setTextSize(1);
-            tft->setTextColor(SOCIAL_TEXT, cardBgColor);
-            tft->setCursor(cardX + 25, cardY + 8);
-            String nickname = friends[i].nickname;
-            // Calculate max width (card width - indicator - padding)
-            int maxWidth = (cardW - 25 - 8) / 6;  // Approximate chars (6px per char)
-            if (nickname.length() > maxWidth) {
-                nickname = nickname.substring(0, maxWidth - 3) + "...";
-            }
-            tft->print(nickname);
-            
-            // Draw unread badge nếu có tin nhắn chưa đọc
-            if (friends[i].unreadCount > 0) {
-                const uint16_t badgeSize = 8;
-                const uint16_t badgeX = cardX + cardW - badgeSize - 8;  // Right side
-                const uint16_t badgeY = cardY + 4;  // Top
-                const uint16_t badgeCenterX = badgeX + badgeSize/2;
-                const uint16_t badgeCenterY = badgeY + badgeSize/2;
-                const uint16_t badgeRadius = badgeSize/2;
-                
-                // Draw red filled circle
-                tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
-                // Draw white border
-                tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
-                
-                // Draw số lượng (nếu <= 9)
-                tft->setTextSize(1);
-                tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
-                if (friends[i].unreadCount <= 9) {
-                    tft->setCursor(badgeCenterX - 2, badgeCenterY - 3);
-                    tft->print(friends[i].unreadCount);
-                } else {
-                    // Hiển thị "9+"
-                    tft->setCursor(badgeCenterX - 3, badgeCenterY - 3);
-                    tft->print("9+");
-                }
-            }
-            
-            // Draw online status text (right-aligned)
-            tft->setTextColor(SOCIAL_MUTED, cardBgColor);
-            String statusText = friends[i].online ? "Online" : "Offline";
-            int statusWidth = statusText.length() * 6;  // Approximate width
-            tft->setCursor(cardX + cardW - statusWidth - 8, cardY + 20);
-            tft->print(statusText);
+            // Use drawFriendItem helper method
+            drawFriendItem(cardX, cardY, cardW, cardHeight, &friends[i], isSelected);
         }
     }
 }
@@ -578,7 +604,7 @@ void SocialScreen::handleTabNavigation(const String& key) {
 void SocialScreen::redrawFriendCard(int index, bool isSelected) {
     if (index < 0 || index >= friendsCount) return;
     
-    const uint16_t cardHeight = 32;
+    const uint16_t cardHeight = 32;  // Match minimalist card height
     const uint16_t cardSpacing = 4;
     const uint16_t headerHeight = 35;
     const uint16_t startY = headerHeight + 4;
@@ -595,63 +621,9 @@ void SocialScreen::redrawFriendCard(int index, bool isSelected) {
     uint16_t cardX = CONTENT_X + 8;
     uint16_t cardY = y;
     uint16_t cardW = CONTENT_WIDTH - 16;
-    uint16_t cardR = 4;
     
-    // Draw card background
-    uint16_t cardBgColor = isSelected ? SOCIAL_HIGHLIGHT : SOCIAL_HEADER;
-    tft->fillRoundRect(cardX, cardY, cardW, cardHeight, cardR, cardBgColor);
-    
-    // Draw online/offline indicator
-    uint16_t statusColor = friends[index].online ? SOCIAL_SUCCESS : SOCIAL_ERROR;
-    uint16_t dotX = cardX + 12;
-    uint16_t dotY = cardY + cardHeight / 2;
-    tft->fillCircle(dotX, dotY, 6, statusColor);
-    tft->drawCircle(dotX, dotY, 6, statusColor);
-    
-    // Draw nickname
-    tft->setTextSize(1);
-    tft->setTextColor(SOCIAL_TEXT, cardBgColor);
-    tft->setCursor(cardX + 25, cardY + 8);
-    String nickname = friends[index].nickname;
-    int maxWidth = (cardW - 25 - 8) / 6;
-    if (nickname.length() > maxWidth) {
-        nickname = nickname.substring(0, maxWidth - 3) + "...";
-    }
-    tft->print(nickname);
-    
-    // Draw unread badge nếu có tin nhắn chưa đọc
-    if (friends[index].unreadCount > 0) {
-        const uint16_t badgeSize = 8;
-        const uint16_t badgeX = cardX + cardW - badgeSize - 8;  // Right side
-        const uint16_t badgeY = cardY + 4;  // Top
-        const uint16_t badgeCenterX = badgeX + badgeSize/2;
-        const uint16_t badgeCenterY = badgeY + badgeSize/2;
-        const uint16_t badgeRadius = badgeSize/2;
-        
-        // Draw red filled circle
-        tft->fillCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_RED);
-        // Draw white border
-        tft->drawCircle(badgeCenterX, badgeCenterY, badgeRadius, ST77XX_WHITE);
-        
-        // Draw số lượng (nếu <= 9)
-        tft->setTextSize(1);
-        tft->setTextColor(ST77XX_WHITE, ST77XX_RED);
-        if (friends[index].unreadCount <= 9) {
-            tft->setCursor(badgeCenterX - 2, badgeCenterY - 3);
-            tft->print(friends[index].unreadCount);
-        } else {
-            // Hiển thị "9+"
-            tft->setCursor(badgeCenterX - 3, badgeCenterY - 3);
-            tft->print("9+");
-        }
-    }
-    
-    // Draw online status text
-    tft->setTextColor(SOCIAL_MUTED, cardBgColor);
-    String statusText = friends[index].online ? "Online" : "Offline";
-    int statusWidth = statusText.length() * 6;
-    tft->setCursor(cardX + cardW - statusWidth - 8, cardY + 20);
-    tft->print(statusText);
+    // Use drawFriendItem helper method for consistent rendering
+    drawFriendItem(cardX, cardY, cardW, cardHeight, &friends[index], isSelected);
 }
 
 void SocialScreen::redrawNotificationCard(int index, bool isSelected) {
@@ -1746,7 +1718,7 @@ void SocialScreen::selectFriend(int index) {
     selectedFriendIndex = index;
     
     // Adjust scroll if needed
-    const uint16_t cardHeight = 32;
+    const uint16_t cardHeight = 32;  // Match minimalist card height
     const uint16_t cardSpacing = 4;
     const uint16_t headerHeight = 35;
     const uint16_t startY = headerHeight + 4;
