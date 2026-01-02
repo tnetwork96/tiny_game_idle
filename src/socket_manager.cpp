@@ -34,6 +34,7 @@ SocketManager::SocketManager() {
     onTypingIndicatorCallback = nullptr;
     onDeliveryStatusCallback = nullptr;
     onReadReceiptCallback = nullptr;
+    onUserStatusUpdateCallback = nullptr;
     
     // Typing indicator state
     lastTypingTime = 0;
@@ -272,6 +273,10 @@ void SocketManager::onWebSocketEvent(WStype_t type, uint8_t * payload, size_t le
                     // Handle read receipt
                     Serial.println("Socket Manager: ✅ Received message_read - parsing...");
                     parseReadReceipt(message);
+                } else if (message.indexOf("\"type\":\"user_status_update\"") >= 0 || message.indexOf("\"type\": \"user_status_update\"") >= 0) {
+                    // Handle user status update
+                    Serial.println("Socket Manager: ✅ Received user_status_update - parsing...");
+                    parseUserStatusUpdate(message);
                 } else {
                     // Handle other received messages here
                     Serial.print("Socket Manager: ⚠️  Unknown message type. Full message: ");
@@ -885,6 +890,63 @@ void SocketManager::parseReadReceipt(const String& message) {
     
     if (onReadReceiptCallback != nullptr) {
         onReadReceiptCallback(messageId, timestamp);
+    }
+}
+
+void SocketManager::parseUserStatusUpdate(const String& message) {
+    Serial.println("Socket Manager: parseUserStatusUpdate() called");
+    
+    // Parse user_id (handle both with and without spaces)
+    int userIdStart = message.indexOf("\"user_id\":");
+    if (userIdStart < 0) {
+        userIdStart = message.indexOf("\"user_id\": ");
+    }
+    if (userIdStart < 0) {
+        Serial.println("Socket Manager: ❌ Cannot find \"user_id\":");
+        return;
+    }
+    userIdStart += 10;  // Skip "user_id":
+    // Skip space if present
+    if (message.charAt(userIdStart) == ' ') {
+        userIdStart++;
+    }
+    int userIdEnd = message.indexOf(',', userIdStart);
+    if (userIdEnd < 0) userIdEnd = message.indexOf('}', userIdStart);
+    if (userIdEnd < 0) {
+        Serial.println("Socket Manager: ❌ Cannot find end of user_id");
+        return;
+    }
+    int userId = message.substring(userIdStart, userIdEnd).toInt();
+    Serial.print("Socket Manager: Parsed user_id: ");
+    Serial.println(userId);
+    
+    // Parse status (handle both with and without spaces)
+    int statusStart = message.indexOf("\"status\":\"");
+    if (statusStart < 0) {
+        statusStart = message.indexOf("\"status\": \"");
+        if (statusStart >= 0) {
+            statusStart += 11;  // Skip "status": "
+        }
+    } else {
+        statusStart += 10;  // Skip "status":"
+    }
+    if (statusStart < 0) {
+        Serial.println("Socket Manager: ❌ Cannot find \"status\":\"");
+        return;
+    }
+    int statusEnd = message.indexOf('"', statusStart);
+    if (statusEnd < 0) {
+        Serial.println("Socket Manager: ❌ Cannot find end of status");
+        return;
+    }
+    String status = message.substring(statusStart, statusEnd);
+    Serial.print("Socket Manager: Parsed status: ");
+    Serial.println(status);
+    
+    if (onUserStatusUpdateCallback != nullptr) {
+        onUserStatusUpdateCallback(userId, status);
+    } else {
+        Serial.println("Socket Manager: ⚠️ No callback set for user status update");
     }
 }
 

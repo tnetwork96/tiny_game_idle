@@ -6,6 +6,7 @@ import hashlib
 import os
 from typing import Optional
 from datetime import datetime
+from app.api.websocket import websocket_manager
 
 router = APIRouter(prefix="/api", tags=["auth"])
 
@@ -70,6 +71,33 @@ def get_db_connection():
     """Get PostgreSQL database connection"""
     return psycopg2.connect(DATABASE_URL)
 
+def get_friend_ids(user_id: int) -> list[int]:
+    """
+    Get list of friend IDs for a user.
+    Returns list of friend user IDs.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        # Get all friend IDs for this user
+        cursor.execute('''
+            SELECT friend_id
+            FROM friends
+            WHERE user_id = %s
+        ''', (user_id,))
+        
+        friend_ids = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        return friend_ids
+    except Exception as e:
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error getting friend IDs: {str(e)}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 @router.post("/login", response_model=LoginResponse)
 async def login(request: LoginRequest):
     """
@@ -99,6 +127,14 @@ async def login(request: LoginRequest):
             if stored_pin_hash == pin_hash:
                 # Correct credentials - verified against database
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Login successful: {username} (ID: {user_id})")
+                
+                # Send status update to friends (non-blocking, don't fail login if this fails)
+                try:
+                    await websocket_manager.send_status_update_to_friends(user_id)
+                except Exception as status_error:
+                    # Log warning but don't fail login
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to send status update to friends: {str(status_error)}")
+                
                 return LoginResponse(
                     success=True,
                     message=f"Login successful for {username}",

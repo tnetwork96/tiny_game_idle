@@ -116,6 +116,12 @@ public:
     void setOnAddFriendSuccessCallback(OnAddFriendSuccessCallback callback) {
         onAddFriendSuccessCallback = callback;
     }
+    
+    // Update friend online status
+    void updateFriendStatus(int friendUserId, bool isOnline);
+    
+    // Static callback wrapper for user status update
+    static void onUserStatusUpdate(int userId, const String& status);
 
 private:
     Adafruit_ST7789* tft;

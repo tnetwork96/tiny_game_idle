@@ -300,6 +300,60 @@ class WebSocketManager:
             logger.error(f"Error sending read receipt: {str(e)}", exc_info=True)
             return False
     
+    async def send_status_update_to_friends(self, user_id: int):
+        """
+        Send status update (online) to all friends of a user when they log in.
+        Only sends to friends who are currently online.
+        """
+        # Import here to avoid circular dependency
+        from app.api.auth import get_friend_ids
+        
+        try:
+            # Get list of friend IDs
+            friend_ids = get_friend_ids(user_id)
+            
+            if not friend_ids:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ℹ️ User {user_id} has no friends, skipping status update")
+                return
+            
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 📤 Sending status update to {len(friend_ids)} friends of user {user_id}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 📋 Friend IDs: {friend_ids}")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 📋 Online users: {list(self.user_to_client.keys())}")
+            
+            # Prepare status update message
+            status_message = {
+                "type": "user_status_update",
+                "user_id": user_id,
+                "status": "online",
+                "timestamp": datetime.now().isoformat()
+            }
+            message_json = json.dumps(status_message)
+            
+            # Send to each friend who is online
+            notified_count = 0
+            for friend_id in friend_ids:
+                if friend_id in self.user_to_client:
+                    client_id = self.user_to_client[friend_id]
+                    if client_id in self.active_connections:
+                        websocket = self.active_connections[client_id]
+                        try:
+                            await websocket.send_text(message_json)
+                            notified_count += 1
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Sent status update to friend {friend_id} (client {client_id})")
+                        except Exception as e:
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Error sending status update to friend {friend_id}: {str(e)}")
+                    else:
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Friend {friend_id} mapped to client {client_id} but client not in active_connections")
+                else:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Friend {friend_id} not online (not in user_to_client)")
+            
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Status update sent to {notified_count}/{len(friend_ids)} online friends")
+            
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error in send_status_update_to_friends: {str(e)}")
+            logger.error(f"Error sending status update to friends: {str(e)}", exc_info=True)
+            # Don't raise exception, just log error
+    
     async def cleanup_typing_indicators(self):
         """Clean up expired typing indicators (auto-timeout after 5 seconds)"""
         now = datetime.now()
@@ -367,6 +421,13 @@ class WebSocketManager:
                     self.user_to_client[user_id] = client_id
                     self.client_to_user[client_id] = user_id
                     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mapped user_id {user_id} to client_id {client_id}")
+                    
+                    # Tự động gửi status update đến friends khi user connect WebSocket
+                    try:
+                        await self.send_status_update_to_friends(user_id)
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Auto-sent status update to friends of user {user_id}")
+                    except Exception as status_error:
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to auto-send status update: {str(status_error)}")
                 
                 # Send acknowledgment
                 ack = {

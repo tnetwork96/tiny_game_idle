@@ -81,11 +81,16 @@ private:
     typedef void (*OnReadReceiptCallback)(const String& messageId, const String& timestamp);
     OnReadReceiptCallback onReadReceiptCallback;
     
+    // User status update callback
+    typedef void (*OnUserStatusUpdateCallback)(int userId, const String& status);
+    OnUserStatusUpdateCallback onUserStatusUpdateCallback;
+    
     // Helper to parse JSON chat message
     void parseChatMessage(const String& message);
     void parseTypingIndicator(const String& message, bool isTyping);
     void parseDeliveryStatus(const String& message, const String& status);
     void parseReadReceipt(const String& message);
+    void parseUserStatusUpdate(const String& message);
     
     // Helper to save chat message to file
     void saveChatMessageToFile(int fromUserId, int toUserId, const String& message, bool isFromUser);
@@ -160,6 +165,11 @@ public:
     // Set read receipt callback
     void setOnReadReceiptCallback(OnReadReceiptCallback callback) {
         onReadReceiptCallback = callback;
+    }
+    
+    // Set user status update callback
+    void setOnUserStatusUpdateCallback(OnUserStatusUpdateCallback callback) {
+        onUserStatusUpdateCallback = callback;
     }
     
     // Send chat message

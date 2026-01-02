@@ -1416,6 +1416,58 @@ void SocialScreen::loadFriends() {
     }
 }
 
+void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
+    Serial.print("Social Screen: Updating friend status - userId: ");
+    Serial.print(friendUserId);
+    Serial.print(", isOnline: ");
+    Serial.println(isOnline ? "true" : "false");
+    
+    // Find friend in friends array
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].userId == friendUserId) {
+            // Update status
+            bool statusChanged = (friends[i].online != isOnline);
+            friends[i].online = isOnline;
+            
+            Serial.print("Social Screen: Updated friend at index ");
+            Serial.print(i);
+            Serial.print(" (");
+            Serial.print(friends[i].nickname);
+            Serial.print(") to ");
+            Serial.println(isOnline ? "online" : "offline");
+            
+            // Redraw friend card if we're on the friends tab and status changed
+            if (statusChanged && currentTab == TAB_FRIENDS) {
+                bool isSelected = (i == selectedFriendIndex);
+                Serial.print("Social Screen: Redrawing friend card at index ");
+                Serial.println(i);
+                redrawFriendCard(i, isSelected);
+            } else if (statusChanged) {
+                // If not on friends tab, just log (will update when user navigates to friends tab)
+                Serial.println("Social Screen: Status changed but not on friends tab - will update when navigated");
+            }
+            
+            return;
+        }
+    }
+    
+    Serial.print("Social Screen: ⚠️ Friend with userId ");
+    Serial.print(friendUserId);
+    Serial.println(" not found in friends list");
+}
+
+// Static callback wrapper
+void SocialScreen::onUserStatusUpdate(int userId, const String& status) {
+    if (s_socialScreenInstance == nullptr) {
+        Serial.println("Social Screen: ⚠️ onUserStatusUpdate called but instance not set");
+        return;
+    }
+    
+    // Convert status string to bool
+    bool isOnline = (status == "online");
+    s_socialScreenInstance->updateFriendStatus(userId, isOnline);
+}
+
 void SocialScreen::loadNotifications() {
     if (userId <= 0 || serverHost.length() == 0) {
         Serial.println("Social Screen: Cannot load notifications - invalid user ID or server info");

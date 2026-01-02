@@ -190,6 +190,10 @@ void onLoginSuccess() {
                 Serial.println("Main: Set SocialScreen state for SocketManager");
             }
             
+            // Set callback for user status updates
+            socketManager->setOnUserStatusUpdateCallback(SocialScreen::onUserStatusUpdate);
+            Serial.println("Main: Set user status update callback");
+            
             Serial.println("Main: Socket Manager initialized");
         }
         
