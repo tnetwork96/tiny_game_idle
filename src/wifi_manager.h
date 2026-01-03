@@ -35,6 +35,8 @@ private:
     void onWiFiSelected();
     void onPasswordEntered();
     void connectToWiFi();
+    void saveWiFiPassword();  // Save password to file
+    String loadWiFiPassword();  // Load password from file, returns empty string if not found
     
 public:
     WiFiManager(Adafruit_ST7789* tft, Keyboard* keyboard);  // Sử dụng keyboard thường
@@ -49,7 +51,10 @@ public:
     // Navigation handlers
     void handleUp();
     void handleDown();
+    void handleLeft();
+    void handleRight();
     void handleSelect();
+    void handleExit();
     
     // Get current state
     WiFiState getState() const { return currentState; }
@@ -62,6 +67,9 @@ public:
     
     // Handle keyboard input
     void handleKeyboardInput(String key);
+    
+    // Public method to trigger password entered (for callback)
+    void triggerPasswordEntered() { onPasswordEntered(); }
     
     // Disconnect
     void disconnect();

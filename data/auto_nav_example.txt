@@ -1,0 +1,9 @@
+up
+down
+select
+delay:1000
+right
+select
+delay:500
+exit
+

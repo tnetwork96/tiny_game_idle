@@ -4,8 +4,10 @@
 #include <SPI.h>
 #ifdef ESP32
 #include <Preferences.h>
+#include <SPIFFS.h>
 #elif defined(ESP8266)
 #include <EEPROM.h>
+#include <FS.h>
 #endif
 #include "wifi_manager.h"
 #include "login_screen.h"
@@ -17,6 +19,7 @@
 #include "chat_screen.h"
 #include "caro_game_screen.h"
 #include "game_lobby_screen.h"
+#include "auto_navigator.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -32,18 +35,64 @@ LoginScreen* loginScreen;
 SocketManager* socketManager;
 SocialScreen* socialScreen;
 ChatScreen* chatScreen = nullptr;
+AutoNavigator* autoNavigator = nullptr;
 
-    // Flag to track if auto-connect has been executed
-bool autoConnectExecuted = false;
 bool isChatScreenActive = false;
 int currentChatFriendUserId = -1;  // ID của friend đang chat (nếu ChatScreen đang mở)
-bool autoLoginExecuted = false;
-bool autoNicknameExecuted = false;
 bool isSocialScreenActive = false;
+bool hasTransitionedToLogin = false;  // Track if we've already transitioned to login screen
 
-// RAM monitoring
-unsigned long lastRamPrintTime = 0;
-const unsigned long RAM_PRINT_INTERVAL = 5000;  // Print RAM every 5 seconds
+// Forward declaration
+void onKeyboardKeySelected(String key);
+
+// Function to handle Serial input for navigation
+void handleSerialNavigation() {
+    // First, check for auto navigator commands
+    if (autoNavigator != nullptr) {
+        autoNavigator->processSerialInput();
+    }
+    
+    // Then handle regular navigation commands
+    if (Serial.available() > 0) {
+        String command = Serial.readStringUntil('\n');
+        command.trim();  // Remove whitespace and newline
+        
+        // Skip if it's an auto navigator command (already processed)
+        if (command.startsWith("auto:")) {
+            return;
+        }
+        
+        // Convert to lowercase for case-insensitive matching
+        command.toLowerCase();
+        
+        // Map serial commands to navigation keys
+        if (command == "up" || command == "u") {
+            Serial.println("Serial: Received UP command");
+            onKeyboardKeySelected("up");
+        } else if (command == "down" || command == "d") {
+            Serial.println("Serial: Received DOWN command");
+            onKeyboardKeySelected("down");
+        } else if (command == "left" || command == "l") {
+            Serial.println("Serial: Received LEFT command");
+            onKeyboardKeySelected("left");
+        } else if (command == "right" || command == "r") {
+            Serial.println("Serial: Received RIGHT command");
+            onKeyboardKeySelected("right");
+        } else if (command == "select" || command == "s" || command == "enter" || command == "e") {
+            Serial.println("Serial: Received SELECT command");
+            onKeyboardKeySelected("select");
+        } else if (command == "exit" || command == "x" || command == "back" || command == "b") {
+            Serial.println("Serial: Received EXIT command");
+            onKeyboardKeySelected("exit");
+        } else if (command.length() > 0) {
+            // Unknown command
+            Serial.print("Serial: Unknown command: ");
+            Serial.println(command);
+            Serial.println("Serial: Available commands: up/u, down/d, left/l, right/r, select/s/enter/e, exit/x/back/b");
+            Serial.println("Serial: Auto Navigator: auto:load:/path, auto:exec:commands, auto:start, auto:stop, auto:run, auto:status");
+        }
+    }
+}
 
 // Callback function for keyboard input - routes to appropriate screen
 // RULE: Check parent active TRƯỚC, sau đó check child active
@@ -91,14 +140,26 @@ void onKeyboardKeySelected(String key) {
         return;
     }
     
-    // 3. LoginScreen
+    // 3. WiFi Manager - Check BEFORE LoginScreen because WiFi selection happens first
+    // WiFi Manager handles navigation when WiFi is not connected (SELECT, PASSWORD, CONNECTING, ERROR states)
+    if (wifiManager != nullptr) {
+        WiFiState wifiState = wifiManager->getState();
+        // If WiFi is not connected, WiFi Manager should handle all input
+        if (wifiState != WIFI_STATE_CONNECTED) {
+            // Route all keys to WiFi Manager (navigation keys and password input)
+            wifiManager->handleKeyboardInput(key);
+            return;
+        }
+    }
+    
+    // 4. LoginScreen - Only when WiFi is connected
     if (wifiManager != nullptr && wifiManager->isConnected() && 
         loginScreen != nullptr && !isSocialScreenActive && !isChatScreenActive) {
         loginScreen->handleKeyPress(key);
         return;
     }
     
-    // 4. WiFi Manager
+    // 5. WiFi Manager fallback (for connected state if needed)
     if (wifiManager != nullptr) {
         wifiManager->handleKeyboardInput(key);
         return;
@@ -246,9 +307,58 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
     chatScreen->forceRedraw();
 }
 
+// Function to save login credentials to file
+void saveLoginCredentials() {
+    if (loginScreen == nullptr) {
+        return;
+    }
+    
+    // Initialize SPIFFS if not already initialized
+    if (!SPIFFS.begin(true)) {
+        Serial.println("Main: SPIFFS initialization failed for saving login credentials!");
+        return;
+    }
+    
+    String username = loginScreen->getUsername();
+    String pin = loginScreen->getPin();
+    
+    if (username.length() == 0 || pin.length() == 0) {
+        Serial.println("Main: Cannot save login credentials - username or PIN is empty");
+        return;
+    }
+    
+    String fileName = "/login_credentials.txt";
+    
+    Serial.print("Main: Saving login credentials to file: ");
+    Serial.println(fileName);
+    
+    // Open file for writing
+    File file = SPIFFS.open(fileName, "w");
+    if (!file) {
+        Serial.print("Main: Failed to open file for writing: ");
+        Serial.println(fileName);
+        return;
+    }
+    
+    // Write username and PIN to file (one per line)
+    file.println(username);
+    file.println(pin);
+    file.close();
+    
+    Serial.print("Main: Login credentials saved successfully to: ");
+    Serial.println(fileName);
+    Serial.print("Main: Username: ");
+    Serial.println(username);
+    Serial.print("Main: PIN length: ");
+    Serial.println(pin.length());
+}
+
 // Callback function for when login is successful
 void onLoginSuccess() {
     Serial.println("Main: Login successful, switching to Social Screen...");
+    
+    // Save login credentials to file
+    saveLoginCredentials();
     
     if (loginScreen != nullptr && socialScreen != nullptr) {
         // Set user ID and server info
@@ -359,179 +469,6 @@ void clearWiFiCredentials() {
     Serial.println("WiFi: All cached credentials cleared successfully");
 }
 
-// Function to automatically select WiFi "Van Ninh" and enter password
-void autoConnectToVanNinh() {
-    if (wifiManager == nullptr || keyboard == nullptr) return;
-    if (autoConnectExecuted) return;
-    
-    // Wait for WiFi scan to complete and list to be ready
-    if (wifiManager->getState() != WIFI_STATE_SELECT) return;
-    
-    WiFiListScreen* wifiList = wifiManager->getListScreen();
-    if (wifiList == nullptr) return;
-    
-    Serial.println("Auto-connect: Starting to find 'Van Ninh' WiFi...");
-    
-    // Ensure we start from the beginning of the list
-    while (wifiList->getSelectedIndex() != 0) {
-        wifiList->selectPrevious();
-        delay(100);
-    }
-    
-    // Search for "Van Ninh" by navigating through the list
-    bool foundVanNinh = false;
-    uint16_t networkCount = wifiList->getNetworkCount();
-    
-    for (uint16_t i = 0; i < networkCount; i++) {
-        String ssid = wifiList->getSelectedSSID();
-        Serial.print("Auto-connect: Checking [");
-        Serial.print(wifiList->getSelectedIndex());
-        Serial.print("]: ");
-        Serial.println(ssid);
-        
-        if (ssid == "Van Ninh") {
-            foundVanNinh = true;
-            Serial.println("========================================");
-            Serial.println("Auto-connect: Found 'Van Ninh'! Selecting...");
-            Serial.println("========================================");
-            break;
-        }
-        
-        // Move to next item if not the last one
-        if (i < networkCount - 1) {
-            wifiList->selectNext();
-            delay(200);
-        }
-    }
-    
-    if (foundVanNinh) {
-        // Select the WiFi network
-        delay(1000);
-        wifiManager->handleSelect();  // This will move to password screen
-        Serial.println("Auto-connect: WiFi selected, waiting for password screen...");
-        
-        // Wait for password screen to appear
-        delay(1500);
-        
-        // Check if we're now on password screen
-        if (wifiManager->getState() == WIFI_STATE_PASSWORD) {
-            Serial.println("Auto-connect: Password screen ready, typing password '123456a@'...");
-            
-            // Type password using keyboard navigation
-            keyboard->typeString("123456a@");
-            
-            Serial.println("Auto-connect: Password typed, waiting before pressing Enter...");
-            delay(1000);  // Wait to ensure all characters are entered
-            
-            // Press Enter to connect using keyboard navigation
-            Serial.println("Auto-connect: Navigating to Enter key and pressing it...");
-            keyboard->pressEnter();
-            
-            autoConnectExecuted = true;
-            Serial.println("Auto-connect: Connection initiated!");
-        } else {
-            Serial.println("Auto-connect: Error - password screen not ready");
-        }
-    } else {
-        Serial.println("Auto-connect: 'Van Ninh' not found in WiFi list");
-    }
-}
-
-// Function to automatically login with username and PIN
-void autoLogin() {
-    if (loginScreen == nullptr || keyboard == nullptr) return;
-    if (autoLoginExecuted) return;
-    
-    // Check if we're on username screen (not on PIN step and not authenticated)
-    if (!loginScreen->isOnPinStep() && !loginScreen->isAuthenticated()) {
-        // We're on username screen, type username
-        Serial.println("Auto-login: Username screen ready, typing username...");
-        
-        // Đợi một chút để màn hình sẵn sàng
-        delay(1000);
-        
-        // Type username (không tồn tại để test flow tạo account mới)
-        keyboard->typeString("player2");
-        
-        Serial.println("Auto-login: Username typed, waiting before pressing Enter...");
-        delay(1000);
-        
-        // Press Enter to go to PIN screen
-        Serial.println("Auto-login: Pressing Enter to go to PIN screen...");
-        keyboard->pressEnter();
-        
-        // Đợi màn hình PIN xuất hiện
-        delay(1500);
-    }
-    
-    // Check if we're now on PIN screen
-    if (loginScreen->isOnPinStep()) {
-        Serial.println("Auto-login: PIN screen ready, typing PIN...");
-        
-        // Type PIN for player2: "2222"
-        keyboard->typeString("2222");
-        
-        Serial.println("Auto-login: PIN typed, waiting before pressing Enter...");
-        delay(1000);
-        
-        // Press Enter to login
-        Serial.println("Auto-login: Pressing Enter to login...");
-        keyboard->pressEnter();
-        
-        autoLoginExecuted = true;
-        Serial.println("Auto-login: Login initiated!");
-    }
-}
-
-// Function to automatically type a random nickname
-void autoNickname() {
-    if (loginScreen == nullptr || keyboard == nullptr) return;
-    if (autoNicknameExecuted) return;
-    
-    // Check if we're on nickname screen
-    if (loginScreen->isOnNicknameStep()) {
-        Serial.println("Auto-nickname: Nickname screen ready, typing random nickname...");
-        
-        // Đợi một chút để màn hình sẵn sàng
-        delay(1000);
-        
-        // List of random nicknames
-        const char* nicknames[] = {
-            "CoolPlayer",
-            "GameMaster",
-            "ProGamer",
-            "StarPlayer",
-            "Champion",
-            "Hero",
-            "Warrior",
-            "Legend",
-            "Ace",
-            "Elite"
-        };
-        
-        // Select a random nickname (using millis() for pseudo-random)
-        int nicknameCount = sizeof(nicknames) / sizeof(nicknames[0]);
-        int randomIndex = millis() % nicknameCount;
-        String selectedNickname = String(nicknames[randomIndex]);
-        
-        Serial.print("Auto-nickname: Selected nickname: ");
-        Serial.println(selectedNickname);
-        
-        // Type the nickname
-        keyboard->typeString(selectedNickname);
-        
-        Serial.println("Auto-nickname: Nickname typed, waiting before pressing Enter...");
-        delay(1000);
-        
-        // Press Enter to confirm
-        Serial.println("Auto-nickname: Pressing Enter to confirm...");
-        keyboard->pressEnter();
-        
-        autoNicknameExecuted = true;
-        Serial.println("Auto-nickname: Nickname confirmed!");
-    }
-}
-
 void setup() {
     Serial.begin(115200);
     delay(200);
@@ -576,6 +513,12 @@ void setup() {
     // Initialize Socket Manager
     socketManager = new SocketManager();
     
+    // Initialize Auto Navigator
+    autoNavigator = new AutoNavigator();
+    autoNavigator->setCommandCallback(onKeyboardKeySelected);
+    autoNavigator->setCommandDelay(200);  // 200ms delay between commands
+    Serial.println("Auto Navigator initialized!");
+    
     Serial.println("WiFi Manager initialized!");
     Serial.println("Login Screen initialized!");
     Serial.println("Social Screen initialized!");
@@ -589,319 +532,35 @@ void setup() {
 }
 
 void loop() {
-    // Print RAM usage periodically
-    unsigned long currentTime = millis();
-    if (currentTime - lastRamPrintTime >= RAM_PRINT_INTERVAL) {
-        lastRamPrintTime = currentTime;
-        
-        // Get RAM info
-        uint32_t freeHeap = ESP.getFreeHeap();
-        uint32_t totalHeap = ESP.getHeapSize();
-        uint32_t usedHeap = totalHeap - freeHeap;
-        float usedPercent = (float)usedHeap / (float)totalHeap * 100.0f;
-        
-        // Print to Serial
-        Serial.print("RAM Usage: ");
-        Serial.print(usedHeap);
-        Serial.print(" / ");
-        Serial.print(totalHeap);
-        Serial.print(" bytes (");
-        Serial.print(usedPercent, 1);
-        Serial.print("%) | Free: ");
-        Serial.print(freeHeap);
-        Serial.println(" bytes");
-        
-        // Also print largest free block if available
-        uint32_t largestFreeBlock = ESP.getMaxAllocHeap();
-        Serial.print("  Largest free block: ");
-        Serial.print(largestFreeBlock);
-        Serial.println(" bytes");
+    // Handle Serial navigation input
+    handleSerialNavigation();
+    
+    // Execute next auto navigation command if enabled
+    if (autoNavigator != nullptr && autoNavigator->getEnabled()) {
+        autoNavigator->executeNext();
     }
     
     // Update WiFi Manager state (check connection status)
     if (wifiManager != nullptr) {
         wifiManager->update();
-        
-        // Auto-connect to "Van Ninh" when WiFi list is ready (only once)
-        if (!autoConnectExecuted && wifiManager->getState() == WIFI_STATE_SELECT) {
-            autoConnectToVanNinh();
-        }
-        
-        // Auto-login when WiFi is connected (only once)
-        if (!autoLoginExecuted && wifiManager->isConnected()) {
-            // Skip connection screen - transition immediately to login screen
-            Serial.println("Auto-login: WiFi connected, switching to login screen immediately...");
+    }
+    
+    // Auto-transition to login screen when WiFi is connected
+    if (wifiManager != nullptr && wifiManager->isConnected() && 
+        loginScreen != nullptr && !hasTransitionedToLogin &&
+        !isSocialScreenActive && !isChatScreenActive) {
+        // Check if user hasn't logged in yet
+        if (!loginScreen->isAuthenticated()) {
+            Serial.println("Main: WiFi connected, transitioning to login screen...");
             loginScreen->resetToUsernameStep();
-            
-            // Đợi màn hình sẵn sàng
-            delay(1000);
-            
-            // Bắt đầu auto login
-            autoLogin();
+            loginScreen->draw();
+            hasTransitionedToLogin = true;
         }
     }
     
-    // Auto-nickname when nickname screen appears (only once)
-    if (loginScreen != nullptr && loginScreen->isOnNicknameStep()) {
-        if (!autoNicknameExecuted) {
-            // Đợi một chút để màn hình nickname sẵn sàng
-            delay(1000);
-            
-            // Bắt đầu auto nickname
-            autoNickname();
-        }
-    } else {
-        // Reset flag when nickname screen is no longer active
-        if (autoNicknameExecuted) {
-            autoNicknameExecuted = false;
-        }
-    }
-    
-    // Auto-navigation and confirm logic in main loop (outside LoginScreen)
-    if (loginScreen != nullptr && loginScreen->isShowingDialog()) {
-        unsigned long dialogShowTime = loginScreen->getDialogShowTime();
-        if (dialogShowTime > 0) {
-            unsigned long currentTime = millis();
-            unsigned long elapsedTime = currentTime - dialogShowTime;
-            
-            // Auto-navigation flow: Move right (YES -> NO), then left (NO -> YES), then select YES
-            static bool navRightDone = false;
-            static bool navLeftDone = false;
-            static bool selectDone = false;
-            
-            // After 0.5s: Move to NO (right)
-            if (!navRightDone && elapsedTime >= 500) {
-                Serial.println("Main Loop: Auto-navigation - Moving to NO (right)...");
-                loginScreen->triggerNavigateRight();
-                navRightDone = true;
-            }
-            
-            // After 1.0s: Move back to YES (left)
-            if (!navLeftDone && elapsedTime >= 1000) {
-                Serial.println("Main Loop: Auto-navigation - Moving back to YES (left)...");
-                loginScreen->triggerNavigateLeft();
-                navLeftDone = true;
-            }
-            
-            // After 1.5s: Select YES
-            if (!selectDone && elapsedTime >= 1500) {
-                Serial.println("Main Loop: Auto-navigation - Selecting YES...");
-                loginScreen->triggerSelect();
-                selectDone = true;
-            }
-            
-            // Reset flags when dialog is hidden
-            if (!loginScreen->isShowingDialog()) {
-                navRightDone = false;
-                navLeftDone = false;
-                selectDone = false;
-            }
-        }
-    }
-    
-    // Auto-navigation flow for Friends (chat) - Đợi 10 giây rồi chuyển sang Notifications
-    if (isSocialScreenActive && socialScreen != nullptr && !isChatScreenActive) {
-        static unsigned long friendsTabStartTime = 0;
-        static bool hasSwitchedToNotifications = false;
-        static bool notificationProcessed = false;  // Track if notification was processed
-        static bool hasCheckedUnreadFriend = false;  // Track if đã check unread friend
-        
-        // Nếu đang ở Friends tab
-        if (socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS) {
-            // Ghi lại thời gian khi vào Friends tab (chỉ lần đầu)
-            if (friendsTabStartTime == 0) {
-                friendsTabStartTime = millis();
-                hasSwitchedToNotifications = false;
-                notificationProcessed = false;  // Reset flag
-                hasCheckedUnreadFriend = false;  // Reset flag
-                Serial.println("Friends: Started timer - will switch to Notifications after 10 seconds");
-            }
-            
-            // Tự động chọn và mở chat với friend có tin nhắn chưa đọc (chỉ một lần khi vào tab)
-            if (!hasCheckedUnreadFriend) {
-                int unreadFriendIndex = socialScreen->getFirstFriendWithUnreadIndex();
-                if (unreadFriendIndex >= 0) {
-                    Serial.print("Friends: Found friend with unread messages at index: ");
-                    Serial.println(unreadFriendIndex);
-                    
-                    // Chọn friend có unread
-                    socialScreen->selectFriend(unreadFriendIndex);
-                    delay(500);  // Đợi UI update
-                    
-                    // Tự động mở chat
-                    Serial.println("Friends: Auto-opening chat with friend who has unread messages");
-                    socialScreen->openChatWithFriend(unreadFriendIndex);
-                    
-                    hasCheckedUnreadFriend = true;
-                } else {
-                    Serial.println("Friends: No friends with unread messages");
-                    hasCheckedUnreadFriend = true;  // Đánh dấu đã check, không có unread
-                }
-            }
-            
-            // Kiểm tra nếu đã qua 10 giây (10000 milliseconds)
-            unsigned long currentTime = millis();
-            unsigned long elapsedTime = currentTime - friendsTabStartTime;
-            
-            if (!hasSwitchedToNotifications && elapsedTime >= 10000) {
-                Serial.println("Friends: 10 seconds elapsed, switching to Notifications tab");
-                socialScreen->navigateToNotifications();
-                hasSwitchedToNotifications = true;
-                notificationProcessed = false;  // Reset để xử lý notification
-                friendsTabStartTime = 0;  // Reset timer
-                hasCheckedUnreadFriend = false;  // Reset để check lại lần sau
-            }
-        } 
-        // Nếu đang ở Notifications tab
-        else if (socialScreen->getCurrentTab() == SocialScreen::TAB_NOTIFICATIONS) {
-            // Reset Friends tab timer nếu đang ở Notifications
-            if (friendsTabStartTime != 0) {
-                friendsTabStartTime = 0;
-                hasSwitchedToNotifications = false;
-            }
-            
-            // Timer để đợi 10 giây rồi chuyển về Friends tab
-            static unsigned long notificationsTabStartTime = 0;
-            static bool hasSwitchedToFriends = false;
-            
-            // Ghi lại thời gian khi vào Notifications tab (chỉ lần đầu)
-            if (notificationsTabStartTime == 0) {
-                notificationsTabStartTime = millis();
-                hasSwitchedToFriends = false;
-                Serial.println("Notifications: Started timer - will switch to Friends after 10 seconds");
-            }
-            
-            // Kiểm tra xem có notification không
-            int notificationsCount = socialScreen->getNotificationsCount();
-            
-            // Nếu có notification và chưa xử lý hết
-            if (notificationsCount > 0 && !notificationProcessed) {
-                // Track state để xử lý từng notification một
-                static bool waitingForDialogClose = false;
-                static unsigned long dialogCloseWaitTime = 0;
-                
-                // Nếu confirmation dialog đang hiển thị, tự động điều hướng sang NO và select
-                if (socialScreen->isConfirmationDialogVisible()) {
-                    static unsigned long dialogShowTime = 0;
-                    static bool navRightDone = false;
-                    static bool selectDone = false;
-                    
-                    if (dialogShowTime == 0) {
-                        dialogShowTime = millis();
-                        navRightDone = false;
-                        selectDone = false;
-                        Serial.println("Notifications: Confirmation dialog detected, will navigate to NO and select");
-                    }
-                    
-                    unsigned long currentTime = millis();
-                    unsigned long elapsedTime = currentTime - dialogShowTime;
-                    
-                    // Sau 0.5 giây, điều hướng sang NO (right)
-                    if (!navRightDone && elapsedTime >= 500) {
-                        Serial.println("Notifications: Auto-navigation - Moving to NO (right)");
-                        socialScreen->handleKeyPress("|r");  // Move right to NO button
-                        navRightDone = true;
-                    }
-                    
-                    // Sau 1 giây, tự động chọn NO
-                    if (!selectDone && navRightDone && elapsedTime >= 1000) {
-                        Serial.println("Notifications: Auto-selecting NO in confirmation dialog");
-                        socialScreen->handleKeyPress("|e");  // Select NO (now selected)
-                        selectDone = true;
-                        dialogShowTime = 0;  // Reset for next time
-                        navRightDone = false;  // Reset flags
-                        waitingForDialogClose = true;  // Đợi dialog đóng
-                        dialogCloseWaitTime = millis();  // Ghi lại thời gian bắt đầu đợi
-                        Serial.println("Notifications: Notification processed, waiting for dialog to close");
-                    }
-                }
-                // Nếu đang đợi dialog đóng
-                else if (waitingForDialogClose) {
-                    unsigned long currentTime = millis();
-                    unsigned long waitTime = currentTime - dialogCloseWaitTime;
-                    
-                    // Đợi 1 giây sau khi dialog đóng để UI update và notification được xóa
-                    if (waitTime >= 1000) {
-                        waitingForDialogClose = false;
-                        dialogCloseWaitTime = 0;
-                        
-                        // Kiểm tra lại số lượng notifications
-                        int newCount = socialScreen->getNotificationsCount();
-                        Serial.print("Notifications: Dialog closed. Remaining notifications: ");
-                        Serial.println(newCount);
-                        
-                        // Nếu vẫn còn notifications, tiếp tục xử lý (reset để tìm notification đầu tiên)
-                        if (newCount > 0) {
-                            Serial.println("Notifications: Continuing to process next notification");
-                            // Reset để tiếp tục xử lý notification tiếp theo
-                            // (firstNotificationSelected sẽ được reset trong else block)
-                        } else {
-                            // Không còn notification nào, đánh dấu đã xử lý hết
-                            Serial.println("Notifications: All notifications processed");
-                            notificationProcessed = true;
-                        }
-                    }
-                }
-                // Nếu không có dialog và không đang đợi, tìm và chọn thông báo đầu tiên
-                else {
-                    static bool firstNotificationSelected = false;
-                    
-                    // Tìm và chọn thông báo đầu tiên (friend request)
-                    if (!firstNotificationSelected) {
-                        int firstRequestIndex = socialScreen->getFirstFriendRequestIndex();
-                        if (firstRequestIndex >= 0) {
-                            Serial.print("Notifications: Found friend request notification at index: ");
-                            Serial.println(firstRequestIndex);
-                            
-                            // Chọn notification đầu tiên
-                            socialScreen->selectNotification(firstRequestIndex);
-                            delay(300);  // Đợi một chút để UI update
-                            
-                            // Nhấn Enter để mở confirmation dialog
-                            Serial.println("Notifications: Pressing Enter to open confirmation dialog");
-                            socialScreen->handleKeyPress("|e");
-                            
-                            firstNotificationSelected = true;
-                        } else {
-                            // Không có friend request, đánh dấu đã xử lý
-                            Serial.println("Notifications: No unread friend requests found");
-                            firstNotificationSelected = true;
-                            notificationProcessed = true;  // No notifications to process
-                        }
-                    }
-                    // Nếu đã chọn notification nhưng dialog chưa mở, reset để thử lại
-                    else if (!socialScreen->isConfirmationDialogVisible() && !waitingForDialogClose) {
-                        // Reset để tìm notification tiếp theo
-                        firstNotificationSelected = false;
-                    }
-                }
-            }
-            // Nếu không có notification hoặc đã xử lý xong, đợi 10 giây rồi chuyển về Friends tab
-            else if (notificationsCount == 0 || notificationProcessed) {
-                unsigned long currentTime = millis();
-                unsigned long elapsedTime = currentTime - notificationsTabStartTime;
-                
-                // Đợi 10 giây rồi chuyển về Friends tab
-                if (!hasSwitchedToFriends && elapsedTime >= 10000) {
-                    Serial.println("Notifications: 10 seconds elapsed, switching to Friends tab");
-                    socialScreen->navigateToFriends();
-                    hasSwitchedToFriends = true;
-                    notificationsTabStartTime = 0;  // Reset timer
-                    notificationProcessed = false;  // Reset for next cycle
-                }
-            }
-        } 
-        // Nếu ở tab khác, đảm bảo chuyển về Friends
-        else {
-            // Reset timer
-            if (friendsTabStartTime != 0) {
-                friendsTabStartTime = 0;
-                hasSwitchedToNotifications = false;
-                notificationProcessed = false;
-            }
-            
-            // Reset Notifications tab timer variables (không cần làm gì vì static variables sẽ tự reset khi vào Notifications tab)
-        }
+    // Reset transition flag if WiFi disconnects
+    if (wifiManager != nullptr && !wifiManager->isConnected()) {
+        hasTransitionedToLogin = false;
     }
     
     // Không cần gọi socketManager->update() nữa
@@ -913,51 +572,10 @@ void loop() {
         chatScreen->updateDecorAnimation();
     }
     
-    // Update SocialScreen (check auto-start timer, etc.)
+    // Update SocialScreen
     if (isSocialScreenActive && socialScreen != nullptr) {
         socialScreen->update();
     }
-    
-    // --- Auto demo: navigate to Games tab and enter queue ---
-    // DISABLED: This conflicts with the new auto-navigation in social_screen.cpp
-    // The new auto-navigation (in SocialScreen::update()) only switches tabs every 5 seconds,
-    // it does NOT enter games or trigger game selection. This old code was automatically
-    // pressing Enter to enter game lobby, which is not desired for the demo mode.
-    /*
-    if (!isChatScreenActive && socialScreen != nullptr) {
-        static unsigned long lastGameFlow = 0;
-        static bool inGames = false;
-        static bool queued = false;
-        unsigned long now = millis();
-        
-        // Only run when not already in waiting state
-        if (socialScreen->getScreenState() != SocialScreen::STATE_WAITING_GAME) {
-            // Every 30s, go to Games tab, wait briefly, then auto-select the first game
-            if (!inGames && (now - lastGameFlow >= 30000)) {
-                Serial.println("AutoDemo: Switching to Games tab");
-                socialScreen->navigateToGames();
-                inGames = true;
-                queued = false;
-                lastGameFlow = now;
-            } else if (inGames && !queued && (now - lastGameFlow >= 2000)) {
-                // After 2s in Games tab, auto-press Enter to queue the first game
-                Serial.println("AutoDemo: Auto-selecting first game (Caro) to enter queue");
-                socialScreen->handleKeyPress("|e");
-                queued = true;
-                lastGameFlow = now;
-            } else if (inGames && queued && (now - lastGameFlow >= 12000)) {
-                // After some time, return to Friends tab to reset cycle
-                Serial.println("AutoDemo: Returning to Friends tab after queue demo");
-                socialScreen->navigateToFriends();
-                inGames = false;
-                queued = false;
-                lastGameFlow = now;
-            }
-        }
-    }
-    */
-    
-    // Popup notification disabled - no need to update popup
     
     delay(100);
 }

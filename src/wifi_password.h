@@ -37,6 +37,9 @@ private:
     
     // Vẽ mật khẩu trong ô
     void drawPassword();
+    
+    // Callback for when Enter key is pressed (to connect)
+    void (*onEnterPressed)();
 
 public:
     // Constructor
@@ -48,6 +51,14 @@ public:
     // Vẽ toàn bộ màn hình
     void draw();
     
+    // Navigation handlers (for consistency with new navigation system)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
+    
     // Xử lý khi nhấn phím
     void handleKeyPress(String key);
     
@@ -56,6 +67,9 @@ public:
     void setPassword(String pwd) { password = pwd; }
     void clearPassword() { password = ""; }
     void appendPassword(String str) { password += str; }
+    
+    // Set callback for Enter key press
+    void setOnEnterPressedCallback(void (*callback)()) { onEnterPressed = callback; }
     
     // Setter cho màu sắc
     void setBgColor(uint16_t color) { bgColor = color; }

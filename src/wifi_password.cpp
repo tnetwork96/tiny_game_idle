@@ -18,6 +18,9 @@ WiFiPasswordScreen::WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard)
     // Initialize password
     this->password = "";
     
+    // Initialize callback
+    this->onEnterPressed = nullptr;
+    
     // Initialize colors (Deep Space Arcade Theme - matching LoginScreen/PinScreen)
     this->bgColor = 0x0042;           // Deep Midnight Blue background
     this->headerColor = 0x08A5;       // Header background
@@ -117,7 +120,98 @@ void WiFiPasswordScreen::draw() {
     keyboard->draw();
 }
 
+// Navigation handlers (delegate to keyboard for navigation)
+void WiFiPasswordScreen::handleUp() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("up", 0, 0);
+    }
+}
+
+void WiFiPasswordScreen::handleDown() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("down", 0, 0);
+    }
+}
+
+void WiFiPasswordScreen::handleLeft() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("left", 0, 0);
+    }
+}
+
+void WiFiPasswordScreen::handleRight() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("right", 0, 0);
+    }
+}
+
+void WiFiPasswordScreen::handleSelect() {
+    // Select means type the selected character from keyboard
+    // Always type the character, don't check for Enter key
+    if (keyboard != nullptr) {
+        String currentChar = keyboard->getCurrentChar();
+        if (currentChar.length() > 0 && currentChar != "<") {
+            // Use moveCursorByCommand to trigger the key selection
+            keyboard->moveCursorByCommand("select", 0, 0);
+        }
+    }
+}
+
+void WiFiPasswordScreen::handleExit() {
+    // Exit - delete last character (backspace behavior)
+    if (password.length() > 0) {
+        password.remove(password.length() - 1);
+        drawPassword();
+    }
+}
+
 void WiFiPasswordScreen::handleKeyPress(String key) {
+    // Handle new navigation key format first
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
+    // Backward compatibility: handle old key format
+    if (key == "|u") {
+        handleUp();
+        return;
+    } else if (key == "|d") {
+        handleDown();
+        return;
+    } else if (key == "|l") {
+        handleLeft();
+        return;
+    } else if (key == "|r") {
+        handleRight();
+        return;
+    } else if (key == "|e") {
+        // Enter key from keyboard - trigger connect callback
+        Serial.println("WiFiPassword: Enter key pressed - connecting...");
+        if (onEnterPressed != nullptr) {
+            onEnterPressed();
+        }
+        return;
+    } else if (key == "<" || key == "|b") {
+        handleExit();
+        return;
+    }
+    
     // Debug log để kiểm tra key được nhận
     Serial.print("WiFiPassword: Received key: '");
     Serial.print(key);
@@ -133,10 +227,7 @@ void WiFiPasswordScreen::handleKeyPress(String key) {
     Serial.println(")");
     
     // Xử lý các phím đặc biệt
-    if (key == "|e") {
-        // Enter - có thể dùng để submit
-        // TODO: Xử lý submit mật khẩu
-    } else if (key == "<") {
+    if (key == "<") {
         // Delete - xóa ký tự cuối
         if (password.length() > 0) {
             password.remove(password.length() - 1);

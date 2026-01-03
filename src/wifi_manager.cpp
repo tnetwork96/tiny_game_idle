@@ -3,6 +3,7 @@
 #include "socket_manager.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include <SPIFFS.h>
 
 // Synthwave/Vaporwave color palette (softened, less harsh)
 #define NEON_PURPLE 0xB81A        // Soft purple (reduced brightness)
@@ -10,6 +11,33 @@
 #define NEON_CYAN 0x05DF          // Soft cyan (reduced brightness)
 #define YELLOW_ORANGE 0xFC00      // Soft yellow-orange (reduced brightness)
 #define SOFT_WHITE 0xCE79         // Soft white (not too bright)
+
+// Static instance pointer for callback wrapper
+static WiFiManager* g_wifiManagerInstance = nullptr;
+
+// Static wrapper function for Enter key callback
+static void onEnterPressedWrapper() {
+    if (g_wifiManagerInstance != nullptr) {
+        g_wifiManagerInstance->triggerPasswordEntered();
+    }
+}
+
+// Helper function to sanitize SSID for filename (remove invalid characters)
+String sanitizeSSIDForFilename(const String& ssid) {
+    String sanitized = ssid;
+    // Replace invalid characters with underscore
+    sanitized.replace(" ", "_");
+    sanitized.replace("/", "_");
+    sanitized.replace("\\", "_");
+    sanitized.replace(":", "_");
+    sanitized.replace("*", "_");
+    sanitized.replace("?", "_");
+    sanitized.replace("\"", "_");
+    sanitized.replace("<", "_");
+    sanitized.replace(">", "_");
+    sanitized.replace("|", "_");
+    return sanitized;
+}
 
 WiFiManager::WiFiManager(Adafruit_ST7789* tft, Keyboard* keyboard) {  // Sử dụng keyboard thường
     this->tft = tft;
@@ -19,6 +47,9 @@ WiFiManager::WiFiManager(Adafruit_ST7789* tft, Keyboard* keyboard) {  // Sử d�
     this->password = "";
     this->connectStartTime = 0;
     this->connectAttempts = 0;
+    
+    // Set static instance pointer
+    g_wifiManagerInstance = this;
     
     // Initialize screens
     this->wifiList = new WiFiListScreen(tft);
@@ -67,8 +98,22 @@ void WiFiManager::onWiFiSelected() {
     // Always move to password screen when WiFi is selected
     currentState = WIFI_STATE_PASSWORD;
     
-    // Clear password and show password screen
-    wifiPassword->clearPassword();
+    // Try to load saved password from file
+    String savedPassword = loadWiFiPassword();
+    if (savedPassword.length() > 0) {
+        Serial.print("WiFi Manager: Found saved password for ");
+        Serial.println(selectedSSID);
+        wifiPassword->setPassword(savedPassword);
+        password = savedPassword;  // Also set in WiFiManager
+    } else {
+        Serial.print("WiFi Manager: No saved password found for ");
+        Serial.println(selectedSSID);
+        wifiPassword->clearPassword();
+    }
+    
+    // Set callback for Enter key press in password screen
+    wifiPassword->setOnEnterPressedCallback(onEnterPressedWrapper);
+    
     wifiPassword->draw();
     
     Serial.print("WiFi Manager: Ready to type password for: ");
@@ -78,6 +123,10 @@ void WiFiManager::onWiFiSelected() {
 
 void WiFiManager::onPasswordEntered() {
     password = wifiPassword->getPassword();
+    
+    // Trim password to remove leading/trailing whitespace
+    password.trim();
+    
     Serial.print("WiFi Manager: Password entered: ");
     Serial.println(password);
     Serial.print("WiFi Manager: Password length: ");
@@ -126,10 +175,11 @@ void WiFiManager::connectToWiFi() {
     
     // Disconnect if already connected
     WiFi.disconnect();
-    delay(100);
+    delay(500);  // Tăng delay để đảm bảo disconnect hoàn tất
     
     // Start connection
     WiFi.mode(WIFI_STA);
+    delay(100);
     
     // Debug: Verify password string before passing to WiFi.begin
     const char* ssidPtr = selectedSSID.c_str();
@@ -185,6 +235,10 @@ void WiFiManager::update() {
             Serial.println("WiFi Manager: Connected successfully!");
             Serial.print("WiFi Manager: IP Address: ");
             Serial.println(WiFi.localIP());
+            
+            // Save WiFi password to file
+            saveWiFiPassword();
+            
             Serial.println("WiFi Manager: Transitioning to login screen immediately...");
             
             // Initialize socket session after WiFi connection
@@ -198,8 +252,7 @@ void WiFiManager::update() {
             // Skip "Connected!" screen - main.cpp will check isConnected() and transition immediately
             // Note: Login screen will be drawn by main.cpp after checking isConnected()
         } else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-            // Connection failed immediately - không cần đợi timeout
-            currentState = WIFI_STATE_ERROR;
+            // Connection failed immediately - quay lại màn hình password để nhập lại
             Serial.print("WiFi Manager: Connection failed immediately! Status: ");
             Serial.print(status);
             Serial.print(" (");
@@ -207,18 +260,15 @@ void WiFiManager::update() {
             else if (status == WL_NO_SSID_AVAIL) Serial.print("NO_SSID_AVAIL");
             Serial.println(")");
             Serial.println("WiFi Manager: Possible causes: Wrong password, SSID not found, or signal too weak");
+            Serial.println("WiFi Manager: Returning to password screen to retry...");
             
-            // Show error message
-            tft->fillScreen(ST77XX_BLACK);
-            tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-            tft->setTextSize(1);
-            tft->setCursor(10, 50);
-            tft->print("Connection failed!");
-            tft->setCursor(10, 70);
-            tft->print("Wrong password?");
-        } else if (elapsed > 8000) {
-            // Timeout after 8 seconds (giảm từ 10s)
-            currentState = WIFI_STATE_ERROR;
+            // Quay lại màn hình password để nhập lại
+            currentState = WIFI_STATE_PASSWORD;
+            wifiPassword->clearPassword();  // Clear password để nhập lại
+            wifiPassword->setOnEnterPressedCallback(onEnterPressedWrapper);  // Set lại callback
+            wifiPassword->draw();  // Hiển thị lại màn hình password
+        } else if (elapsed > 20000) {
+            // Timeout after 20 seconds - quay lại màn hình password để nhập lại
             Serial.print("WiFi Manager: Connection timeout after ");
             Serial.print(elapsed);
             Serial.println("ms");
@@ -236,15 +286,13 @@ void WiFiManager::update() {
                 default: Serial.print("UNKNOWN"); break;
             }
             Serial.println(")");
+            Serial.println("WiFi Manager: Returning to password screen to retry...");
             
-            // Show error message
-            tft->fillScreen(ST77XX_BLACK);
-            tft->setTextColor(ST77XX_RED, ST77XX_BLACK);
-            tft->setTextSize(1);
-            tft->setCursor(10, 50);
-            tft->print("Connection timeout!");
-            tft->setCursor(10, 70);
-            tft->print("Check password");
+            // Quay lại màn hình password để nhập lại
+            currentState = WIFI_STATE_PASSWORD;
+            wifiPassword->clearPassword();  // Clear password để nhập lại
+            wifiPassword->setOnEnterPressedCallback(onEnterPressedWrapper);  // Set lại callback
+            wifiPassword->draw();  // Hiển thị lại màn hình password
         }
     }
 }
@@ -271,15 +319,105 @@ void WiFiManager::handleSelect() {
     }
 }
 
+void WiFiManager::handleLeft() {
+    // Left navigation - currently not used in WiFi selection
+    // Reserved for future use (e.g., horizontal navigation in password screen)
+}
+
+void WiFiManager::handleRight() {
+    // Right navigation - currently not used in WiFi selection
+    // Reserved for future use (e.g., horizontal navigation in password screen)
+}
+
+void WiFiManager::handleExit() {
+    Serial.println("WiFi Manager: Exit key pressed");
+    
+    switch (currentState) {
+        case WIFI_STATE_SELECT:
+        case WIFI_STATE_SCAN:
+            // In WiFi list - exit does nothing (WiFi selection is required)
+            // Could optionally reset to scan state, but for now do nothing
+            Serial.println("WiFi Manager: Exit in SELECT/SCAN state - no action (WiFi selection required)");
+            break;
+            
+        case WIFI_STATE_PASSWORD:
+            // Go back to WiFi list selection
+            Serial.println("WiFi Manager: Exit from password screen - returning to WiFi list");
+            currentState = WIFI_STATE_SELECT;
+            wifiList->draw();
+            break;
+            
+        case WIFI_STATE_CONNECTING:
+            // Cancel connection attempt, return to password screen
+            Serial.println("WiFi Manager: Exit during connection - canceling and returning to password screen");
+            WiFi.disconnect();
+            currentState = WIFI_STATE_PASSWORD;
+            wifiPassword->draw();
+            break;
+            
+        case WIFI_STATE_CONNECTED:
+            // Already connected - exit does nothing (or could disconnect)
+            Serial.println("WiFi Manager: Exit in CONNECTED state - no action");
+            break;
+            
+        case WIFI_STATE_ERROR:
+            // Return to WiFi list selection
+            Serial.println("WiFi Manager: Exit from error state - returning to WiFi list");
+            currentState = WIFI_STATE_SELECT;
+            wifiList->draw();
+            break;
+    }
+}
+
 void WiFiManager::handleKeyboardInput(String key) {
+    // If in password state, route all keys to WiFiPasswordScreen (including navigation)
     if (currentState == WIFI_STATE_PASSWORD) {
-        // Handle password input
-        if (key == "|e") {  // Enter key - connect
-            onPasswordEntered();
-        } else {
-            // Normal key input
-            wifiPassword->handleKeyPress(key);
-        }
+        // Route all keys (including "|e" Enter key) to WiFiPasswordScreen
+        // WiFiPasswordScreen will handle Enter key to connect
+        wifiPassword->handleKeyPress(key);
+        return;
+    }
+    
+    // Handle new navigation key format for other states
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
+    // Backward compatibility: handle old key format
+    if (key == "|u") {
+        handleUp();
+        return;
+    } else if (key == "|d") {
+        handleDown();
+        return;
+    } else if (key == "|l") {
+        handleLeft();
+        return;
+    } else if (key == "|r") {
+        handleRight();
+        return;
+    } else if (key == "|e") {
+        handleSelect();
+        return;
+    } else if (key == "<" || key == "|b") {
+        handleExit();
+        return;
     }
 }
 
@@ -288,5 +426,81 @@ void WiFiManager::disconnect() {
     currentState = WIFI_STATE_SCAN;
     selectedSSID = "";
     password = "";
+}
+
+// Function to save WiFi password to file
+void WiFiManager::saveWiFiPassword() {
+    // Initialize SPIFFS if not already initialized
+    if (!SPIFFS.begin(true)) {
+        Serial.println("WiFi Manager: SPIFFS initialization failed!");
+        return;
+    }
+    
+    // Sanitize SSID for filename
+    String sanitizedSSID = sanitizeSSIDForFilename(selectedSSID);
+    String fileName = "/wifi_";
+    fileName += sanitizedSSID;
+    fileName += ".txt";
+    
+    Serial.print("WiFi Manager: Saving password to file: ");
+    Serial.println(fileName);
+    
+    // Open file for writing
+    File file = SPIFFS.open(fileName, "w");
+    if (!file) {
+        Serial.print("WiFi Manager: Failed to open file for writing: ");
+        Serial.println(fileName);
+        return;
+    }
+    
+    // Write password to file
+    file.println(password);
+    file.close();
+    
+    Serial.print("WiFi Manager: Password saved successfully to: ");
+    Serial.println(fileName);
+}
+
+// Function to load WiFi password from file
+String WiFiManager::loadWiFiPassword() {
+    // Initialize SPIFFS if not already initialized
+    if (!SPIFFS.begin(true)) {
+        Serial.println("WiFi Manager: SPIFFS initialization failed for reading!");
+        return "";
+    }
+    
+    // Sanitize SSID for filename
+    String sanitizedSSID = sanitizeSSIDForFilename(selectedSSID);
+    String fileName = "/wifi_";
+    fileName += sanitizedSSID;
+    fileName += ".txt";
+    
+    Serial.print("WiFi Manager: Trying to load password from file: ");
+    Serial.println(fileName);
+    
+    // Check if file exists
+    if (!SPIFFS.exists(fileName)) {
+        Serial.println("WiFi Manager: Password file does not exist");
+        return "";
+    }
+    
+    // Open file for reading
+    File file = SPIFFS.open(fileName, "r");
+    if (!file) {
+        Serial.print("WiFi Manager: Failed to open file for reading: ");
+        Serial.println(fileName);
+        return "";
+    }
+    
+    // Read password from file (first line)
+    String loadedPassword = file.readStringUntil('\n');
+    loadedPassword.trim();  // Remove trailing newline and whitespace
+    file.close();
+    
+    Serial.print("WiFi Manager: Password loaded successfully (length: ");
+    Serial.print(loadedPassword.length());
+    Serial.println(")");
+    
+    return loadedPassword;
 }
 
