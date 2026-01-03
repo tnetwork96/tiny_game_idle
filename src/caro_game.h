@@ -44,6 +44,7 @@ private:
     GameState gameState;
     int cursorRow, cursorCol;  // Current cursor position
     int oldCursorRow, oldCursorCol;  // Previous cursor position
+    uint16_t cursorColor;  // Current cursor color (green when my turn, red when not)
     
     // Drawing methods
     void drawBoard();
@@ -80,6 +81,16 @@ public:
     // Getters
     GameState getGameState() const { return gameState; }
     bool getIsPlayerXTurn() const { return isPlayerXTurn; }
+    int getCursorRow() const { return cursorRow; }
+    int getCursorCol() const { return cursorCol; }
+    
+    // Methods for external control
+    void placeMove(int row, int col, bool isX);
+    CellState getCell(int row, int col) const;  // Get cell state at position
+    void setBoardState(CellState newBoard[BOARD_ROWS][BOARD_COLS]);
+    void setGameState(GameState state);
+    void setTurn(bool isXTurn);
+    void setCursorColor(bool isMyTurn);  // Set cursor color: green when my turn, red when not
 };
 
 #endif

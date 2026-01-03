@@ -1,5 +1,6 @@
 #include "social_screen.h"
 #include "game_lobby_screen.h"
+#include "caro_game_screen.h"
 
 // 16x16 "User List" (Friends/Buddy List)
 const unsigned char PROGMEM iconUserList[] = {
@@ -81,6 +82,19 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->miniAddFriend = new MiniAddFriendScreen(tft, miniKeyboard);
     this->confirmationDialog = new ConfirmationDialog(tft);
     this->gameLobby = new GameLobbyScreen(tft, themeDeepSpace);
+    this->caroGameScreen = nullptr;
+    
+    // Set up game lobby callbacks
+    this->gameLobby->setOnStartGame([]() {
+        if (s_socialScreenInstance != nullptr) {
+            s_socialScreenInstance->startGame();
+        }
+    });
+    this->gameLobby->setOnExit([]() {
+        if (s_socialScreenInstance != nullptr) {
+            s_socialScreenInstance->exitLobby();
+        }
+    });
     
     // Initialize theme (hot-swappable - change this line to switch skins)
     this->currentTheme = themeDeepSpace;
@@ -112,6 +126,7 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->selectedGameIndex = 0;
     this->pendingGameName = "";
     this->screenState = STATE_NORMAL;
+    this->isActive = false;  // Initially inactive
     
     this->onAddFriendSuccessCallback = nullptr;
     this->onOpenChatCallback = nullptr;
@@ -235,8 +250,9 @@ void SocialScreen::drawFriendsIcon(uint16_t x, uint16_t y, uint16_t color) {
     // Draw bitmap icon (16x16)
     tft->drawBitmap(x, y, iconUserList, 16, 16, color);
     
+    // Chỉ vẽ badge khi màn social đang active
     // Draw red dot badge if there are unread chat messages
-    if (hasUnreadChatFlag) {
+    if (hasUnreadChatFlag && isActive) {
         // Draw small red circle at top-right corner of icon (16x16 icon)
         const uint16_t badgeSize = 6;
         const uint16_t badgeX = x + 16 - badgeSize;  // Top-right corner
@@ -256,8 +272,9 @@ void SocialScreen::drawNotificationsIcon(uint16_t x, uint16_t y, uint16_t color)
     // Draw bitmap icon (16x16)
     tft->drawBitmap(x, y, iconBell, 16, 16, color);
     
+    // Chỉ vẽ badge khi màn social đang active
     // Draw red dot badge if there are unread notifications
-    if (hasUnreadNotification) {
+    if (hasUnreadNotification && isActive) {
         // Draw small red circle at top-right corner of icon (16x16 icon)
         const uint16_t badgeSize = 6;
         const uint16_t badgeX = x + 16 - badgeSize;  // Top-right corner
@@ -734,8 +751,16 @@ void SocialScreen::drawContentArea() {
 }
 
 void SocialScreen::draw() {
+    if (screenState == STATE_PLAYING_GAME) {
+        if (caroGameScreen != nullptr) {
+            caroGameScreen->draw();
+        }
+        return;
+    }
+    
     if (screenState == STATE_WAITING_GAME) {
         if (gameLobby != nullptr) {
+            gameLobby->update();  // Check auto-start timer
             gameLobby->draw();
         }
         if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
@@ -1266,7 +1291,61 @@ void SocialScreen::handleContentNavigation(const String& key) {
             
             // Get current user's name
             String hostName = (ownerNickname.length() > 0) ? ownerNickname : "Host";
+            currentGameHostName = hostName;
+            currentGameGuestName = "";  // Will be set when guest joins
+            
+            // Tạo game session trước khi vào lobby
+            if (userId > 0 && serverHost.length() > 0) {
+                String gameType = pendingGameName;
+                gameType.toLowerCase();
+                int maxPlayers = (gameType == "caro") ? 2 : 4;
+                
+                // Tìm online friends để invite
+                int onlineFriendIds[8];
+                int onlineFriendCount = 0;
+                for (int i = 0; i < friendsCount && onlineFriendCount < maxPlayers - 1; i++) {
+                    if (friends[i].online && friends[i].userId > 0) {
+                        onlineFriendIds[onlineFriendCount] = friends[i].userId;
+                        onlineFriendCount++;
+                    }
+                }
+                
+                Serial.print("Social Screen: Creating game session for ");
+                Serial.print(pendingGameName);
+                Serial.print(" with ");
+                Serial.print(onlineFriendCount);
+                Serial.println(" participant(s)");
+                
+                ApiClient::GameSessionResult result = ApiClient::createGameSession(
+                    userId,
+                    gameType,
+                    maxPlayers,
+                    onlineFriendIds,
+                    onlineFriendCount,
+                    serverHost,
+                    serverPort
+                );
+                
+                if (result.success) {
+                    currentGameSessionId = result.sessionId;
+                    Serial.print("Social Screen: ✅ Created game session ");
+                    Serial.println(currentGameSessionId);
+                } else {
+                    Serial.print("Social Screen: ❌ Failed to create game session: ");
+                    Serial.println(result.message);
+                    currentGameSessionId = -1;
+                }
+            } else {
+                Serial.println("Social Screen: ⚠️ Cannot create game session - invalid user ID or server info");
+                currentGameSessionId = -1;
+            }
+            
             gameLobby->setup(pendingGameName, hostName);
+            
+            // Set gameLobby active khi vào STATE_WAITING_GAME
+            if (gameLobby != nullptr) {
+                gameLobby->setActive(true);
+            }
             
             // Convert current friends to lobby friends
             if (friendsCount > 0) {
@@ -1281,6 +1360,11 @@ void SocialScreen::handleContentNavigation(const String& key) {
 
             Serial.print("Social Screen: Entered room for game ");
             Serial.println(pendingGameName);
+            
+            // Tự động nhấn nút START khi vào lobby (sau khi đã tạo session)
+            Serial.println("Social Screen: Auto-pressing START button");
+            gameLobby->triggerStart();
+            
             draw();
         }
     }
@@ -1309,10 +1393,16 @@ void SocialScreen::switchTab(Tab newTab) {
             // Reset miniAddFriend to clear any previous input (also resets keyboard)
             if (miniAddFriend != nullptr) {
                 miniAddFriend->reset();
+                // Set miniAddFriend active if SocialScreen is active
+                miniAddFriend->setActive(isActive);
             }
         } else {
             // Reset focus to sidebar when switching to other tabs
             focusMode = FOCUS_SIDEBAR;
+            // Set miniAddFriend inactive when leaving Add Friend tab
+            if (miniAddFriend != nullptr) {
+                miniAddFriend->setActive(false);
+            }
         }
         // Reset selection indices when switching tabs
         selectedFriendIndex = 0;
@@ -1389,6 +1479,10 @@ void SocialScreen::openChatWithFriend(int friendIndex) {
     // Redraw friend card to remove badge
     redrawFriendCard(friendIndex, true);
     
+    // Parent vẫn active, chỉ mở ChatScreen (child)
+    // Không set inactive - parent vẫn active
+    // setActive(false);  // ❌ REMOVED - parent stays active
+    
     // Call callback để main.cpp mở ChatScreen
     if (onOpenChatCallback != nullptr) {
         onOpenChatCallback(friendItem->userId, friendItem->nickname);
@@ -1398,6 +1492,14 @@ void SocialScreen::openChatWithFriend(int friendIndex) {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
+    // If in game playing state: delegate to game screen
+    if (screenState == STATE_PLAYING_GAME) {
+        if (caroGameScreen != nullptr) {
+            caroGameScreen->handleKeyPress(key);
+        }
+        return;
+    }
+    
     // If in game waiting state: delegate to lobby screen
     if (screenState == STATE_WAITING_GAME) {
         if (gameLobby != nullptr) {
@@ -1702,6 +1804,33 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
     Serial.print(", isOnline: ");
     Serial.println(isOnline ? "true" : "false");
     
+    // Check child screen: if STATE_PLAYING_GAME and caroGameScreen is active, don't draw
+    if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {
+        // Just update data, don't draw anything (focus on caro game)
+        for (int i = 0; i < friendsCount; i++) {
+            if (friends[i].userId == friendUserId) {
+                friends[i].online = isOnline;
+                Serial.println("Social Screen: Status updated (data only) - caro game is active (focused)");
+                return;
+            }
+        }
+        Serial.println("Social Screen: Friend not found, but skipping UI update (caro game focused)");
+        return;
+    }
+    
+    // Check parent active: if not active, don't draw
+    if (!isActive) {
+        // Just update data, don't draw anything
+        for (int i = 0; i < friendsCount; i++) {
+            if (friends[i].userId == friendUserId) {
+                friends[i].online = isOnline;
+                Serial.println("Social Screen: Status updated (data only) - screen not active");
+                return;
+            }
+        }
+        return;
+    }
+    
     // Find friend in friends array
     for (int i = 0; i < friendsCount; i++) {
         if (friends[i].userId == friendUserId) {
@@ -1717,7 +1846,8 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
             Serial.println(isOnline ? "online" : "offline");
             
             // Redraw friend card if we're on the friends tab and status changed
-            if (statusChanged && currentTab == TAB_FRIENDS) {
+            // Only draw if parent active AND not in game playing state
+            if (statusChanged && screenState == STATE_NORMAL && currentTab == TAB_FRIENDS) {
                 bool isSelected = (i == selectedFriendIndex);
                 Serial.print("Social Screen: Redrawing friend card at index ");
                 Serial.println(i);
@@ -1728,7 +1858,8 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
             }
 
             // Nếu đang ở lobby chờ, cập nhật danh sách bạn trong lobby với online flag mới
-            if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && friendsCount > 0) {
+            // Check parent active AND lobby active
+            if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && gameLobby->isActive() && friendsCount > 0) {
                 GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
                 for (int j = 0; j < friendsCount; j++) {
                     miniFriends[j] = {friends[j].nickname, friends[j].online};
@@ -1790,11 +1921,12 @@ void SocialScreen::onGameEvent(const String& eventType, int sessionId, const Str
         return;
     }
 
-    // Chỉ cập nhật guest khi đúng loại event (join/ready)
-    if (self->screenState == STATE_WAITING_GAME && self->gameLobby != nullptr) {
+    // Chỉ cập nhật guest khi đúng loại event (join/ready) và gameLobby đang active
+    if (self->screenState == STATE_WAITING_GAME && self->gameLobby != nullptr && self->gameLobby->isActive()) {
         if (isJoinEvent) {
             // Use nickname from server, fallback to "User<id>" if empty
             String guestName = userNickname.length() > 0 ? userNickname : ("User" + String(userId));
+            self->currentGameGuestName = guestName;
             self->gameLobby->setGuest(guestName);
             self->gameLobby->setGuestReady(ready);
             self->gameLobby->draw();
@@ -1802,6 +1934,130 @@ void SocialScreen::onGameEvent(const String& eventType, int sessionId, const Str
     }
 
     // Không tự chuyển tab hay thay đổi screenState ở đây để tránh "nhảy màn hình"
+}
+
+void SocialScreen::startGame() {
+    if (pendingGameName != "Caro" && pendingGameName != "caro") {
+        Serial.println("Social Screen: Only Caro game is supported for now");
+        return;
+    }
+    
+    if (currentGameSessionId <= 0) {
+        Serial.println("Social Screen: No active game session");
+        return;
+    }
+    
+    // Create CaroGameScreen if not exists
+    if (caroGameScreen == nullptr) {
+        caroGameScreen = new CaroGameScreen(tft, currentTheme);
+    }
+    
+    // Setup game screen
+    caroGameScreen->setup(
+        currentGameSessionId,
+        currentGameHostName,
+        currentGameGuestName,
+        userId,
+        true,  // isHost - TODO: determine from session
+        serverHost,
+        serverPort
+    );
+    
+    // Set exit callback
+    caroGameScreen->setOnExitGame([]() {
+        if (s_socialScreenInstance != nullptr) {
+            s_socialScreenInstance->exitGame();
+        }
+    });
+    
+    // Parent vẫn active, chỉ set child screen active
+    // isActive vẫn = true (không set false)
+    // Chỉ set caroGameScreen active
+    if (caroGameScreen != nullptr) {
+        caroGameScreen->setActive(true);
+    }
+    
+    screenState = STATE_PLAYING_GAME;
+    draw();
+}
+
+void SocialScreen::exitLobby() {
+    screenState = STATE_NORMAL;
+    pendingGameName = "";
+    currentTab = TAB_GAMES;
+    
+    // Set active khi về game menu
+    // setActive() will automatically manage child screens
+    setActive(true);
+    
+    // Set gameLobby inactive khi rời lobby (explicit since we're leaving lobby)
+    if (gameLobby != nullptr) {
+        gameLobby->setActive(false);
+    }
+    
+    draw();
+}
+
+void SocialScreen::exitGame() {
+    screenState = STATE_WAITING_GAME;
+    
+    // Set active lại khi về lobby (có thể hiển thị badge)
+    // setActive() will automatically set gameLobby active if in STATE_WAITING_GAME
+    setActive(true);
+    
+    if (caroGameScreen != nullptr) {
+        caroGameScreen->setActive(false);
+    }
+    // Ensure gameLobby is active and draw
+    if (gameLobby != nullptr) {
+        gameLobby->setActive(true);
+        gameLobby->draw();
+    }
+}
+
+void SocialScreen::onGameMoveReceived(int sessionId, int userId, int row, int col, const String& gameStatus, int winnerId, int currentTurn) {
+    if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {
+        if (caroGameScreen->getSessionId() == sessionId) {
+            caroGameScreen->onMoveReceived(row, col, userId, gameStatus, winnerId, currentTurn);
+        }
+    }
+}
+
+void SocialScreen::setActive(bool active) {
+    this->isActive = active;
+    
+    // When parent becomes inactive, set all child screens inactive
+    if (!active) {
+        if (gameLobby != nullptr) {
+            gameLobby->setActive(false);
+        }
+        if (miniAddFriend != nullptr) {
+            miniAddFriend->setActive(false);
+        }
+        if (caroGameScreen != nullptr) {
+            caroGameScreen->setActive(false);
+        }
+    } else {
+        // When parent becomes active, set child screens active based on current state/tab
+        if (screenState == STATE_WAITING_GAME && gameLobby != nullptr) {
+            gameLobby->setActive(true);
+        }
+        if (screenState == STATE_NORMAL && currentTab == TAB_ADD_FRIEND && miniAddFriend != nullptr) {
+            miniAddFriend->setActive(true);
+        }
+    }
+}
+
+void SocialScreen::update() {
+    // Update lobby if in waiting state (check auto-start timer)
+    if (screenState == STATE_WAITING_GAME && gameLobby != nullptr) {
+        gameLobby->update();
+    }
+    
+    // Update game screen if playing
+    if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {
+        caroGameScreen->update();
+    }
 }
 
 void SocialScreen::onGameComingSoonConfirm() {

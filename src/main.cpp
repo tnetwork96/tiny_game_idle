@@ -15,6 +15,8 @@
 #include "api_client.h"
 #include "social_screen.h"
 #include "chat_screen.h"
+#include "caro_game_screen.h"
+#include "game_lobby_screen.h"
 
 // ST7789 pins
 #define TFT_CS    15
@@ -39,35 +41,94 @@ bool autoLoginExecuted = false;
 bool autoNicknameExecuted = false;
 bool isSocialScreenActive = false;
 
+// RAM monitoring
+unsigned long lastRamPrintTime = 0;
+const unsigned long RAM_PRINT_INTERVAL = 5000;  // Print RAM every 5 seconds
+
 // Callback function for keyboard input - routes to appropriate screen
+// RULE: Check parent active TRƯỚC, sau đó check child active
 void onKeyboardKeySelected(String key) {
-    // Route to ChatScreen if active
-    if (isChatScreenActive && chatScreen != nullptr) {
+    // 1. ChatScreen (child of SocialScreen)
+    bool isSocialParentActive = isSocialScreenActive && socialScreen != nullptr && socialScreen->getActive();
+    if (isSocialParentActive && isChatScreenActive && chatScreen != nullptr && chatScreen->isActive()) {
         chatScreen->handleKeyPress(key);
+        return;
     }
-    // Route to SocialScreen if active
-    else if (isSocialScreenActive && socialScreen != nullptr) {
+    
+    // 2. SocialScreen and its children
+    if (isSocialParentActive) {
+        SocialScreen::ScreenState screenState = socialScreen->getScreenState();
+        
+        // 2a. CaroGameScreen (child)
+        if (screenState == SocialScreen::STATE_PLAYING_GAME) {
+            if (socialScreen->getCaroGameScreen() != nullptr && 
+                socialScreen->getCaroGameScreen()->isActive()) {
+                socialScreen->getCaroGameScreen()->handleKeyPress(key);
+                return;
+            }
+        }
+        
+        // 2b. GameLobbyScreen (child)
+        if (screenState == SocialScreen::STATE_WAITING_GAME) {
+            if (socialScreen->getGameLobby() != nullptr && 
+                socialScreen->getGameLobby()->isActive()) {
+                socialScreen->getGameLobby()->handleKeyPress(key);
+                return;
+            }
+        }
+        
+        // 2c. MiniAddFriendScreen (child)
+        if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
+            if (socialScreen->getMiniAddFriend() != nullptr && 
+                socialScreen->getMiniAddFriend()->isActive()) {
+                socialScreen->getMiniAddFriend()->handleKeyPress(key);
+                return;
+            }
+        }
+        
+        // 2d. Parent (SocialScreen) - no child active
         socialScreen->handleKeyPress(key);
+        return;
     }
-    // Route to LoginScreen if WiFi is connected and login screen is active
-    else if (wifiManager != nullptr && wifiManager->isConnected() && loginScreen != nullptr && !isSocialScreenActive && !isChatScreenActive) {
+    
+    // 3. LoginScreen
+    if (wifiManager != nullptr && wifiManager->isConnected() && 
+        loginScreen != nullptr && !isSocialScreenActive && !isChatScreenActive) {
         loginScreen->handleKeyPress(key);
+        return;
     }
-    // Otherwise route to WiFi manager
-    else if (wifiManager != nullptr) {
+    
+    // 4. WiFi Manager
+    if (wifiManager != nullptr) {
         wifiManager->handleKeyboardInput(key);
+        return;
     }
 }
 
-// Callback function for MiniKeyboard - routes to Add Friend screen (giống Keyboard gốc)
+// Callback function for MiniKeyboard - routes to Add Friend screen
+// RULE: Check parent active TRƯỚC, sau đó check child active
 void onMiniKeyboardKeySelected(String key) {
-    // Route to ChatScreen if active
-    if (isChatScreenActive && chatScreen != nullptr) {
+    // 1. ChatScreen (child of SocialScreen)
+    bool isSocialParentActive = isSocialScreenActive && socialScreen != nullptr && socialScreen->getActive();
+    if (isSocialParentActive && isChatScreenActive && chatScreen != nullptr && chatScreen->isActive()) {
         chatScreen->handleKeyPress(key);
+        return;
     }
-    // Route to SocialScreen if active (Add Friend tab)
-    else if (isSocialScreenActive && socialScreen != nullptr) {
+    
+    // 2. SocialScreen and its children
+    if (isSocialParentActive) {
+        // Check if on Add Friend tab and MiniAddFriend is active
+        if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
+            if (socialScreen->getMiniAddFriend() != nullptr && 
+                socialScreen->getMiniAddFriend()->isActive()) {
+                socialScreen->getMiniAddFriend()->handleKeyPress(key);
+                return;
+            }
+        }
+        
+        // Otherwise route to parent
         socialScreen->handleKeyPress(key);
+        return;
     }
 }
 
@@ -127,6 +188,11 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
         isChatScreenActive = false;
         currentChatFriendUserId = -1;  // Reset khi đóng chat
         
+        // Set ChatScreen inactive
+        if (chatScreen != nullptr) {
+            chatScreen->setActive(false);
+        }
+        
         // Update SocketManager state
         if (socketManager != nullptr) {
             socketManager->setChatScreen(nullptr);
@@ -135,6 +201,11 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
         }
         
         isSocialScreenActive = true;
+        
+        // Set SocialScreen active
+        if (socialScreen != nullptr) {
+            socialScreen->setActive(true);
+        }
         
         // Update SocketManager state
         if (socketManager != nullptr) {
@@ -149,12 +220,22 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
     
     // Activate chat screen
     isChatScreenActive = true;
-    isSocialScreenActive = false;
+    // isSocialScreenActive = false;  // ❌ REMOVED - parent stays active
+    // Keep isSocialScreenActive = true (parent still active)
+    
+    // Set ChatScreen active
+    if (chatScreen != nullptr) {
+        chatScreen->setActive(true);
+    }
+    
+    // Set SocialScreen inactive  // ❌ REMOVED - parent stays active
+    // if (socialScreen != nullptr) {
+    //     socialScreen->setActive(false);
+    // }
     
     // Update SocketManager state
-    if (socketManager != nullptr) {
-        socketManager->setSocialScreenActive(false);
-    }
+    // socketManager->setSocialScreenActive(false);  // ❌ REMOVED - keep social screen active
+    // Keep social screen active in socket manager
     
     // Disable main keyboard drawing when chat screen is active
     if (keyboard != nullptr) {
@@ -196,6 +277,11 @@ void onLoginSuccess() {
             socketManager->setOnUserStatusUpdateCallback(SocialScreen::onUserStatusUpdate);
             // Set callback for game events (invites/respond/ready)
             socketManager->setOnGameEventCallback(SocialScreen::onGameEvent);
+            socketManager->setOnGameMoveCallback([](int sessionId, int userId, int row, int col, const String& gameStatus, int winnerId, int currentTurn) {
+                if (socialScreen != nullptr) {
+                    socialScreen->onGameMoveReceived(sessionId, userId, row, col, gameStatus, winnerId, currentTurn);
+                }
+            });
             Serial.println("Main: Set user status update callback");
             
             Serial.println("Main: Socket Manager initialized");
@@ -207,6 +293,11 @@ void onLoginSuccess() {
         
         // Activate social screen
         isSocialScreenActive = true;
+        
+        // Set SocialScreen active
+        if (socialScreen != nullptr) {
+            socialScreen->setActive(true);
+        }
         
         // Update SocketManager state
         if (socketManager != nullptr) {
@@ -498,6 +589,35 @@ void setup() {
 }
 
 void loop() {
+    // Print RAM usage periodically
+    unsigned long currentTime = millis();
+    if (currentTime - lastRamPrintTime >= RAM_PRINT_INTERVAL) {
+        lastRamPrintTime = currentTime;
+        
+        // Get RAM info
+        uint32_t freeHeap = ESP.getFreeHeap();
+        uint32_t totalHeap = ESP.getHeapSize();
+        uint32_t usedHeap = totalHeap - freeHeap;
+        float usedPercent = (float)usedHeap / (float)totalHeap * 100.0f;
+        
+        // Print to Serial
+        Serial.print("RAM Usage: ");
+        Serial.print(usedHeap);
+        Serial.print(" / ");
+        Serial.print(totalHeap);
+        Serial.print(" bytes (");
+        Serial.print(usedPercent, 1);
+        Serial.print("%) | Free: ");
+        Serial.print(freeHeap);
+        Serial.println(" bytes");
+        
+        // Also print largest free block if available
+        uint32_t largestFreeBlock = ESP.getMaxAllocHeap();
+        Serial.print("  Largest free block: ");
+        Serial.print(largestFreeBlock);
+        Serial.println(" bytes");
+    }
+    
     // Update WiFi Manager state (check connection status)
     if (wifiManager != nullptr) {
         wifiManager->update();
@@ -794,6 +914,11 @@ void loop() {
     // Update ChatScreen decor animation if active
     if (isChatScreenActive && chatScreen != nullptr) {
         chatScreen->updateDecorAnimation();
+    }
+    
+    // Update SocialScreen (check auto-start timer, etc.)
+    if (isSocialScreenActive && socialScreen != nullptr) {
+        socialScreen->update();
     }
     
     // --- Auto demo: navigate to Games tab and enter queue ---

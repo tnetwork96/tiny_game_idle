@@ -64,6 +64,12 @@ class LeaveRequest(BaseModel):
     user_id: int
 
 
+class GameMoveRequest(BaseModel):
+    user_id: int
+    row: conint(ge=0, le=20)
+    col: conint(ge=0, le=20)
+
+
 def _fetch_display_name(cursor, user_id: int) -> str:
     cursor.execute(
         """
@@ -734,6 +740,292 @@ async def get_active_sessions(user_id: int):
     except Exception as exc:  # noqa: BLE001
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get active sessions error: {str(exc)}")
         raise HTTPException(status_code=500, detail="Failed to fetch active sessions")
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.post("/games/{session_id}/move")
+async def submit_move(session_id: int, request: GameMoveRequest):
+    """Submit a game move (for caro game)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Get session info
+        cursor.execute(
+            """
+            SELECT id, host_user_id, game_type, status
+            FROM game_sessions
+            WHERE id = %s
+            """,
+            (session_id,),
+        )
+        session = cursor.fetchone()
+        if not session:
+            return {"success": False, "message": "Session not found"}
+
+        if session["status"] != "in_progress":
+            return {"success": False, "message": "Game is not in progress"}
+
+        # Verify user is a participant
+        cursor.execute(
+            """
+            SELECT user_id, role
+            FROM game_participants
+            WHERE session_id = %s AND user_id = %s
+            """,
+            (session_id, request.user_id),
+        )
+        participant = cursor.fetchone()
+        if not participant:
+            return {"success": False, "message": "User is not a participant"}
+
+        # Get all participants
+        cursor.execute(
+            """
+            SELECT user_id, role
+            FROM game_participants
+            WHERE session_id = %s
+            ORDER BY role DESC, user_id ASC
+            """,
+            (session_id,),
+        )
+        participants = cursor.fetchall()
+        if len(participants) != 2:
+            return {"success": False, "message": "Game requires exactly 2 players"}
+
+        host_id = session["host_user_id"]
+        guest_id = next((p["user_id"] for p in participants if p["user_id"] != host_id), None)
+        
+        if guest_id is None:
+            return {"success": False, "message": "Guest player not found"}
+
+        # Check if cell is already occupied
+        cursor.execute(
+            """
+            SELECT id FROM game_moves
+            WHERE session_id = %s AND row = %s AND col = %s
+            """,
+            (session_id, request.row, request.col),
+        )
+        if cursor.fetchone():
+            return {"success": False, "message": "Cell already occupied"}
+
+        # Get move count to determine turn
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS count FROM game_moves
+            WHERE session_id = %s
+            """,
+            (session_id,),
+        )
+        move_count = cursor.fetchone()["count"]
+
+        # Determine whose turn it is (host goes first, then alternates)
+        expected_player = host_id if move_count % 2 == 0 else guest_id
+        if request.user_id != expected_player:
+            return {"success": False, "message": "Not your turn"}
+
+        # Insert move
+        cursor.execute(
+            """
+            INSERT INTO game_moves (session_id, user_id, row, col, move_number)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (session_id, request.user_id, request.row, request.col, move_count + 1),
+        )
+        move_id = cursor.fetchone()["id"]
+
+        # Get all moves to check win condition
+        cursor.execute(
+            """
+            SELECT user_id, row, col, move_number
+            FROM game_moves
+            WHERE session_id = %s
+            ORDER BY move_number ASC
+            """,
+            (session_id,),
+        )
+        moves = cursor.fetchall()
+
+        # Build board state (15x20 for caro)
+        board = [[None for _ in range(20)] for _ in range(15)]
+        for move in moves:
+            board[move["row"]][move["col"]] = move["user_id"]
+
+        # Check win condition (simplified - check if 5 in a row)
+        game_status = "playing"
+        winner_id = None
+
+        # Simple win check: 5 consecutive pieces
+        def check_win(row, col, player_id):
+            directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+            for dr, dc in directions:
+                count = 1
+                # Check positive direction
+                for i in range(1, 5):
+                    r, c = row + dr * i, col + dc * i
+                    if 0 <= r < 15 and 0 <= c < 20 and board[r][c] == player_id:
+                        count += 1
+                    else:
+                        break
+                # Check negative direction
+                for i in range(1, 5):
+                    r, c = row - dr * i, col - dc * i
+                    if 0 <= r < 15 and 0 <= c < 20 and board[r][c] == player_id:
+                        count += 1
+                    else:
+                        break
+                if count >= 5:
+                    return True
+            return False
+
+        if check_win(request.row, request.col, request.user_id):
+            game_status = "completed"
+            winner_id = request.user_id
+            cursor.execute(
+                """
+                UPDATE game_sessions
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+        elif len(moves) >= 15 * 20:  # Board full
+            game_status = "draw"
+            cursor.execute(
+                """
+                UPDATE game_sessions
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+                """,
+                (session_id,),
+            )
+
+        conn.commit()
+
+        # Calculate current turn after this move
+        # After a move, turn switches to the other player
+        current_turn = guest_id if request.user_id == host_id else host_id
+        
+        # Broadcast move to BOTH players (so both know the current state)
+        # This allows ESP32 to know when it's their turn
+        opponent_id = guest_id if request.user_id == host_id else host_id
+        event_data = {
+            "event_type": "move",
+            "session_id": session_id,
+            "user_id": request.user_id,
+            "row": request.row,
+            "col": request.col,
+            "game_status": game_status,
+            "winner_id": winner_id,
+            "current_turn": current_turn,  # Add current turn so clients know whose turn it is now
+        }
+        # Send to both players so both can update their UI
+        await _broadcast_game_event([host_id, guest_id], event_data)
+
+        return {
+            "success": True,
+            "message": "Move submitted",
+            "move_id": move_id,
+            "game_status": game_status,
+            "winner_id": winner_id,
+        }
+    except Exception as exc:  # noqa: BLE001
+        if conn:
+            conn.rollback()
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Submit move error: {str(exc)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit move: {str(exc)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/games/{session_id}/state")
+async def get_game_state(session_id: int):
+    """Get current game state (board, turn, status)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+        # Get session info
+        cursor.execute(
+            """
+            SELECT id, host_user_id, game_type, status
+            FROM game_sessions
+            WHERE id = %s
+            """,
+            (session_id,),
+        )
+        session = cursor.fetchone()
+        if not session:
+            return {"success": False, "message": "Session not found"}
+
+        # Get participants
+        cursor.execute(
+            """
+            SELECT user_id, role
+            FROM game_participants
+            WHERE session_id = %s
+            ORDER BY role DESC, user_id ASC
+            """,
+            (session_id,),
+        )
+        participants = cursor.fetchall()
+        host_id = session["host_user_id"]
+        guest_id = next((p["user_id"] for p in participants if p["user_id"] != host_id), None)
+
+        # Get all moves
+        cursor.execute(
+            """
+            SELECT user_id, row, col, move_number
+            FROM game_moves
+            WHERE session_id = %s
+            ORDER BY move_number ASC
+            """,
+            (session_id,),
+        )
+        moves = cursor.fetchall()
+
+        # Build board state
+        board = [[None for _ in range(20)] for _ in range(15)]
+        for move in moves:
+            board[move["row"]][move["col"]] = move["user_id"]
+
+        # Determine current turn
+        move_count = len(moves)
+        current_turn = host_id if move_count % 2 == 0 else guest_id
+
+        # Get player names
+        host_name = _fetch_display_name(cursor, host_id)
+        guest_name = _fetch_display_name(cursor, guest_id) if guest_id else None
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "game_type": session["game_type"],
+            "status": session["status"],
+            "board": board,
+            "current_turn": current_turn,
+            "move_count": move_count,
+            "players": {
+                "host": {"user_id": host_id, "name": host_name},
+                "guest": {"user_id": guest_id, "name": guest_name} if guest_id else None,
+            },
+        }
+    except Exception as exc:  # noqa: BLE001
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Get game state error: {str(exc)}")
+        print(f"Traceback: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Failed to get game state: {str(exc)}")
     finally:
         if conn:
             conn.close()

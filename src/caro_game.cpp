@@ -11,6 +11,7 @@ CaroGame::CaroGame(Adafruit_ST7789* tft) {
     this->cursorCol = BOARD_COLS / 2;
     this->oldCursorRow = this->cursorRow;
     this->oldCursorCol = this->cursorCol;
+    this->cursorColor = COLOR_HIGHLIGHT;  // Default yellow
     
     // Initialize board to empty
     for (int i = 0; i < BOARD_ROWS; i++) {
@@ -110,9 +111,9 @@ void CaroGame::drawCursor() {
     int x = BOARD_X + cursorCol * CELL_SIZE;
     int y = BOARD_Y + cursorRow * CELL_SIZE;
     
-    // Draw cursor highlight
-    tft->drawRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4, COLOR_HIGHLIGHT);
-    tft->drawRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6, COLOR_HIGHLIGHT);
+    // Draw cursor với màu đã set (green khi đến turn mình, red khi hết lượt)
+    tft->drawRect(x + 2, y + 2, CELL_SIZE - 4, CELL_SIZE - 4, cursorColor);
+    tft->drawRect(x + 3, y + 3, CELL_SIZE - 6, CELL_SIZE - 6, cursorColor);
     
     oldCursorRow = cursorRow;
     oldCursorCol = cursorCol;
@@ -171,7 +172,8 @@ void CaroGame::draw() {
     }
     
     drawCursor();
-    drawStatus();
+    // Xóa drawStatus() - không vẽ text "Player X Turn" nữa
+    // drawStatus();
 }
 
 void CaroGame::update() {
@@ -346,5 +348,57 @@ bool CaroGame::isBoardFull() {
         }
     }
     return true;
+}
+
+CellState CaroGame::getCell(int row, int col) const {
+    if (row < 0 || row >= BOARD_ROWS || col < 0 || col >= BOARD_COLS) {
+        return CELL_EMPTY;  // Out of bounds
+    }
+    return board[row][col];
+}
+
+void CaroGame::placeMove(int row, int col, bool isX) {
+    if (row < 0 || row >= BOARD_ROWS || col < 0 || col >= BOARD_COLS) {
+        return;
+    }
+    if (board[row][col] != CELL_EMPTY) {
+        return;
+    }
+    
+    board[row][col] = isX ? CELL_X : CELL_O;
+    
+    // Check for win
+    if (checkWin(row, col)) {
+        gameState = isX ? GAME_X_WIN : GAME_O_WIN;
+    } else if (isBoardFull()) {
+        gameState = GAME_DRAW;
+    } else {
+        isPlayerXTurn = !isPlayerXTurn;
+    }
+}
+
+void CaroGame::setBoardState(CellState newBoard[BOARD_ROWS][BOARD_COLS]) {
+    for (int i = 0; i < BOARD_ROWS; i++) {
+        for (int j = 0; j < BOARD_COLS; j++) {
+            board[i][j] = newBoard[i][j];
+        }
+    }
+}
+
+void CaroGame::setGameState(GameState state) {
+    gameState = state;
+}
+
+void CaroGame::setTurn(bool isXTurn) {
+    isPlayerXTurn = isXTurn;
+}
+
+void CaroGame::setCursorColor(bool isMyTurn) {
+    // Green (COLOR_O) khi đến turn mình, Red (COLOR_X) khi hết lượt
+    if (isMyTurn) {
+        cursorColor = COLOR_O;  // Green (0x07E0)
+    } else {
+        cursorColor = COLOR_X;  // Red (0xF800)
+    }
 }
 

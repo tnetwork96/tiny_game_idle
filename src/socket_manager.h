@@ -89,6 +89,10 @@ private:
     typedef void (*OnGameEventCallback)(const String& eventType, int sessionId, const String& gameType, const String& status, int userId, bool accepted, bool ready, const String& userNickname);
     OnGameEventCallback onGameEventCallback;
     
+    // Game move callback
+    typedef void (*OnGameMoveCallback)(int sessionId, int userId, int row, int col, const String& gameStatus, int winnerId, int currentTurn);
+    OnGameMoveCallback onGameMoveCallback;
+    
     // Helper to parse JSON chat message
     void parseChatMessage(const String& message);
     void parseTypingIndicator(const String& message, bool isTyping);
@@ -179,6 +183,11 @@ public:
     // Set game event callback
     void setOnGameEventCallback(OnGameEventCallback callback) {
         onGameEventCallback = callback;
+    }
+    
+    // Set game move callback
+    void setOnGameMoveCallback(OnGameMoveCallback callback) {
+        onGameMoveCallback = callback;
     }
     
     // Send chat message

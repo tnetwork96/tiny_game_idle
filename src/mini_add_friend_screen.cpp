@@ -16,6 +16,7 @@ MiniAddFriendScreen::MiniAddFriendScreen(Adafruit_ST7789* tft, MiniKeyboard* key
     this->cursorCol = 0;
     this->submitRequested = false;
     this->errorMessage = "";
+    this->active = false;  // Initially inactive
 }
 
 void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool hasFocus) {

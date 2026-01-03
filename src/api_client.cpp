@@ -721,6 +721,258 @@ ApiClient::GameSessionResult ApiClient::leaveGameSession(int sessionId, int user
     return result;
 }
 
+ApiClient::GameMoveResult ApiClient::submitGameMove(int sessionId, int userId, int row, int col, const String& serverHost, uint16_t port) {
+    GameMoveResult result;
+    result.success = false;
+    result.message = "";
+    result.moveId = -1;
+    result.gameStatus = "";
+    result.winnerId = -1;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/move";
+    Serial.print("API Client: Submitting game move: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    String payload = "{\"user_id\":";
+    payload += String(userId);
+    payload += ",\"row\":";
+    payload += String(row);
+    payload += ",\"col\":";
+    payload += String(col);
+    payload += "}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        
+        // Parse response
+        int successIdx = response.indexOf("\"success\":");
+        if (successIdx >= 0) {
+            int valueStart = response.indexOf(":", successIdx) + 1;
+            int valueEnd = response.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+            String successStr = response.substring(valueStart, valueEnd);
+            successStr.trim();
+            result.success = (successStr == "true");
+        }
+        
+        int messageIdx = response.indexOf("\"message\":\"");
+        if (messageIdx >= 0) {
+            int valueStart = messageIdx + 11;
+            int valueEnd = response.indexOf("\"", valueStart);
+            if (valueEnd > valueStart) {
+                result.message = response.substring(valueStart, valueEnd);
+            }
+        }
+        
+        if (result.success) {
+            int moveIdIdx = response.indexOf("\"move_id\":");
+            if (moveIdIdx >= 0) {
+                int valueStart = response.indexOf(":", moveIdIdx) + 1;
+                int valueEnd = response.indexOf(",", valueStart);
+                if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                String moveIdStr = response.substring(valueStart, valueEnd);
+                moveIdStr.trim();
+                result.moveId = moveIdStr.toInt();
+            }
+            
+            int statusIdx = response.indexOf("\"game_status\":\"");
+            if (statusIdx >= 0) {
+                int valueStart = statusIdx + 15;
+                int valueEnd = response.indexOf("\"", valueStart);
+                if (valueEnd > valueStart) {
+                    result.gameStatus = response.substring(valueStart, valueEnd);
+                }
+            }
+            
+            int winnerIdx = response.indexOf("\"winner_id\":");
+            if (winnerIdx >= 0) {
+                int valueStart = response.indexOf(":", winnerIdx) + 1;
+                int valueEnd = response.indexOf(",", valueStart);
+                if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                String winnerStr = response.substring(valueStart, valueEnd);
+                winnerStr.trim();
+                if (winnerStr != "null" && winnerStr.length() > 0) {
+                    result.winnerId = winnerStr.toInt();
+                }
+            }
+        }
+    } else {
+        Serial.print("API Client: Submit move failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
+ApiClient::GameStateResult ApiClient::getGameState(int sessionId, const String& serverHost, uint16_t port) {
+    GameStateResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = sessionId;
+    result.gameType = "";
+    result.status = "";
+    result.currentTurn = -1;
+    result.moveCount = 0;
+    result.hostName = "";
+    result.guestName = "";
+    result.hostId = -1;
+    result.guestId = -1;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/state";
+    Serial.print("API Client: Getting game state: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.setTimeout(7000);
+
+    int httpCode = http.GET();
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        
+        // Parse response
+        int successIdx = response.indexOf("\"success\":");
+        if (successIdx >= 0) {
+            int valueStart = response.indexOf(":", successIdx) + 1;
+            int valueEnd = response.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+            String successStr = response.substring(valueStart, valueEnd);
+            successStr.trim();
+            result.success = (successStr == "true");
+        }
+        
+        if (result.success) {
+            int statusIdx = response.indexOf("\"status\":\"");
+            if (statusIdx >= 0) {
+                int valueStart = statusIdx + 10;
+                int valueEnd = response.indexOf("\"", valueStart);
+                if (valueEnd > valueStart) {
+                    result.status = response.substring(valueStart, valueEnd);
+                }
+            }
+            
+            int turnIdx = response.indexOf("\"current_turn\":");
+            if (turnIdx >= 0) {
+                int valueStart = response.indexOf(":", turnIdx) + 1;
+                int valueEnd = response.indexOf(",", valueStart);
+                if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                String turnStr = response.substring(valueStart, valueEnd);
+                turnStr.trim();
+                result.currentTurn = turnStr.toInt();
+            }
+            
+            int moveCountIdx = response.indexOf("\"move_count\":");
+            if (moveCountIdx >= 0) {
+                int valueStart = response.indexOf(":", moveCountIdx) + 1;
+                int valueEnd = response.indexOf(",", valueStart);
+                if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                String moveCountStr = response.substring(valueStart, valueEnd);
+                moveCountStr.trim();
+                result.moveCount = moveCountStr.toInt();
+            }
+            
+            // Parse players object
+            int playersIdx = response.indexOf("\"players\":{");
+            if (playersIdx >= 0) {
+                // Parse host
+                int hostIdx = response.indexOf("\"host\":{", playersIdx);
+                if (hostIdx >= 0) {
+                    int hostIdIdx = response.indexOf("\"user_id\":", hostIdx);
+                    if (hostIdIdx >= 0) {
+                        int valueStart = response.indexOf(":", hostIdIdx) + 1;
+                        int valueEnd = response.indexOf(",", valueStart);
+                        if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                        String hostIdStr = response.substring(valueStart, valueEnd);
+                        hostIdStr.trim();
+                        result.hostId = hostIdStr.toInt();
+                    }
+                    
+                    int hostNameIdx = response.indexOf("\"name\":\"", hostIdx);
+                    if (hostNameIdx >= 0) {
+                        int valueStart = hostNameIdx + 8;
+                        int valueEnd = response.indexOf("\"", valueStart);
+                        if (valueEnd > valueStart) {
+                            result.hostName = response.substring(valueStart, valueEnd);
+                        }
+                    }
+                }
+                
+                // Parse guest
+                int guestIdx = response.indexOf("\"guest\":", playersIdx);
+                if (guestIdx >= 0 && response.indexOf("null", guestIdx) < 0) {
+                    int guestIdIdx = response.indexOf("\"user_id\":", guestIdx);
+                    if (guestIdIdx >= 0) {
+                        int valueStart = response.indexOf(":", guestIdIdx) + 1;
+                        int valueEnd = response.indexOf(",", valueStart);
+                        if (valueEnd < 0) valueEnd = response.indexOf("}", valueStart);
+                        String guestIdStr = response.substring(valueStart, valueEnd);
+                        guestIdStr.trim();
+                        result.guestId = guestIdStr.toInt();
+                    }
+                    
+                    int guestNameIdx = response.indexOf("\"name\":\"", guestIdx);
+                    if (guestNameIdx >= 0) {
+                        int valueStart = guestNameIdx + 8;
+                        int valueEnd = response.indexOf("\"", valueStart);
+                        if (valueEnd > valueStart) {
+                            result.guestName = response.substring(valueStart, valueEnd);
+                        }
+                    }
+                }
+            }
+        } else {
+            int messageIdx = response.indexOf("\"message\":\"");
+            if (messageIdx >= 0) {
+                int valueStart = messageIdx + 11;
+                int valueEnd = response.indexOf("\"", valueStart);
+                if (valueEnd > valueStart) {
+                    result.message = response.substring(valueStart, valueEnd);
+                }
+            }
+        }
+    } else {
+        Serial.print("API Client: Get game state failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
 String ApiClient::getFriendsList(int userId, const String& serverHost, uint16_t port) {
     String result = "";
     

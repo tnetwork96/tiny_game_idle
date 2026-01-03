@@ -1,6 +1,8 @@
 #include "socket_manager.h"
 #include "chat_screen.h"
 #include "social_screen.h"
+#include "caro_game_screen.h"
+#include "game_lobby_screen.h"
 #include <FS.h>
 #include <SPIFFS.h>
 
@@ -36,6 +38,7 @@ SocketManager::SocketManager() {
     onReadReceiptCallback = nullptr;
     onUserStatusUpdateCallback = nullptr;
     onGameEventCallback = nullptr;
+    onGameMoveCallback = nullptr;
     
     // Typing indicator state
     lastTypingTime = 0;
@@ -491,19 +494,46 @@ void SocketManager::parseNotificationMessage(const String& message) {
     
     // Xử lý notification trực tiếp trong socket_manager
     if (socialScreen != nullptr) {
-        // Kiểm tra nếu user đang ở Notifications tab
-        bool isOnNotificationsTab = isSocialScreenActive && 
-                                    socialScreen->getCurrentTab() == SocialScreen::TAB_NOTIFICATIONS;
+        // Check parent (SocialScreen) active first
+        bool isParentActive = isSocialScreenActive && socialScreen->getActive();
         
+        if (!isParentActive) {
+            // Parent not active - just update data, don't draw badge
+            socialScreen->addNotificationFromSocket(notificationId, notificationType, notificationMessage, notificationTimestamp, notificationRead);
+            Serial.println("Socket Manager: Social screen not active - data updated only");
+            return;
+        }
+        
+        // Check child screen state
+        SocialScreen::ScreenState screenState = socialScreen->getScreenState();
+        
+        // Check if child game screens are active
+        if (screenState == SocialScreen::STATE_PLAYING_GAME) {
+            if (socialScreen->getCaroGameScreen() != nullptr && 
+                socialScreen->getCaroGameScreen()->isActive()) {
+                // Game screen active - just update data, don't draw badge
+                socialScreen->addNotificationFromSocket(notificationId, notificationType, notificationMessage, notificationTimestamp, notificationRead);
+                Serial.println("Socket Manager: Caro game active - data updated only");
+                return;
+            }
+        } else if (screenState == SocialScreen::STATE_WAITING_GAME) {
+            if (socialScreen->getGameLobby() != nullptr && 
+                socialScreen->getGameLobby()->isActive()) {
+                // Lobby active - just update data, don't draw badge
+                socialScreen->addNotificationFromSocket(notificationId, notificationType, notificationMessage, notificationTimestamp, notificationRead);
+                Serial.println("Socket Manager: Game lobby active - data updated only");
+                return;
+            }
+        }
+        
+        // Parent active + no child screen focused = can draw badge
         Serial.println("Socket Manager: Forwarding notification to SocialScreen...");
-        // Luôn gọi addNotificationFromSocket để thêm notification vào list
-        // (method này sẽ tự xử lý badge và redraw)
         socialScreen->addNotificationFromSocket(notificationId, notificationType, notificationMessage, notificationTimestamp, notificationRead);
         Serial.println("Socket Manager: Notification forwarded");
         
-        // Nếu SocialScreen không active, badge sẽ được hiển thị khi user vào Social screen
-        if (!isSocialScreenActive) {
-            Serial.println("Socket Manager: Social screen not active, badge will show when user enters Social screen");
+        // Redraw sidebar to show badge
+        if (isParentActive) {
+            socialScreen->redrawSidebar();
         }
     } else {
         Serial.println("Socket Manager: ⚠️  socialScreen is null!");
@@ -715,9 +745,13 @@ void SocketManager::parseChatMessage(const String& message) {
     }
     
     // Kiểm tra và hiển thị message nếu chat screen đang mở với friend này
+    // Check parent (SocialScreen) active first
+    bool isSocialParentActive = isSocialScreenActive && socialScreen != nullptr && socialScreen->getActive();
+    
     bool messageDisplayed = false;
-    if (isChatScreenActive && currentChatFriendUserId == fromUserId && chatScreen != nullptr) {
-        Serial.println("Socket Manager: ✅ ChatScreen is active and matches friend - adding message to chat");
+    if (isSocialParentActive && isChatScreenActive && currentChatFriendUserId == fromUserId && 
+        chatScreen != nullptr && chatScreen->isActive()) {
+        Serial.println("Socket Manager: ✅ Parent active + ChatScreen active - adding message");
         chatScreen->addMessage(chatMessage, false);  // false = message từ friend
         chatScreen->redrawMessages();  // Chỉ vẽ lại phần messages
         Serial.println("Socket Manager: Message added to ChatScreen and redrawn");
@@ -737,8 +771,42 @@ void SocketManager::parseChatMessage(const String& message) {
         Serial.print(fromNickname);
         Serial.println(")");
         
-        // Check if user is on Social screen and on Friends tab
-        bool isOnFriendsTab = isSocialScreenActive && 
+        // Check parent screen active first
+        bool isParentActive = isSocialScreenActive && socialScreen->getActive();
+        
+        if (!isParentActive) {
+            // Parent not active - just update data, don't draw badge
+            socialScreen->addUnreadChatForFriend(fromUserId);
+            Serial.println("Socket Manager: Social screen not active - data updated only");
+            return;
+        }
+        
+        // Check child screen state
+        SocialScreen::ScreenState screenState = socialScreen->getScreenState();
+        
+        // Check if child game screens are active (if so, don't draw badge)
+        if (screenState == SocialScreen::STATE_PLAYING_GAME) {
+            // In game - check if caro game screen is active
+            if (socialScreen->getCaroGameScreen() != nullptr && 
+                socialScreen->getCaroGameScreen()->isActive()) {
+                // Child game screen active - just update data, don't draw badge
+                socialScreen->addUnreadChatForFriend(fromUserId);
+                Serial.println("Socket Manager: Caro game active - data updated only");
+                return;
+            }
+        } else if (screenState == SocialScreen::STATE_WAITING_GAME) {
+            // In lobby - check if lobby is active
+            if (socialScreen->getGameLobby() != nullptr && 
+                socialScreen->getGameLobby()->isActive()) {
+                // Child lobby active - just update data, don't draw badge
+                socialScreen->addUnreadChatForFriend(fromUserId);
+                Serial.println("Socket Manager: Game lobby active - data updated only");
+                return;
+            }
+        }
+        
+        // Parent active + no child screen focused = can draw badge
+        bool isOnFriendsTab = screenState == SocialScreen::STATE_NORMAL &&
                               socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS;
         
         // Luôn add unread count cho friend (để hiển thị badge trên friend card)
@@ -748,13 +816,9 @@ void SocketManager::parseChatMessage(const String& message) {
             // User is not viewing Friends tab, set badge trên Friends icon
             socialScreen->setHasUnreadChat(true);
             
-            // Redraw sidebar if Social screen is active to show badge immediately
-            if (isSocialScreenActive) {
-                Serial.println("Socket Manager: Redrawing sidebar to show badge immediately");
-                socialScreen->redrawSidebar();
-            } else {
-                Serial.println("Socket Manager: Social screen not active, badge will show when user enters Social screen");
-            }
+            // Redraw sidebar if Social screen is active AND visible to show badge immediately
+            Serial.println("Socket Manager: Redrawing sidebar to show badge immediately");
+            socialScreen->redrawSidebar();
         } else {
             // User is on Friends tab, badge sẽ hiển thị trên friend card
             Serial.println("Socket Manager: User is on Friends tab, badge will show on friend card");
@@ -947,10 +1011,76 @@ void SocketManager::parseUserStatusUpdate(const String& message) {
     Serial.print("Socket Manager: Parsed status: ");
     Serial.println(status);
     
-    if (onUserStatusUpdateCallback != nullptr) {
-        onUserStatusUpdateCallback(userId, status);
+    // Check parent screen active first before updating UI
+    if (socialScreen != nullptr) {
+        bool isParentActive = isSocialScreenActive && socialScreen->getActive();
+        
+        if (isParentActive) {
+            // Check child screen state to determine if we should update UI
+            SocialScreen::ScreenState screenState = socialScreen->getScreenState();
+            
+            // Check child screen active first
+            if (screenState == SocialScreen::STATE_PLAYING_GAME) {
+                // Check if caro game screen is active
+                if (socialScreen->getCaroGameScreen() != nullptr && 
+                    socialScreen->getCaroGameScreen()->isActive()) {
+                    Serial.println("Socket Manager: Caro game active - skip UI update");
+                    return;  // Skip callback, don't update UI
+                }
+            } else if (screenState == SocialScreen::STATE_WAITING_GAME) {
+                // Check if lobby is active
+                if (socialScreen->getGameLobby() != nullptr && 
+                    socialScreen->getGameLobby()->isActive()) {
+                    // Lobby active - can update status in lobby
+                    if (onUserStatusUpdateCallback != nullptr) {
+                        onUserStatusUpdateCallback(userId, status);
+                    }
+                    return;
+                }
+            } else if (screenState == SocialScreen::STATE_NORMAL) {
+                // Check if on Friends tab
+                bool isOnFriendsTab = socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS;
+                if (isOnFriendsTab) {
+                    // Check if MiniAddFriend is active (if so, don't update)
+                    if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
+                        if (socialScreen->getMiniAddFriend() != nullptr && 
+                            socialScreen->getMiniAddFriend()->isActive()) {
+                            // MiniAddFriend active - just update data
+                            if (onUserStatusUpdateCallback != nullptr) {
+                                onUserStatusUpdateCallback(userId, status);
+                            }
+                            return;
+                        }
+                    }
+                    // Friends tab active - update status dot
+                    if (onUserStatusUpdateCallback != nullptr) {
+                        onUserStatusUpdateCallback(userId, status);
+                    }
+                } else {
+                    // Not on Friends tab - just update data
+                    Serial.println("Socket Manager: User status updated but not on Friends tab - data updated only");
+                    if (onUserStatusUpdateCallback != nullptr) {
+                        onUserStatusUpdateCallback(userId, status);
+                    }
+                }
+            } else {
+                // Other states - just update data
+                if (onUserStatusUpdateCallback != nullptr) {
+                    onUserStatusUpdateCallback(userId, status);
+                }
+            }
+        } else {
+            // Parent not active - don't call callback at all
+            Serial.println("Socket Manager: Social screen not active - skipping callback (no UI update)");
+            return;  // Don't call callback, just return
+        }
     } else {
-        Serial.println("Socket Manager: ⚠️ No callback set for user status update");
+        // No social screen - just call callback
+        if (onUserStatusUpdateCallback != nullptr) {
+            onUserStatusUpdateCallback(userId, status);
+        } else {
+            Serial.println("Socket Manager: ⚠️ No callback set for user status update");
+        }
     }
 }
 
@@ -1123,13 +1253,119 @@ void SocketManager::parseGameEvent(const String& message) {
     Serial.print(", status: ");
     Serial.println(status);
 
-    if (onGameEventCallback != nullptr) {
-        onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+    // Handle move events separately
+    if (eventType == "move") {
+        int moveRow = -1;
+        int moveCol = -1;
+        String moveGameStatus = "";
+        int moveWinnerId = -1;
+        
+        // Parse move-specific fields
+        int rowStart = message.indexOf("\"row\":", searchStart);
+        if (rowStart >= 0) {
+            int valueStart = message.indexOf(":", rowStart) + 1;
+            int valueEnd = message.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+            if (valueEnd > valueStart) {
+                moveRow = message.substring(valueStart, valueEnd).toInt();
+            }
+        }
+        
+        int colStart = message.indexOf("\"col\":", searchStart);
+        if (colStart >= 0) {
+            int valueStart = message.indexOf(":", colStart) + 1;
+            int valueEnd = message.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+            if (valueEnd > valueStart) {
+                moveCol = message.substring(valueStart, valueEnd).toInt();
+            }
+        }
+        
+        int gameStatusStart = message.indexOf("\"game_status\":\"", searchStart);
+        if (gameStatusStart >= 0) {
+            int valueStart = gameStatusStart + 15;
+            int valueEnd = message.indexOf("\"", valueStart);
+            if (valueEnd > valueStart) {
+                moveGameStatus = message.substring(valueStart, valueEnd);
+            }
+        }
+        
+        int winnerIdStart = message.indexOf("\"winner_id\":", searchStart);
+        if (winnerIdStart >= 0) {
+            int valueStart = message.indexOf(":", winnerIdStart) + 1;
+            int valueEnd = message.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+            String winnerStr = message.substring(valueStart, valueEnd);
+            winnerStr.trim();
+            if (winnerStr != "null" && winnerStr.length() > 0) {
+                moveWinnerId = winnerStr.toInt();
+            }
+        }
+        
+        // Parse current_turn from event
+        int currentTurn = -1;
+        int currentTurnStart = message.indexOf("\"current_turn\":", searchStart);
+        if (currentTurnStart >= 0) {
+            int valueStart = message.indexOf(":", currentTurnStart) + 1;
+            int valueEnd = message.indexOf(",", valueStart);
+            if (valueEnd < 0) valueEnd = message.indexOf("}", valueStart);
+            if (valueEnd > valueStart) {
+                currentTurn = message.substring(valueStart, valueEnd).toInt();
+            }
+        }
+        
+        if (onGameMoveCallback != nullptr && moveRow >= 0 && moveCol >= 0) {
+            onGameMoveCallback(sessionId, userId, moveRow, moveCol, moveGameStatus, moveWinnerId, currentTurn);
+        }
+        return; // Don't process move events as regular game events
     }
-
-    // Also surface as notification for UI reuse
+    
+    // Check parent (SocialScreen) active first
     if (socialScreen != nullptr) {
-        socialScreen->addGameInviteFromSocket(sessionId, gameType, status, eventType, hostNickname);
+        bool isParentActive = isSocialScreenActive && socialScreen->getActive();
+        
+        if (!isParentActive) {
+            Serial.println("Socket Manager: Social screen not active - skipping game event");
+            return;
+        }
+        
+        // Check child screen state
+        SocialScreen::ScreenState screenState = socialScreen->getScreenState();
+        
+        if (screenState == SocialScreen::STATE_PLAYING_GAME) {
+            // Check if caro game screen is active
+            if (socialScreen->getCaroGameScreen() != nullptr && 
+                socialScreen->getCaroGameScreen()->isActive()) {
+                // Game screen active - handle game move events (already handled above)
+                // Other game events in game screen - just update data
+                if (onGameEventCallback != nullptr) {
+                    onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+                }
+                return;
+            }
+        } else if (screenState == SocialScreen::STATE_WAITING_GAME) {
+            // Check if lobby is active
+            if (socialScreen->getGameLobby() != nullptr && 
+                socialScreen->getGameLobby()->isActive()) {
+                // Lobby active - handle game events
+                if (onGameEventCallback != nullptr) {
+                    onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+                }
+                return;
+            }
+        } else if (screenState == SocialScreen::STATE_NORMAL) {
+            // Normal state - handle game invites
+            if (onGameEventCallback != nullptr) {
+                onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+            }
+            // Also surface as notification for UI reuse
+            socialScreen->addGameInviteFromSocket(sessionId, gameType, status, eventType, hostNickname);
+        }
+    } else {
+        // No social screen - just call callback
+        if (onGameEventCallback != nullptr) {
+            onGameEventCallback(eventType, sessionId, gameType, status, userId, accepted, ready, userNickname);
+        }
     }
 }
 

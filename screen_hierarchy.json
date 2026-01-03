@@ -1,0 +1,341 @@
+{
+  "application": "ESP32 Tiny Game",
+  "version": "1.0",
+  "description": "Screen hierarchy and navigation structure",
+  "screens": [
+    {
+      "id": "wifi_manager",
+      "className": "WiFiManager",
+      "type": "parent",
+      "filePath": {
+        "header": "src/wifi_manager.h",
+        "implementation": "src/wifi_manager.cpp"
+      },
+      "hasActive": false,
+      "displayCondition": "Initial screen when device starts",
+      "states": [
+        "WIFI_STATE_SCAN",
+        "WIFI_STATE_SELECT",
+        "WIFI_STATE_PASSWORD",
+        "WIFI_STATE_CONNECTING",
+        "WIFI_STATE_CONNECTED",
+        "WIFI_STATE_ERROR"
+      ],
+      "children": [
+        {
+          "id": "wifi_list",
+          "className": "WiFiListScreen",
+          "type": "child",
+          "parent": "wifi_manager",
+          "filePath": {
+            "header": "src/wifi_list.h",
+            "implementation": "src/wifi_list.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "state == WIFI_STATE_SELECT"
+        },
+        {
+          "id": "wifi_password",
+          "className": "WiFiPasswordScreen",
+          "type": "child",
+          "parent": "wifi_manager",
+          "filePath": {
+            "header": "src/wifi_password.h",
+            "implementation": "src/wifi_password.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "state == WIFI_STATE_PASSWORD"
+        }
+      ]
+    },
+    {
+      "id": "login_screen",
+      "className": "LoginScreen",
+      "type": "parent",
+      "filePath": {
+        "header": "src/login_screen.h",
+        "implementation": "src/login_screen.cpp"
+      },
+      "hasActive": false,
+      "displayCondition": "Shown after WiFi connection is established",
+      "states": [
+        "LOGIN_USERNAME",
+        "LOGIN_PIN",
+        "LOGIN_SUCCESS",
+        "LOGIN_SHOWING_DIALOG",
+        "LOGIN_NICKNAME"
+      ],
+      "children": [
+        {
+          "id": "pin_screen",
+          "className": "PinScreen",
+          "type": "child",
+          "parent": "login_screen",
+          "filePath": {
+            "header": "src/pin_screen.h",
+            "implementation": "src/pin_screen.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "state == LOGIN_PIN"
+        },
+        {
+          "id": "nickname_screen",
+          "className": "NicknameScreen",
+          "type": "child",
+          "parent": "login_screen",
+          "filePath": {
+            "header": "src/nickname_screen.h",
+            "implementation": "src/nickname_screen.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "state == LOGIN_NICKNAME"
+        },
+        {
+          "id": "login_confirmation_dialog",
+          "className": "ConfirmationDialog",
+          "type": "child",
+          "parent": "login_screen",
+          "filePath": {
+            "header": "src/confirmation_dialog.h",
+            "implementation": "src/confirmation_dialog.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "state == LOGIN_SHOWING_DIALOG"
+        }
+      ]
+    },
+    {
+      "id": "social_screen",
+      "className": "SocialScreen",
+      "type": "parent",
+      "filePath": {
+        "header": "src/social_screen.h",
+        "implementation": "src/social_screen.cpp"
+      },
+      "hasActive": true,
+      "displayCondition": "Shown after successful login",
+      "states": [
+        "STATE_NORMAL",
+        "STATE_WAITING_GAME",
+        "STATE_PLAYING_GAME"
+      ],
+      "tabs": [
+        {
+          "id": "TAB_FRIENDS",
+          "name": "Friends",
+          "description": "Friends list with online status and chat badges"
+        },
+        {
+          "id": "TAB_NOTIFICATIONS",
+          "name": "Notifications",
+          "description": "Friend requests and other notifications"
+        },
+        {
+          "id": "TAB_ADD_FRIEND",
+          "name": "Add Friend",
+          "description": "Add new friends by username"
+        },
+        {
+          "id": "TAB_GAMES",
+          "name": "Games",
+          "description": "Game selection menu"
+        }
+      ],
+      "children": [
+        {
+          "id": "mini_add_friend_screen",
+          "className": "MiniAddFriendScreen",
+          "type": "child",
+          "parent": "social_screen",
+          "filePath": {
+            "header": "src/mini_add_friend_screen.h",
+            "implementation": "src/mini_add_friend_screen.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "currentTab == TAB_ADD_FRIEND"
+        },
+        {
+          "id": "game_lobby_screen",
+          "className": "GameLobbyScreen",
+          "type": "child",
+          "parent": "social_screen",
+          "filePath": {
+            "header": "src/game_lobby_screen.h",
+            "implementation": "src/game_lobby_screen.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "screenState == STATE_WAITING_GAME"
+        },
+        {
+          "id": "caro_game_screen",
+          "className": "CaroGameScreen",
+          "type": "child",
+          "parent": "social_screen",
+          "filePath": {
+            "header": "src/caro_game_screen.h",
+            "implementation": "src/caro_game_screen.cpp"
+          },
+          "hasActive": true,
+          "displayCondition": "screenState == STATE_PLAYING_GAME && gameType == 'caro'"
+        },
+        {
+          "id": "social_confirmation_dialog",
+          "className": "ConfirmationDialog",
+          "type": "child",
+          "parent": "social_screen",
+          "filePath": {
+            "header": "src/confirmation_dialog.h",
+            "implementation": "src/confirmation_dialog.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "Can be shown in any state when confirmation is needed"
+        }
+      ]
+    },
+    {
+      "id": "chat_screen",
+      "className": "ChatScreen",
+      "type": "parent",
+      "filePath": {
+        "header": "src/chat_screen.h",
+        "implementation": "src/chat_screen.cpp"
+      },
+      "hasActive": true,
+      "displayCondition": "Opened from SocialScreen when user selects a friend to chat",
+      "states": [],
+      "children": [
+        {
+          "id": "chat_confirmation_dialog",
+          "className": "ConfirmationDialog",
+          "type": "child",
+          "parent": "chat_screen",
+          "filePath": {
+            "header": "src/confirmation_dialog.h",
+            "implementation": "src/confirmation_dialog.cpp"
+          },
+          "hasActive": false,
+          "displayCondition": "Shown when user wants to unfriend"
+        }
+      ]
+    }
+  ],
+  "navigationFlow": {
+    "initial": "wifi_manager",
+    "transitions": [
+      {
+        "from": "wifi_manager",
+        "to": "login_screen",
+        "condition": "WiFi connected (WIFI_STATE_CONNECTED)"
+      },
+      {
+        "from": "login_screen",
+        "to": "social_screen",
+        "condition": "Login successful (LOGIN_SUCCESS)"
+      },
+      {
+        "from": "social_screen",
+        "to": "chat_screen",
+        "condition": "User selects friend from Friends tab"
+      },
+      {
+        "from": "chat_screen",
+        "to": "social_screen",
+        "condition": "User exits chat (back button)"
+      },
+      {
+        "from": "social_screen",
+        "to": "game_lobby_screen",
+        "condition": "User creates/joins game session (STATE_WAITING_GAME)"
+      },
+      {
+        "from": "game_lobby_screen",
+        "to": "caro_game_screen",
+        "condition": "Game started (STATE_PLAYING_GAME)"
+      },
+      {
+        "from": "caro_game_screen",
+        "to": "game_lobby_screen",
+        "condition": "User exits game (back to lobby)"
+      },
+      {
+        "from": "game_lobby_screen",
+        "to": "social_screen",
+        "condition": "User exits lobby (back to Games tab)"
+      }
+    ]
+  },
+  "activeStateManagement": {
+    "description": "Screens with 'active' variable control badge visibility and socket event handling",
+    "screensWithActive": [
+      {
+        "id": "social_screen",
+        "method": "setActive(bool), getActive()",
+        "purpose": "Control badge visibility for notifications and chat"
+      },
+      {
+        "id": "chat_screen",
+        "method": "setActive(bool), isActive()",
+        "purpose": "Control message handling and UI updates"
+      },
+      {
+        "id": "caro_game_screen",
+        "method": "setActive(bool), isActive()",
+        "purpose": "Control game move handling and UI updates"
+      }
+    ]
+  },
+  "sharedComponents": [
+    {
+      "id": "keyboard",
+      "className": "Keyboard",
+      "filePath": {
+        "header": "src/keyboard.h",
+        "implementation": "src/keyboard.cpp"
+      },
+      "usedBy": [
+        "wifi_manager",
+        "login_screen",
+        "social_screen",
+        "chat_screen"
+      ]
+    },
+    {
+      "id": "mini_keyboard",
+      "className": "MiniKeyboard",
+      "filePath": {
+        "header": "src/mini_keyboard.h",
+        "implementation": "src/mini_keyboard.cpp"
+      },
+      "usedBy": [
+        "mini_add_friend_screen"
+      ]
+    },
+    {
+      "id": "confirmation_dialog",
+      "className": "ConfirmationDialog",
+      "filePath": {
+        "header": "src/confirmation_dialog.h",
+        "implementation": "src/confirmation_dialog.cpp"
+      },
+      "usedBy": [
+        "login_screen",
+        "social_screen",
+        "chat_screen"
+      ]
+    },
+    {
+      "id": "socket_manager",
+      "className": "SocketManager",
+      "filePath": {
+        "header": "src/socket_manager.h",
+        "implementation": "src/socket_manager.cpp"
+      },
+      "usedBy": [
+        "social_screen",
+        "chat_screen"
+      ],
+      "purpose": "Handles WebSocket communication, chat messages, notifications, game events"
+    }
+  ]
+}
+

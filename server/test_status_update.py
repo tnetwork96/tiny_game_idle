@@ -18,7 +18,7 @@ async def send_online_status():
     print("=" * 60)
     print()
     
-    user_id = 5
+    user_id = 3
     # Thử cả localhost và IP local
     ws_urls = [
         "ws://192.168.1.7:8080/ws",

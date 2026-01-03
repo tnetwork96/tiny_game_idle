@@ -8,6 +8,8 @@ GameLobbyScreen::GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme)
     this->lobbyFriends = nullptr;
     this->selectedFriendIndex = 0;
     this->startButtonFocused = true;
+    this->autoStartTriggered = false;
+    this->active = false;  // Initially inactive
     this->onStart = nullptr;
     this->onExit = nullptr;
 }
@@ -18,6 +20,7 @@ void GameLobbyScreen::setup(const String& gameName, const String& hostName) {
     this->players[1] = {"", false, true};       // Guest slot empty
     this->currentFocus = FOCUS_RIGHT_PANEL;
     this->startButtonFocused = true;
+    this->autoStartTriggered = false;  // Reset flag when setting up new lobby
     this->startTimeSimulation = millis();
 }
 
@@ -145,8 +148,8 @@ void GameLobbyScreen::drawStartButton() {
     const uint16_t btnX = panelX + (240 - btnW) / 2;
     const uint16_t btnY = 195;
 
-    bool canStart = !players[1].isEmpty;
-    uint16_t btnColor = canStart ? theme.colorSuccess : theme.colorTextMuted;
+    // Luôn sáng mặc định (không cần check guest)
+    uint16_t btnColor = theme.colorSuccess;
     
     bool isFocused = (currentFocus == FOCUS_RIGHT_PANEL && startButtonFocused);
     
@@ -189,11 +192,57 @@ void GameLobbyScreen::handleKeyPress(const String& key) {
         if (currentFocus == FOCUS_LEFT_PANEL) {
             Serial.println("Lobby: Inviting friend " + lobbyFriends[selectedFriendIndex].name);
         } else if (currentFocus == FOCUS_RIGHT_PANEL && startButtonFocused) {
-            if (!players[1].isEmpty && onStart) {
+            // Luôn cho phép click START (bỏ điều kiện check guest)
+            if (onStart) {
                 onStart();
+            } else {
+                Serial.println("Lobby: ⚠️ onStart callback is NULL!");
             }
         }
     } else if (key == "<" || key == "|b") {
         if (onExit) onExit();
+    }
+}
+
+void GameLobbyScreen::triggerStart() {
+    // Trigger start callback programmatically
+    if (onStart) {
+        Serial.println("Game Lobby: Auto-triggering START");
+        onStart();
+    } else {
+        Serial.println("Game Lobby: ⚠️ onStart callback is NULL!");
+    }
+}
+
+void GameLobbyScreen::update() {
+    // Check if 10 seconds have passed since setup
+    unsigned long elapsed = millis() - startTimeSimulation;
+    
+    // Debug log every second
+    static unsigned long lastLogTime = 0;
+    if (elapsed - lastLogTime >= 1000) {
+        Serial.print("Game Lobby: Elapsed time: ");
+        Serial.print(elapsed / 1000);
+        Serial.print("s, Guest present: ");
+        Serial.println(!players[1].isEmpty ? "YES" : "NO");
+        lastLogTime = elapsed - (elapsed % 1000);
+    }
+    
+    if (elapsed >= 10000 && !autoStartTriggered) {
+        // Check if guest has joined
+        if (!players[1].isEmpty) {
+            Serial.println("Game Lobby: Auto-starting game after 10 seconds (guest present)");
+            autoStartTriggered = true;
+            if (onStart != nullptr) {
+                Serial.println("Game Lobby: Calling onStart callback");
+                onStart();
+            } else {
+                Serial.println("Game Lobby: ⚠️ onStart callback is NULL!");
+            }
+        } else {
+            Serial.println("Game Lobby: 10 seconds passed but no guest yet");
+            // Mark as checked to avoid repeated checks
+            autoStartTriggered = true;
+        }
     }
 }

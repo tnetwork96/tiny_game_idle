@@ -110,6 +110,9 @@ private:
     bool needsInputRedraw;          // Indicates input box needs redraw
     unsigned long lastAnimationUpdate;  // Timestamp of last animation update
     
+    // Active state
+    bool active;                    // Whether this screen is currently active
+    
     // Vẽ tiêu đề
     void drawTitle();
     
@@ -252,6 +255,10 @@ public:
     void setOwnerNickname(String nickname) { ownerNickname = nickname; }
     String getFriendNickname() const { return friendNickname; }
     void setFriendNickname(String nickname) { friendNickname = nickname; }
+    
+    // Active state
+    bool isActive() const { return active; }
+    void setActive(bool active) { this->active = active; }
     // Owner user ID
     void setOwnerUserId(int userId) { ownerUserId = userId; }
     int getOwnerUserId() const { return ownerUserId; }

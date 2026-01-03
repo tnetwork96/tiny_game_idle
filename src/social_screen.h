@@ -16,6 +16,7 @@
 // Forward declaration
 class SocketManager;
 class GameLobbyScreen;
+class CaroGameScreen;
 
 // Social screen with sidebar tabs: Friends, Notifications, Add Friend
 class SocialScreen {
@@ -29,7 +30,8 @@ public:
     
     enum ScreenState {
         STATE_NORMAL = 0,
-        STATE_WAITING_GAME
+        STATE_WAITING_GAME,
+        STATE_PLAYING_GAME
     };
     
     // Game identifiers
@@ -161,6 +163,24 @@ public:
     // Screen state helpers
     void setScreenState(ScreenState state) { screenState = state; }
     ScreenState getScreenState() const { return screenState; }
+    
+    // Active state (to know if screen is currently visible/active)
+    void setActive(bool active);
+    bool getActive() const { return isActive; }
+    
+    // Getter methods for child screens (for keyboard routing and socket checks)
+    CaroGameScreen* getCaroGameScreen() const { return caroGameScreen; }
+    GameLobbyScreen* getGameLobby() const { return gameLobby; }
+    MiniAddFriendScreen* getMiniAddFriend() const { return miniAddFriend; }
+    
+    // Update method for periodic checks (auto-start timer, etc.)
+    void update();
+    
+    // Game management
+    void startGame();
+    void exitLobby();
+    void exitGame();
+    void onGameMoveReceived(int sessionId, int userId, int row, int col, const String& gameStatus, int winnerId, int currentTurn);
 
 private:
     Adafruit_ST7789* tft;
@@ -169,6 +189,7 @@ private:
     MiniAddFriendScreen* miniAddFriend;
     ConfirmationDialog* confirmationDialog;
     GameLobbyScreen* gameLobby;
+    CaroGameScreen* caroGameScreen;
     
     // Theme configuration (hot-swappable visual style)
     SocialTheme currentTheme;
@@ -215,8 +236,12 @@ private:
     // Games data (Game Hub)
     int selectedGameIndex;
     String pendingGameName;
+    int currentGameSessionId;
+    String currentGameHostName;
+    String currentGameGuestName;
     
     ScreenState screenState;
+    bool isActive;  // Track if SocialScreen is currently active/visible
     
     // Semaphore for thread-safe access to notifications array
     SemaphoreHandle_t notificationsMutex;

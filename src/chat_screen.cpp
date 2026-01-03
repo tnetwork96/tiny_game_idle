@@ -124,6 +124,9 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->needsInputRedraw = true;
     this->lastAnimationUpdate = 0;
     
+    // Khởi tạo active state
+    this->active = false;  // Initially inactive
+    
     // Tính lại bố cục sau khi khởi tạo
     recalculateLayout();
 }

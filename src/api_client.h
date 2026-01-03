@@ -58,6 +58,28 @@ public:
         String status;
         int participantCount;
     };
+
+    struct GameMoveResult {
+        bool success;
+        String message;
+        int moveId;
+        String gameStatus;
+        int winnerId;
+    };
+
+    struct GameStateResult {
+        bool success;
+        String message;
+        int sessionId;
+        String gameType;
+        String status;
+        int currentTurn;
+        int moveCount;
+        String hostName;
+        String guestName;
+        int hostId;
+        int guestId;
+    };
     
     static LoginResult checkLogin(const String& username, const String& pin, const String& serverHost, uint16_t port);
     static bool createAccount(const String& username, const String& pin, const String& nickname, const String& serverHost, uint16_t port);
@@ -73,6 +95,8 @@ public:
     static GameSessionResult respondGameInvite(int sessionId, int userId, bool accept, const String& serverHost, uint16_t port);
     static GameSessionResult setGameReady(int sessionId, int userId, bool ready, const String& serverHost, uint16_t port);
     static GameSessionResult leaveGameSession(int sessionId, int userId, const String& serverHost, uint16_t port);
+    static GameMoveResult submitGameMove(int sessionId, int userId, int row, int col, const String& serverHost, uint16_t port);
+    static GameStateResult getGameState(int sessionId, const String& serverHost, uint16_t port);
     static void printResponse(const String& response);
     
 private:

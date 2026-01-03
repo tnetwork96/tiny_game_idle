@@ -28,6 +28,7 @@ public:
     void setup(const String& gameName, const String& hostName);
     void draw();
     void handleKeyPress(const String& key);
+    void update();  // Check auto-start timer
     
     // Setters for dynamic data
     void setGuest(const String& name);
@@ -40,6 +41,13 @@ public:
     typedef void (*OnExitLobbyCallback)();
     void setOnStartGame(OnStartGameCallback cb) { onStart = cb; }
     void setOnExit(OnExitLobbyCallback cb) { onExit = cb; }
+    
+    // Trigger start programmatically
+    void triggerStart();
+    
+    // Active state
+    bool isActive() const { return active; }
+    void setActive(bool active) { this->active = active; }
 
 private:
     Adafruit_ST7789* tft;
@@ -53,6 +61,8 @@ private:
     int selectedFriendIndex;
     bool startButtonFocused;
     unsigned long startTimeSimulation;
+    bool autoStartTriggered;  // Flag to prevent multiple auto-start triggers
+    bool active;  // Whether this screen is currently active
 
     OnStartGameCallback onStart;
     OnExitLobbyCallback onExit;
