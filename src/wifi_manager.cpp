@@ -185,7 +185,7 @@ void WiFiManager::update() {
             Serial.println("WiFi Manager: Connected successfully!");
             Serial.print("WiFi Manager: IP Address: ");
             Serial.println(WiFi.localIP());
-            Serial.println("WiFi Manager: Transitioning to game menu...");
+            Serial.println("WiFi Manager: Transitioning to login screen immediately...");
             
             // Initialize socket session after WiFi connection
             extern SocketManager* socketManager;  // Forward declaration
@@ -195,53 +195,8 @@ void WiFiManager::update() {
                 socketManager->begin("192.168.1.7", 8080, "/ws");
             }
             
-            // Hiển thị thông tin kết nối lên màn hình TFT
-            tft->fillScreen(ST77XX_BLACK);
-            
-            // Hiển thị "Connected!" với màu xanh lá
-            tft->setTextColor(NEON_GREEN, ST77XX_BLACK);
-            tft->setTextSize(2);
-            tft->setCursor(10, 30);
-            tft->print("Connected!");
-            
-            // Hiển thị SSID
-            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
-            tft->setTextSize(1);
-            tft->setCursor(10, 70);
-            tft->print("SSID: ");
-            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
-            tft->print(selectedSSID);
-            
-            // Hiển thị IP Address
-            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
-            tft->setCursor(10, 90);
-            tft->print("IP: ");
-            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
-            IPAddress ip = WiFi.localIP();
-            tft->print(ip[0]);
-            tft->print(".");
-            tft->print(ip[1]);
-            tft->print(".");
-            tft->print(ip[2]);
-            tft->print(".");
-            tft->print(ip[3]);
-            
-            // Hiển thị RSSI (signal strength)
-            tft->setTextColor(SOFT_WHITE, ST77XX_BLACK);
-            tft->setCursor(10, 110);
-            tft->print("Signal: ");
-            tft->setTextColor(YELLOW_ORANGE, ST77XX_BLACK);
-            int rssi = WiFi.RSSI();
-            tft->print(rssi);
-            tft->print(" dBm");
-            
-            // Hiển thị thông báo chuyển tiếp
-            tft->setTextColor(NEON_CYAN, ST77XX_BLACK);
-            tft->setTextSize(1);
-            tft->setCursor(10, 150);
-            tft->print("Loading game menu...");
-            
-            // Note: Game menu will be drawn by main.cpp after checking isConnected()
+            // Skip "Connected!" screen - main.cpp will check isConnected() and transition immediately
+            // Note: Login screen will be drawn by main.cpp after checking isConnected()
         } else if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
             // Connection failed immediately - không cần đợi timeout
             currentState = WIFI_STATE_ERROR;

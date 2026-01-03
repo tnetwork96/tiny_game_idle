@@ -10,22 +10,22 @@ WiFiPasswordScreen::WiFiPasswordScreen(Adafruit_ST7789* tft, Keyboard* keyboard)
     // Initialize layout (màn hình 320x240 landscape)
     const uint16_t headerHeight = 30;
     this->headerHeight = headerHeight;
-    this->inputBoxY = headerHeight + 20;  // Below header with margin
-    this->inputBoxHeight = 40;  // Input box height
-    this->inputBoxWidth = 300;  // Width for 320px screen (with margins)
+    this->inputBoxY = 45;  // Position at Y=45 (matching LoginScreen/PinScreen, ensures no keyboard overlap)
+    this->inputBoxHeight = 40;  // Chunky, touch-friendly height
+    this->inputBoxWidth = 280;  // Width matching LoginScreen/PinScreen
     this->maxPasswordLength = 20;
     
     // Initialize password
     this->password = "";
     
-    // Initialize colors (Deep Space Arcade Theme)
+    // Initialize colors (Deep Space Arcade Theme - matching LoginScreen/PinScreen)
     this->bgColor = 0x0042;           // Deep Midnight Blue background
-    this->headerColor = 0x08A5;        // Header background
+    this->headerColor = 0x08A5;       // Header background
     this->headerTextColor = 0xFFFF;   // White text for header
-    this->inputBoxBgColor = 0x1148;   // Electric Blue tint for input box
+    this->inputBoxBgColor = 0x0021;   // Darker Blue for input box (matching LoginScreen)
     this->inputBoxBorderColor = 0x07FF;  // Cyan border
     this->textColor = 0xFFFF;         // White text
-    this->placeholderColor = 0x08A5;  // Dimmed cyan/grey for placeholder
+    this->placeholderColor = 0x8410;  // Muted gray for placeholder (matching theme)
 }
 
 WiFiPasswordScreen::~WiFiPasswordScreen() {
@@ -38,7 +38,7 @@ void WiFiPasswordScreen::drawHeader() {
     // Draw header bar
     tft->fillRect(0, 0, 320, headerHeight, headerColor);
     
-    // Draw title "Enter Password" centered
+    // Draw title "Enter Password" centered (matching LoginScreen/PinScreen style)
     String title = "Enter Password";
     tft->setTextColor(headerTextColor, headerColor);
     tft->setTextSize(2);
@@ -47,8 +47,8 @@ void WiFiPasswordScreen::drawHeader() {
     tft->setCursor(textX, 8);  // Vertically center in 30px header (text height ~16px)
     tft->print(title);
     
-    // Draw separator line below header
-    tft->drawFastHLine(0, headerHeight - 1, 320, 0x07FF);  // Cyan separator
+    // Draw separator line below header (Cyan accent)
+    tft->drawFastHLine(0, headerHeight - 1, 320, inputBoxBorderColor);
 }
 
 void WiFiPasswordScreen::drawInputBox() {
@@ -58,30 +58,32 @@ void WiFiPasswordScreen::drawInputBox() {
 
 void WiFiPasswordScreen::drawPassword() {
     uint16_t inputBoxX = (320 - inputBoxWidth) / 2;  // Center on 320px width
-    uint16_t textX = inputBoxX + 5;  // Left margin
-    uint16_t textY = inputBoxY + 10;  // Vertically center with inputBoxHeight 40px (text height ~16px)
     
-    // Clear old text area (only text area, not border)
-    uint16_t textAreaHeight = inputBoxHeight - 20;  // Subtract top (10px) and bottom (10px) margins
-    tft->fillRect(textX, textY, inputBoxWidth - 10, textAreaHeight, inputBoxBgColor);
+    // Calculate text to display
+    String displayText = password;
+    bool showPlaceholder = (password.length() == 0);
     
-    // Draw password
-    tft->setTextSize(2);  // Text size 2
-    tft->setCursor(textX, textY);
-    
-    if (password.length() == 0) {
-        // Display placeholder (dimmed cyan/grey for Deep Space Arcade theme)
-        tft->setTextColor(placeholderColor, inputBoxBgColor);
-        tft->print("Enter pwd...");
-    } else {
-        // Display full password
-        tft->setTextColor(textColor, inputBoxBgColor);
-        tft->print(password);
+    if (showPlaceholder) {
+        displayText = "Enter password...";
     }
     
-    // Redraw bottom border to ensure it's not lost
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
+    // Calculate text width for centering (approximate: text size 2 = ~12px per char)
+    int textWidth = displayText.length() * 12;
+    uint16_t textX = inputBoxX + (inputBoxWidth - textWidth) / 2;
+    uint16_t textY = inputBoxY + (inputBoxHeight / 2) - 6;  // Center vertically (text size 2 is ~12px tall)
+    
+    // Clear old text area
+    tft->fillRect(inputBoxX + 4, inputBoxY + 4, inputBoxWidth - 8, inputBoxHeight - 8, inputBoxBgColor);
+    
+    // Draw password text (centered)
+    tft->setTextSize(2);  // Text size 2
+    if (showPlaceholder) {
+        tft->setTextColor(placeholderColor, inputBoxBgColor);
+    } else {
+        tft->setTextColor(textColor, inputBoxBgColor);
+    }
+    tft->setCursor(textX, textY);
+    tft->print(displayText);
 }
 
 void WiFiPasswordScreen::draw() {
@@ -91,33 +93,28 @@ void WiFiPasswordScreen::draw() {
     // Draw header
     drawHeader();
     
-    // Draw input box with border
+    // Draw input box as rounded rectangle (matching LoginScreen/PinScreen style)
     uint16_t inputBoxX = (320 - inputBoxWidth) / 2;  // Center on 320px width
-    tft->fillRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, inputBoxBgColor);
     
-    // Draw all borders (Cyan 0x07FF)
-    // Top border
-    tft->drawFastHLine(inputBoxX, inputBoxY, inputBoxWidth, inputBoxBorderColor);
-    tft->drawFastHLine(inputBoxX, inputBoxY + 1, inputBoxWidth, inputBoxBorderColor);
-    // Bottom border
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
-    // Left border
-    tft->drawFastVLine(inputBoxX, inputBoxY, inputBoxHeight, inputBoxBorderColor);
-    tft->drawFastVLine(inputBoxX + 1, inputBoxY, inputBoxHeight, inputBoxBorderColor);
-    // Right border
-    tft->drawFastVLine(inputBoxX + inputBoxWidth - 2, inputBoxY, inputBoxHeight, inputBoxBorderColor);
-    tft->drawFastVLine(inputBoxX + inputBoxWidth - 1, inputBoxY, inputBoxHeight, inputBoxBorderColor);
+    // Label above input box (muted color, matching LoginScreen/PinScreen style)
+    tft->setTextSize(1);
+    tft->setTextColor(placeholderColor, bgColor);  // Use muted gray for label
+    String label = "WiFi Password";
+    uint16_t labelWidth = label.length() * 6;  // Approximate width for text size 1
+    uint16_t labelX = (320 - labelWidth) / 2;   // Center horizontally
+    tft->setCursor(labelX, inputBoxY - 12);
+    tft->print(label);
     
-    // Draw password
+    // Draw filled rounded rectangle input card
+    tft->fillRoundRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, 6, inputBoxBgColor);
+    // Cyan border
+    tft->drawRoundRect(inputBoxX, inputBoxY, inputBoxWidth, inputBoxHeight, 6, inputBoxBorderColor);
+    
+    // Draw password text (centered)
     drawPassword();
     
     // Draw keyboard (keyboard will draw directly to tft)
     keyboard->draw();
-    
-    // Redraw bottom border after keyboard draws to ensure it's not covered
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, inputBoxBorderColor);
-    tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, inputBoxBorderColor);
 }
 
 void WiFiPasswordScreen::handleKeyPress(String key) {

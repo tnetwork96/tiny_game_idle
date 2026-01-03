@@ -144,6 +144,9 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     // Red dot badge for unread chat messages
     this->hasUnreadChatFlag = false;
     
+    // Initialize auto-navigation demo timer
+    this->lastAutoSwitchTime = millis();
+    
     // Create semaphore for thread-safe notifications access
     notificationsMutex = xSemaphoreCreateMutex();
     if (notificationsMutex == NULL) {
@@ -200,16 +203,6 @@ void SocialScreen::drawTab(int tabIndex, bool isSelected) {
         const uint16_t accentHeight = 20;
         const uint16_t accentY = tabY + (currentTheme.tabHeight - accentHeight) / 2;
         tft->fillRect(1, accentY, 2, accentHeight, currentTheme.colorAccent);
-    }
-    
-    // Draw focus indicator on right edge when sidebar has focus
-    if (isSelected && focusMode == FOCUS_SIDEBAR) {
-        // Bright right border when sidebar focused
-        tft->drawFastVLine(currentTheme.sidebarWidth - 2, tabY + 4, currentTheme.tabHeight - 8, currentTheme.colorAccent);
-        tft->drawFastVLine(currentTheme.sidebarWidth - 1, tabY + 4, currentTheme.tabHeight - 8, currentTheme.colorAccent);
-    } else if (isSelected && focusMode == FOCUS_CONTENT) {
-        // Dimmed right border when content has focus
-        tft->drawFastVLine(currentTheme.sidebarWidth - 1, tabY + 4, currentTheme.tabHeight - 8, currentTheme.colorTextMuted);
     }
     
     // Calculate icon position (centered in tab)
@@ -449,11 +442,9 @@ void SocialScreen::drawFriendsList() {
     // Clear content area
     tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, currentTheme.colorBg);
     
-    // Draw focus indicator: left border when content has focus
-    if (focusMode == FOCUS_CONTENT) {
-        tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-        tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-    }
+    // Draw vertical separator line (always visible)
+    tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+    tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
     
     // Draw modern header
     const uint16_t headerHeight = currentTheme.headerHeight;
@@ -500,11 +491,9 @@ void SocialScreen::drawNotificationsList() {
     // Clear content area
     tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, currentTheme.colorBg);
     
-    // Draw focus indicator: left border when content has focus
-    if (focusMode == FOCUS_CONTENT) {
-        tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-        tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-    }
+    // Draw vertical separator line (always visible)
+    tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+    tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
     
     // Draw modern header
     const uint16_t headerHeight = currentTheme.headerHeight;
@@ -606,11 +595,9 @@ void SocialScreen::drawAddFriendContent() {
     // Clear content area
     tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, currentTheme.colorBg);
     
-    // Draw focus indicator: left border when content has focus
-    if (focusMode == FOCUS_CONTENT) {
-        tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-        tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-    }
+    // Draw vertical separator line (always visible)
+    tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+    tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
     
     // Draw header
     const uint16_t headerHeight = currentTheme.headerHeight;
@@ -629,8 +616,10 @@ void SocialScreen::drawAddFriendContent() {
     uint16_t inputY = 45;  // Moved up from 60 to avoid keyboard overlap (keyboard height: 121px, starts at Y=115)
     
     // Delegate drawing to MiniAddFriendScreen
+    // Pass isActive state to show focus (cyan border when active)
     if (miniAddFriend != nullptr) {
-        miniAddFriend->draw(inputX, inputY, inputW, inputH, focusMode == FOCUS_CONTENT);
+        bool isActive = miniAddFriend->isActive() && (focusMode == FOCUS_CONTENT);
+        miniAddFriend->draw(inputX, inputY, inputW, inputH, isActive);
     }
     
     // Keyboard is drawn by MiniAddFriendScreen::draw()
@@ -640,11 +629,9 @@ void SocialScreen::drawGameMenu() {
     // Clear content area
     tft->fillRect(CONTENT_X, 0, CONTENT_WIDTH, SCREEN_HEIGHT, currentTheme.colorBg);
     
-    // Focus indicator
-    if (focusMode == FOCUS_CONTENT) {
-        tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-        tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
-    }
+    // Draw vertical separator line (always visible)
+    tft->drawFastVLine(CONTENT_X, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
+    tft->drawFastVLine(CONTENT_X + 1, 0, SCREEN_HEIGHT, currentTheme.colorAccent);
     
     // Header
     const uint16_t headerHeight = currentTheme.headerHeight;
@@ -2057,6 +2044,23 @@ void SocialScreen::update() {
     // Update game screen if playing
     if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {
         caroGameScreen->update();
+    }
+    
+    // Auto-navigation demo mode: cycle through tabs every 5 seconds
+    // Only when in normal state (not in game or lobby)
+    // IMPORTANT: This only switches tabs visually - it does NOT trigger game selection or Enter key presses
+    if (screenState == STATE_NORMAL) {
+        unsigned long currentTime = millis();
+        if (currentTime - lastAutoSwitchTime >= 5000) {  // 5 seconds
+            // Calculate next tab index (0-3): Friends -> Notifications -> Add Friend -> Games -> Friends...
+            Tab nextTab = static_cast<Tab>((currentTab + 1) % 4);
+            
+            // Only switch tab - switchTab() only changes the view, it does NOT call handleKeyPress or trigger game actions
+            switchTab(nextTab);
+            
+            // Reset timer after switching to wait 5 seconds at the new tab
+            lastAutoSwitchTime = currentTime;
+        }
     }
 }
 

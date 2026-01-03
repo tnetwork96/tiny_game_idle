@@ -2,11 +2,13 @@
 
 // Deep Space Arcade Theme (matching SocialScreen)
 #define SOCIAL_BG_DARK   0x0042  // Deep Midnight Blue #020817
+#define SOCIAL_INPUT_BG  0x0021  // Dark Blue for input box fill
 #define SOCIAL_HEADER    0x08A5  // Header Blue #0F172A
 #define SOCIAL_ACCENT    0x07FF  // Cyan accent
-#define SOCIAL_TEXT      0xFFFF  // White text
-#define SOCIAL_MUTED     0x8410  // Muted gray text
-#define SOCIAL_ERROR     0xF986  // Bright Red for errors
+#define SOCIAL_TEXT       0xFFFF  // White text
+#define SOCIAL_MUTED      0x8410  // Muted gray text
+#define SOCIAL_ERROR      0xF800  // Red for errors
+#define SOCIAL_SUCCESS    0x07E0  // Green for success messages
 
 MiniAddFriendScreen::MiniAddFriendScreen(Adafruit_ST7789* tft, MiniKeyboard* keyboard) {
     this->tft = tft;
@@ -20,44 +22,59 @@ MiniAddFriendScreen::MiniAddFriendScreen(Adafruit_ST7789* tft, MiniKeyboard* key
 }
 
 void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, bool hasFocus) {
-    // Draw terminal-style input box
-    // Background (card style)
-    tft->fillRoundRect(x, y, w, h, 4, SOCIAL_HEADER);
+    // Draw modern input box with Deep Space theme
+    // Fill with dark blue background
+    tft->fillRoundRect(x, y, w, h, 4, SOCIAL_INPUT_BG);
     
-    // Border - bright cyan when focused, muted otherwise
-    if (hasFocus) {
-        tft->drawRoundRect(x, y, w, h, 4, SOCIAL_ACCENT);
-    } else {
-        tft->drawRoundRect(x, y, w, h, 4, SOCIAL_MUTED);
+    // Border - cyan when focused/active, muted grey otherwise
+    uint16_t borderColor = hasFocus ? SOCIAL_ACCENT : SOCIAL_MUTED;
+    tft->drawRoundRect(x, y, w, h, 4, borderColor);
+    
+    // Prepare text rendering
+    tft->setTextSize(2);
+    
+    // Calculate text position (centered both horizontally and vertically)
+    String displayText = enteredName;
+    bool showPlaceholder = (enteredName.length() == 0);
+    
+    if (showPlaceholder) {
+        displayText = "Enter nickname...";
     }
     
-    // Draw terminal prompt "> "
-    tft->setTextSize(2);
-    tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
-    tft->setCursor(x + 8, y + (h / 2) - 6);
-    tft->print("> ");
+    // Calculate text width for centering (approximate: text size 2 = ~12px per char)
+    int textWidth = displayText.length() * 12;
+    uint16_t textX = x + (w - textWidth) / 2;
+    uint16_t textY = y + (h / 2) - 6;  // Center vertically (text size 2 is ~12px tall)
     
-    // Draw input text or placeholder
-    uint16_t textX = x + 24;  // After "> "
-    tft->setCursor(textX, y + (h / 2) - 6);
-    
-    if (enteredName.length() == 0) {
-        tft->setTextColor(SOCIAL_MUTED, SOCIAL_HEADER);
-        tft->print("Enter Nickname");
+    // Draw placeholder or input text
+    if (showPlaceholder) {
+        tft->setTextColor(SOCIAL_MUTED, SOCIAL_INPUT_BG);
     } else {
-        tft->setTextColor(SOCIAL_TEXT, SOCIAL_HEADER);
-        // Truncate if too long
-        String displayName = enteredName;
-        int maxChars = (w - 24 - 16) / 12;  // Approximate chars for text size 2
-        if (displayName.length() > maxChars) {
-            displayName = displayName.substring(0, maxChars - 3) + "...";
+        tft->setTextColor(SOCIAL_TEXT, SOCIAL_INPUT_BG);
+        // Truncate if too long to fit
+        int maxChars = (w - 16) / 12;  // Leave padding on sides
+        if (displayText.length() > maxChars) {
+            displayText = displayText.substring(0, maxChars - 3) + "...";
+            textWidth = displayText.length() * 12;
+            textX = x + (w - textWidth) / 2;  // Recalculate for truncated text
         }
-        tft->print(displayName);
-        
-        // Draw blinking cursor (simple underscore)
-        if ((millis() / 500) % 2 == 0) {  // Blink every 500ms
-            tft->setTextColor(SOCIAL_ACCENT, SOCIAL_HEADER);
-            tft->print("_");
+    }
+    
+    tft->setCursor(textX, textY);
+    tft->print(displayText);
+    
+    // Draw blinking vertical cursor when active
+    if (hasFocus && !showPlaceholder) {
+        // Calculate cursor position at end of displayed text
+        // Use displayed text length (which may be truncated) for positioning
+        uint16_t cursorX = textX + (displayText.length() * 12);
+        // Ensure cursor doesn't go outside input box (leave 8px padding)
+        if (cursorX < x + w - 8) {
+            if ((millis() / 500) % 2 == 0) {  // Blink every 500ms
+                tft->setTextColor(SOCIAL_ACCENT, SOCIAL_INPUT_BG);
+                tft->setCursor(cursorX, textY);
+                tft->print("|");
+            }
         }
     }
     
@@ -81,21 +98,42 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
         keyboard->draw(keyboardX, keyboardY);
     }
     
-    // Draw error message below input box if present
+    // Draw error/status message below input box if present
     if (errorMessage.length() > 0) {
         tft->setTextSize(1);
-        tft->setTextColor(SOCIAL_ERROR, SOCIAL_BG_DARK);
-        // Position error message below input box with some spacing
-        uint16_t errorY = y + h + 8;
-        tft->setCursor(x, errorY);
         
-        // Truncate error message if too long
-        String displayError = errorMessage;
-        int maxChars = (w) / 6;  // Approximate chars for text size 1
-        if (displayError.length() > maxChars) {
-            displayError = displayError.substring(0, maxChars - 3) + "...";
+        // Determine if it's a success message (starts with "SUCCESS:" or contains success keywords)
+        bool isSuccess = errorMessage.startsWith("SUCCESS:") || 
+                         errorMessage.indexOf("success") >= 0 ||
+                         errorMessage.indexOf("added") >= 0 ||
+                         errorMessage.indexOf("sent") >= 0;
+        
+        uint16_t messageColor = isSuccess ? SOCIAL_SUCCESS : SOCIAL_ERROR;
+        tft->setTextColor(messageColor, SOCIAL_BG_DARK);
+        
+        // Position message below input box with spacing
+        uint16_t messageY = y + h + 5;
+        
+        // Calculate text width for centering
+        String displayMessage = errorMessage;
+        // Remove "SUCCESS:" prefix if present for display
+        if (displayMessage.startsWith("SUCCESS:")) {
+            displayMessage = displayMessage.substring(8);
+            displayMessage.trim();
         }
-        tft->print(displayError);
+        
+        // Truncate if too long
+        int maxChars = w / 6;  // Approximate chars for text size 1
+        if (displayMessage.length() > maxChars) {
+            displayMessage = displayMessage.substring(0, maxChars - 3) + "...";
+        }
+        
+        // Center message horizontally
+        int messageWidth = displayMessage.length() * 6;  // Approximate width for text size 1
+        uint16_t messageX = x + (w - messageWidth) / 2;
+        
+        tft->setCursor(messageX, messageY);
+        tft->print(displayMessage);
     }
 }
 

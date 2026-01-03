@@ -243,6 +243,9 @@ private:
     ScreenState screenState;
     bool isActive;  // Track if SocialScreen is currently active/visible
     
+    // Auto-navigation demo mode
+    unsigned long lastAutoSwitchTime;
+    
     // Semaphore for thread-safe access to notifications array
     SemaphoreHandle_t notificationsMutex;
 

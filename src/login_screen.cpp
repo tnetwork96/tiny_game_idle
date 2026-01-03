@@ -7,6 +7,7 @@ LoginScreen* LoginScreen::instanceForCallback = nullptr;
 // Deep Space Arcade Theme (matching Buddy List Screen)
 #define WIN_BG_DARK   0x0042  // Deep Midnight Blue #020817
 #define WIN_HEADER    0x08A5  // Header Blue #0F172A
+#define WIN_INPUT_BG  0x0021  // Darker Blue for input box fill
 #define WIN_ACCENT    0x07FF  // Cyan accent
 #define WIN_TEXT      0xFFFF  // White text
 #define WIN_MUTED     0x8410  // Muted gray text
@@ -52,80 +53,112 @@ void LoginScreen::drawProfileCircle(uint16_t cx, uint16_t cy, uint16_t r, uint16
 }
 
 void LoginScreen::drawInputBox(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const String& value, bool masked) {
-    // Background with Deep Midnight Blue
-    tft->fillRoundRect(x, y, w, h, 6, WIN_BG_DARK);
+    // Draw filled rounded rectangle input card with Deep Space theme
+    // Background: Darker Blue for input box
+    tft->fillRoundRect(x, y, w, h, 6, WIN_INPUT_BG);
     // Cyan border for accent
     tft->drawRoundRect(x, y, w, h, 6, WIN_ACCENT);
-    tft->setCursor(x + 8, y + (h / 2) - 6);
+    
+    // Prepare text rendering
     tft->setTextSize(2);
-    tft->setTextColor(WIN_TEXT, WIN_BG_DARK);
-
-    String renderValue = value;
+    
+    // Calculate text to display
+    String displayText = value;
+    bool showPlaceholder = (value.length() == 0);
+    
     if (masked && value.length() > 0) {
-        renderValue = "";
+        displayText = "";
         for (uint16_t i = 0; i < value.length(); i++) {
-            renderValue += "*";  // Use asterisk to keep ASCII while showing dots
+            displayText += "*";  // Use asterisk to keep ASCII while showing dots
         }
+        showPlaceholder = false;
     } else if (value.length() == 0) {
-        tft->setTextColor(WIN_MUTED, WIN_BG_DARK);
+        displayText = masked ? "Enter PIN" : "Enter username";
     }
-
-    if (renderValue.length() == 0) {
-        tft->print(masked ? "Enter PIN" : "Enter username");
+    
+    // Calculate text width for centering (approximate: text size 2 = ~12px per char)
+    int textWidth = displayText.length() * 12;
+    uint16_t textX = x + (w - textWidth) / 2;
+    uint16_t textY = y + (h / 2) - 6;  // Center vertically (text size 2 is ~12px tall)
+    
+    // Set text color
+    if (showPlaceholder) {
+        tft->setTextColor(WIN_MUTED, WIN_INPUT_BG);
     } else {
-        tft->print(renderValue);
+        tft->setTextColor(WIN_TEXT, WIN_INPUT_BG);
     }
+    
+    // Draw text centered
+    tft->setCursor(textX, textY);
+    tft->print(displayText);
 }
 
 void LoginScreen::drawErrorMessage(const String& message, uint16_t y) {
     tft->setTextSize(1);
     tft->setTextColor(WIN_ERROR, WIN_BG_DARK);
-    tft->setCursor(20, y);
+    // Center error message horizontally
+    uint16_t msgWidth = message.length() * 6;  // Approximate width for text size 1
+    uint16_t msgX = (320 - msgWidth) / 2;
+    tft->setCursor(msgX, y);
     tft->print(message);
 }
 
 void LoginScreen::updateUsernameInputArea(bool showErrorMsg) {
-    // Clear input box region (accounting for header)
-    const uint16_t headerHeight = 30;
-    tft->fillRect(20, headerHeight + 10, 280, 34, WIN_BG_DARK);
-    drawInputBox(20, headerHeight + 10, 280, 34, username, false);
+    // Clear input box region (using new positioning at Y = 45)
+    const uint16_t inputBoxY = 45;
+    const uint16_t inputBoxW = 280;
+    const uint16_t inputBoxH = 40;
+    uint16_t inputBoxX = (320 - inputBoxW) / 2;
+    
+    tft->fillRect(inputBoxX, inputBoxY, inputBoxW, inputBoxH, WIN_INPUT_BG);
+    drawInputBox(inputBoxX, inputBoxY, inputBoxW, inputBoxH, username, false);
 
-    // Clear error area
-    tft->fillRect(20, headerHeight + 65, 280, 12, WIN_BG_DARK);
+    // Clear error area (positioned safely above keyboard)
+    tft->fillRect(inputBoxX, inputBoxY + inputBoxH + 8, inputBoxW, 12, WIN_BG_DARK);
     if (showErrorMsg) {
-        drawErrorMessage("Username is required", headerHeight + 69);
+        drawErrorMessage("Username is required", inputBoxY + inputBoxH + 8);
     }
 }
 
 void LoginScreen::drawUsernameScreen() {
     drawBackground();
 
-    // Header bar matching BuddyListScreen style
+    // Header bar matching Deep Space theme
     const uint16_t headerHeight = 30;
     tft->fillRect(0, 0, 320, headerHeight, WIN_HEADER);
     tft->drawFastHLine(0, headerHeight - 1, 320, WIN_ACCENT);
     
-    // Title in header
+    // Title in header (centered)
     tft->setTextSize(2);
     tft->setTextColor(WIN_TEXT, WIN_HEADER);
-    tft->setCursor(10, 8);
-    tft->print("LOGIN");
+    String title = "LOGIN";
+    uint16_t titleWidth = title.length() * 12;  // Approximate width for text size 2
+    uint16_t titleX = (320 - titleWidth) / 2;   // Center horizontally
+    tft->setCursor(titleX, 8);
+    tft->print(title);
 
-    // Label below header
+    // Position input box at Y = 45 (ensures no overlap with keyboard at Y ~ 115)
+    // Input box ends at Y = 85, leaving 30px safe space before keyboard
+    const uint16_t inputBoxY = 45;
+    const uint16_t inputBoxW = 280;
+    const uint16_t inputBoxH = 40;  // Chunky, touch-friendly height
+    
+    // Label above input box (muted color)
     tft->setTextSize(1);
-    tft->setTextColor(WIN_TEXT, WIN_BG_DARK);
-    tft->setCursor(20, headerHeight + 12);
-    tft->print("Username");
+    tft->setTextColor(WIN_MUTED, WIN_BG_DARK);
+    String label = "Username";
+    uint16_t labelWidth = label.length() * 6;  // Approximate width for text size 1
+    uint16_t labelX = (320 - labelWidth) / 2;   // Center horizontally
+    tft->setCursor(labelX, inputBoxY - 12);
+    tft->print(label);
 
-    drawInputBox(20, headerHeight + 10, 280, 34, username, false);
+    // Draw input box (centered horizontally)
+    uint16_t inputBoxX = (320 - inputBoxW) / 2;
+    drawInputBox(inputBoxX, inputBoxY, inputBoxW, inputBoxH, username, false);
 
-    tft->setTextSize(1);
-    tft->setTextColor(WIN_TEXT, WIN_BG_DARK);
-    tft->setCursor(20, headerHeight + 50);
-    tft->print("Press Enter to continue");
-
+    // Error message if needed (positioned safely above keyboard)
     if (showUsernameEmpty) {
-        drawErrorMessage("Username is required", headerHeight + 69);
+        drawErrorMessage("Username is required", inputBoxY + inputBoxH + 8);
     }
 
     ensureAlphabetMode();
@@ -180,7 +213,8 @@ void LoginScreen::draw() {
             }
             break;
         case LOGIN_SUCCESS:
-            drawSuccessScreen();
+            // Success screen removed - callback transitions immediately to SocialScreen
+            // This case should not be reached, but kept for safety
             break;
         case LOGIN_SHOWING_DIALOG:
             // Draw the underlying screen first
@@ -269,11 +303,9 @@ void LoginScreen::handleKeyPress(const String& key) {
             ApiClient::LoginResult loginResult = ApiClient::checkLogin(username, userPin, "192.168.1.7", 8080);
             
             if (loginResult.success) {
-                // Login successful
+                // Login successful - skip success screen, proceed immediately
                 userId = loginResult.user_id;
                 nickname = loginResult.nickname.length() > 0 ? loginResult.nickname : username;  // Use nickname, fallback to username
-                state = LOGIN_SUCCESS;
-                drawSuccessScreen();
                 Serial.println("Login Screen: API verification successful!");
                 Serial.print("Login Screen: User ID saved: ");
                 Serial.println(userId);
@@ -288,7 +320,7 @@ void LoginScreen::handleKeyPress(const String& key) {
                 // Load notifications
                 loadNotifications();
                 
-                // Call login success callback
+                // Call login success callback immediately (transitions to SocialScreen)
                 if (onLoginSuccessCallback != nullptr) {
                     onLoginSuccessCallback();
                 }
@@ -353,8 +385,6 @@ void LoginScreen::handleKeyPress(const String& key) {
                             userId = loginResult.user_id;
                             username = pendingUsername;
                             nickname = loginResult.nickname.length() > 0 ? loginResult.nickname : username;  // Use nickname, fallback to username
-                            state = LOGIN_SUCCESS;
-                            drawSuccessScreen();
                             Serial.println("Login Screen: Auto-login successful after account creation!");
                             Serial.print("Login Screen: User ID: ");
                             Serial.println(userId);
@@ -365,16 +395,15 @@ void LoginScreen::handleKeyPress(const String& key) {
                             // Load notifications
                             loadNotifications();
                             
-                            // Call login success callback
+                            // Call login success callback immediately (transitions to SocialScreen)
                             if (onLoginSuccessCallback != nullptr) {
                                 onLoginSuccessCallback();
                             }
                         } else {
                             Serial.println("Login Screen: Failed to login after account creation!");
-                            // Still show success screen even if login fails
+                            // Go back to username step if auto-login fails
                             username = pendingUsername;
-                            state = LOGIN_SUCCESS;
-                            drawSuccessScreen();
+                            goToUsernameStep();
                         }
                     } else {
                         Serial.println("Login Screen: Account creation failed!");

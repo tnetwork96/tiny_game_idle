@@ -629,11 +629,8 @@ void loop() {
         
         // Auto-login when WiFi is connected (only once)
         if (!autoLoginExecuted && wifiManager->isConnected()) {
-            // Đợi một chút để màn hình connection info hiển thị
-            delay(2000);
-            
-            // Chuyển sang màn hình đăng nhập
-            Serial.println("Auto-login: WiFi connected, switching to login screen...");
+            // Skip connection screen - transition immediately to login screen
+            Serial.println("Auto-login: WiFi connected, switching to login screen immediately...");
             loginScreen->resetToUsernameStep();
             
             // Đợi màn hình sẵn sàng
@@ -922,6 +919,11 @@ void loop() {
     }
     
     // --- Auto demo: navigate to Games tab and enter queue ---
+    // DISABLED: This conflicts with the new auto-navigation in social_screen.cpp
+    // The new auto-navigation (in SocialScreen::update()) only switches tabs every 5 seconds,
+    // it does NOT enter games or trigger game selection. This old code was automatically
+    // pressing Enter to enter game lobby, which is not desired for the demo mode.
+    /*
     if (!isChatScreenActive && socialScreen != nullptr) {
         static unsigned long lastGameFlow = 0;
         static bool inGames = false;
@@ -953,6 +955,7 @@ void loop() {
             }
         }
     }
+    */
     
     // Popup notification disabled - no need to update popup
     
