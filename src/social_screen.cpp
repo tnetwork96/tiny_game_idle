@@ -997,7 +997,54 @@ void SocialScreen::handleContentNavigation(const String& key) {
     } else if (currentTab == TAB_FRIENDS) {
         // Navigate friends list with partial redraw
         int oldIndex = selectedFriendIndex;
-        if (key == "|u" && selectedFriendIndex > 0) {
+select
+        
+        // Handle new key format: "up", "down", "select"
+        if (key == "up" && selectedFriendIndex > 0) {
+            selectedFriendIndex--;
+            // Adjust scroll if needed
+            const uint16_t cardHeight = currentTheme.rowHeight;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = currentTheme.headerHeight;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
+            if (selectedFriendIndex < friendsScrollOffset) {
+                friendsScrollOffset = selectedFriendIndex;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawFriendCard(oldIndex, false);
+                redrawFriendCard(selectedFriendIndex, true);
+            }
+        } else if (key == "down" && selectedFriendIndex < friendsCount - 1) {
+            selectedFriendIndex++;
+            // Adjust scroll if needed
+            const uint16_t cardHeight = currentTheme.rowHeight;
+            const uint16_t cardSpacing = 4;
+            const uint16_t headerHeight = currentTheme.headerHeight;
+            const uint16_t startY = headerHeight + 4;
+            const int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+            
+            if (selectedFriendIndex >= friendsScrollOffset + visibleItems) {
+                friendsScrollOffset = selectedFriendIndex - visibleItems + 1;
+                // Need full redraw if scroll changed
+                drawContentArea();
+            } else {
+                // Partial redraw: unselect old, select new
+                redrawFriendCard(oldIndex, false);
+                redrawFriendCard(selectedFriendIndex, true);
+            }
+        } else if (key == "select") {
+            // Select: Open chat with selected friend
+            if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+                openChatWithFriend(selectedFriendIndex);
+            }
+        }
+        
+        // Backward compatibility: handle old key format
+        else if (key == "|u" && selectedFriendIndex > 0) {
             selectedFriendIndex--;
             // Adjust scroll if needed
             const uint16_t cardHeight = currentTheme.rowHeight;
@@ -1216,6 +1263,45 @@ void SocialScreen::handleContentNavigation(const String& key) {
         }
 
         if (gameInviteCount > 0 && selectedGameInviteIndex >= 0) {
+            // Handle new key format for invites
+            if (key == "up") {
+                if (selectedGameInviteIndex > 0) {
+                    selectedGameInviteIndex--;
+                } else {
+                    selectedGameInviteIndex = -1;  // Move focus to game list
+                }
+                drawContentArea();
+                return;
+            } else if (key == "down") {
+                if (selectedGameInviteIndex < gameInviteCount - 1) {
+                    selectedGameInviteIndex++;
+                } else {
+                    selectedGameInviteIndex = -1;  // Move focus to game list
+                }
+                drawContentArea();
+                return;
+            } else if (key == "select") {
+                // Select: Accept invite
+                if (userId > 0 && serverHost.length() > 0) {
+                    int sessionId = gameInvites[selectedGameInviteIndex].sessionId;
+                    ApiClient::GameSessionResult result = ApiClient::respondGameInvite(sessionId, userId, true, serverHost, serverPort);
+                    Serial.print("Social Screen: Accept invite result: ");
+                    Serial.println(result.message);
+                    for (int j = selectedGameInviteIndex; j < gameInviteCount - 1; j++) {
+                        gameInvites[j] = gameInvites[j + 1];
+                    }
+                    gameInviteCount = (gameInviteCount > 0) ? gameInviteCount - 1 : 0;
+                    if (gameInviteCount == 0) {
+                        selectedGameInviteIndex = -1;
+                    } else if (selectedGameInviteIndex >= gameInviteCount) {
+                        selectedGameInviteIndex = gameInviteCount - 1;
+                    }
+                    drawContentArea();
+                }
+                return;
+            }
+            
+            // Backward compatibility for invites
             if (key == "|u") {
                 if (selectedGameInviteIndex > 0) {
                     selectedGameInviteIndex--;
@@ -1272,7 +1358,114 @@ void SocialScreen::handleContentNavigation(const String& key) {
         }
 
         // Game list navigation
-        if (key == "|u") {
+        if (key == "up") {
+            if (gameInviteCount > 0 && selectedGameInviteIndex == -1) {
+                // Jump back to invites
+                selectedGameInviteIndex = gameInviteCount - 1;
+                drawContentArea();
+                return;
+            }
+            if (selectedGameInviteIndex < 0 && selectedGameIndex > 0) {
+                selectedGameIndex--;
+                drawContentArea();
+                return;
+            }
+        } else if (key == "down") {
+            if (selectedGameInviteIndex < 0 && selectedGameIndex < TOTAL_GAMES - 1) {
+                selectedGameIndex++;
+                drawContentArea();
+                return;
+            }
+        } else if (key == "select") {
+            if (selectedGameInviteIndex >= 0 && gameInviteCount > 0) {
+                // Already handled above for invites
+                return;
+            }
+            // Select: Enter game room lobby
+            screenState = STATE_WAITING_GAME;
+            pendingGameName = String(GAME_NAMES[selectedGameIndex]);
+            
+            // Get current user's name
+            String hostName = (ownerNickname.length() > 0) ? ownerNickname : "Host";
+            currentGameHostName = hostName;
+            currentGameGuestName = "";  // Will be set when guest joins
+            
+            // Tạo game session trước khi vào lobby
+            if (userId > 0 && serverHost.length() > 0) {
+                String gameType = pendingGameName;
+                gameType.toLowerCase();
+                int maxPlayers = (gameType == "caro") ? 2 : 4;
+                
+                // Tìm online friends để invite
+                int onlineFriendIds[8];
+                int onlineFriendCount = 0;
+                for (int i = 0; i < friendsCount && onlineFriendCount < maxPlayers - 1; i++) {
+                    if (friends[i].online && friends[i].userId > 0) {
+                        onlineFriendIds[onlineFriendCount] = friends[i].userId;
+                        onlineFriendCount++;
+                    }
+                }
+                
+                Serial.print("Social Screen: Creating game session for ");
+                Serial.print(pendingGameName);
+                Serial.print(" with ");
+                Serial.print(onlineFriendCount);
+                Serial.println(" participant(s)");
+                
+                ApiClient::GameSessionResult result = ApiClient::createGameSession(
+                    userId,
+                    gameType,
+                    maxPlayers,
+                    onlineFriendIds,
+                    onlineFriendCount,
+                    serverHost,
+                    serverPort
+                );
+                
+                if (result.success) {
+                    currentGameSessionId = result.sessionId;
+                    Serial.print("Social Screen: ✅ Created game session ");
+                    Serial.println(currentGameSessionId);
+                } else {
+                    Serial.print("Social Screen: ❌ Failed to create game session: ");
+                    Serial.println(result.message);
+                    currentGameSessionId = -1;
+                }
+            } else {
+                Serial.println("Social Screen: ⚠️ Cannot create game session - invalid user ID or server info");
+                currentGameSessionId = -1;
+            }
+            
+            gameLobby->setup(pendingGameName, hostName);
+            
+            // Set gameLobby active khi vào STATE_WAITING_GAME
+            if (gameLobby != nullptr) {
+                gameLobby->setActive(true);
+            }
+            
+            // Convert current friends to lobby friends
+            if (friendsCount > 0) {
+                GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
+                for (int i = 0; i < friendsCount; i++) {
+                    miniFriends[i] = {friends[i].nickname, friends[i].online};
+                }
+                gameLobby->setFriends(miniFriends, friendsCount);
+                // Note: In a real app, we'd need to manage the lifecycle of this array.
+                // For this simple implementation, let's just pass it.
+            }
+
+            Serial.print("Social Screen: Entered room for game ");
+            Serial.println(pendingGameName);
+            
+            // Tự động nhấn nút START khi vào lobby (sau khi đã tạo session)
+            Serial.println("Social Screen: Auto-pressing START button");
+            gameLobby->triggerStart();
+            
+            draw();
+        }
+        
+        // Backward compatibility: handle old key format for game list
+        else if (key == "|u") {
             if (gameInviteCount > 0 && selectedGameInviteIndex == -1) {
                 // Jump back to invites
                 selectedGameInviteIndex = gameInviteCount - 1;
