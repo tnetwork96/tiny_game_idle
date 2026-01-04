@@ -82,6 +82,9 @@ public:
     // Reset screen state
     void reset();
 
+    // Sync navigation state based on current tab (reset indices, scroll offsets, focus mode)
+    void syncNavigation();
+
     // Navigate to Add Friend tab and focus keyboard
     void navigateToAddFriend();
     

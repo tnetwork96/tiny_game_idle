@@ -769,26 +769,36 @@ void SocialScreen::draw() {
 void SocialScreen::handleTabNavigation(const String& key) {
     // Handle new format first
     if (key == "up") {
-        // Move to previous tab
+        // Move to previous tab (circular: from TAB_FRIENDS, go to TAB_GAMES)
         if (currentTab > TAB_FRIENDS) {
             switchTab((Tab)(currentTab - 1));
+        } else {
+            // At first tab (TAB_FRIENDS), wrap around to last tab (TAB_GAMES)
+            switchTab(TAB_GAMES);
         }
     } else if (key == "down") {
-        // Move to next tab
+        // Move to next tab (circular: from TAB_GAMES, go to TAB_FRIENDS)
         if (currentTab < TAB_GAMES) {
             switchTab((Tab)(currentTab + 1));
+        } else {
+            // At last tab (TAB_GAMES), wrap around to first tab (TAB_FRIENDS)
+            switchTab(TAB_FRIENDS);
         }
     }
     // Backward compatibility: handle old format
     else if (key == "|u") {
-        // Move to previous tab
+        // Move to previous tab (circular)
         if (currentTab > TAB_FRIENDS) {
             switchTab((Tab)(currentTab - 1));
+        } else {
+            switchTab(TAB_GAMES);
         }
     } else if (key == "|d") {
-        // Move to next tab
+        // Move to next tab (circular)
         if (currentTab < TAB_GAMES) {
             switchTab((Tab)(currentTab + 1));
+        } else {
+            switchTab(TAB_FRIENDS);
         }
     }
 }
@@ -1396,6 +1406,7 @@ void SocialScreen::switchTab(Tab newTab) {
             }
         } else {
             // Reset focus to sidebar when switching to other tabs
+            // IMPORTANT: Always set to SIDEBAR for non-Add-Friend tabs to allow tab navigation
             focusMode = FOCUS_SIDEBAR;
             // Set miniAddFriend inactive when leaving Add Friend tab
             if (miniAddFriend != nullptr) {
@@ -1416,6 +1427,8 @@ void SocialScreen::switchTab(Tab newTab) {
 void SocialScreen::navigateToAddFriend() {
     // Switch to Add Friend tab
     switchTab(TAB_ADD_FRIEND);
+    // Sync navigation state
+    syncNavigation();
     // Ensure focus is on content (keyboard)
     focusMode = FOCUS_CONTENT;
     // Reset keyboard and input
@@ -1429,8 +1442,9 @@ void SocialScreen::navigateToAddFriend() {
 void SocialScreen::navigateToNotifications() {
     // Switch to Notifications tab
     switchTab(TAB_NOTIFICATIONS);
-    // Ensure focus is on content (notifications list)
-    focusMode = FOCUS_CONTENT;
+    // Sync navigation state (will set focusMode = FOCUS_SIDEBAR for tab navigation)
+    syncNavigation();
+    // Don't force FOCUS_CONTENT - let user navigate tabs first, then press RIGHT/SELECT to focus content
     // Draw the screen
     draw();
 }
@@ -1438,8 +1452,9 @@ void SocialScreen::navigateToNotifications() {
 void SocialScreen::navigateToGames() {
     // Switch to Games tab
     switchTab(TAB_GAMES);
-    // Ensure focus is on content (game list)
-    focusMode = FOCUS_CONTENT;
+    // Sync navigation state (will set focusMode = FOCUS_SIDEBAR for tab navigation)
+    syncNavigation();
+    // Don't force FOCUS_CONTENT - let user navigate tabs first, then press RIGHT/SELECT to focus content
     // Draw the screen
     draw();
 }
@@ -1447,8 +1462,9 @@ void SocialScreen::navigateToGames() {
 void SocialScreen::navigateToFriends() {
     // Switch to Friends tab (chat)
     switchTab(TAB_FRIENDS);
-    // Ensure focus is on content (friends list)
-    focusMode = FOCUS_CONTENT;
+    // Sync navigation state (will set focusMode = FOCUS_SIDEBAR for tab navigation)
+    syncNavigation();
+    // Don't force FOCUS_CONTENT - let user navigate tabs first, then press RIGHT/SELECT to focus content
     // Draw the screen
     draw();
 }
@@ -1496,7 +1512,12 @@ void SocialScreen::handleUp() {
         handleTabNavigation("up");
     } else if (focusMode == FOCUS_CONTENT) {
         // Focus on content: navigate within content (scroll lists)
-        handleContentNavigation("up");
+        // Exception: If on Add Friend tab, UP/DOWN should navigate tabs, not content
+        if (currentTab == TAB_ADD_FRIEND) {
+            handleTabNavigation("up");
+        } else {
+            handleContentNavigation("up");
+        }
     }
 }
 
@@ -1506,7 +1527,12 @@ void SocialScreen::handleDown() {
         handleTabNavigation("down");
     } else if (focusMode == FOCUS_CONTENT) {
         // Focus on content: navigate within content (scroll lists)
-        handleContentNavigation("down");
+        // Exception: If on Add Friend tab, UP/DOWN should navigate tabs, not content
+        if (currentTab == TAB_ADD_FRIEND) {
+            handleTabNavigation("down");
+        } else {
+            handleContentNavigation("down");
+        }
     }
 }
 
@@ -2104,6 +2130,7 @@ void SocialScreen::onGameMoveReceived(int sessionId, int userId, int row, int co
 }
 
 void SocialScreen::setActive(bool active) {
+    bool wasActive = this->isActive;
     this->isActive = active;
     
     // When parent becomes inactive, set all child screens inactive
@@ -2118,6 +2145,11 @@ void SocialScreen::setActive(bool active) {
             caroGameScreen->setActive(false);
         }
     } else {
+        // When parent becomes active (transitioning from inactive to active), sync navigation state
+        if (!wasActive) {
+            syncNavigation();
+        }
+        
         // When parent becomes active, set child screens active based on current state/tab
         if (screenState == STATE_WAITING_GAME && gameLobby != nullptr) {
             gameLobby->setActive(true);
@@ -2268,6 +2300,53 @@ void SocialScreen::reset() {
     if (confirmationDialog != nullptr) {
         confirmationDialog->hide();
     }
+}
+
+void SocialScreen::syncNavigation() {
+    // Reset navigation state based on current tab
+    switch (currentTab) {
+        case TAB_FRIENDS:
+            selectedFriendIndex = 0;
+            friendsScrollOffset = 0;
+            // Focus mode: sidebar for tab navigation, but can be overridden by navigateTo* functions
+            if (focusMode != FOCUS_CONTENT) {
+                focusMode = FOCUS_SIDEBAR;
+            }
+            break;
+            
+        case TAB_NOTIFICATIONS:
+            selectedNotificationIndex = (notificationsCount > 0) ? 0 : -1;
+            notificationsScrollOffset = 0;
+            // Focus mode: sidebar for tab navigation, but can be overridden by navigateTo* functions
+            if (focusMode != FOCUS_CONTENT) {
+                focusMode = FOCUS_SIDEBAR;
+            }
+            break;
+            
+        case TAB_ADD_FRIEND:
+            // Focus mode should be CONTENT for keyboard input
+            focusMode = FOCUS_CONTENT;
+            // Reset miniAddFriend if needed
+            if (miniAddFriend != nullptr) {
+                miniAddFriend->reset();
+            }
+            break;
+            
+        case TAB_GAMES:
+            selectedGameIndex = 0;
+            selectedGameInviteIndex = (gameInviteCount > 0) ? 0 : -1;
+            // Focus mode: sidebar for tab navigation, but can be overridden by navigateTo* functions
+            if (focusMode != FOCUS_CONTENT) {
+                focusMode = FOCUS_SIDEBAR;
+            }
+            break;
+    }
+    
+    Serial.print("Social Screen: Navigation synced - Tab: ");
+    Serial.print(currentTab);
+    Serial.print(", Focus: ");
+    Serial.print(focusMode == FOCUS_SIDEBAR ? "SIDEBAR" : "CONTENT");
+    Serial.println();
 }
 
 // Static callback wrappers for ConfirmationDialog

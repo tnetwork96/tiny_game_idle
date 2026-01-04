@@ -144,13 +144,24 @@ void onKeyboardKeySelected(const String& key) {
             }
         }
         
-        // 2c. MiniAddFriendScreen (child)
+        // 2c. MiniAddFriendScreen (child) - BUT navigation keys (up/down/left/right/select/exit) should go to parent
+        // Navigation keys should always route to SocialScreen for tab navigation
+        bool isNavigationKey = (key == "up" || key == "down" || key == "left" || key == "right" || key == "select" || key == "exit");
+        
         if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
             if (socialScreen->getMiniAddFriend() != nullptr && 
                 socialScreen->getMiniAddFriend()->isActive()) {
-                Serial.println("Input: Routing to MiniAddFriendScreen");
-                socialScreen->getMiniAddFriend()->handleKeyPress(key);
-                return;
+                // If it's a navigation key, route to parent (SocialScreen) for tab navigation
+                if (isNavigationKey) {
+                    Serial.println("Input: Navigation key on Add Friend tab - routing to SocialScreen for tab navigation");
+                    socialScreen->handleKeyPress(key);
+                    return;
+                } else {
+                    // Text input keys go to MiniAddFriendScreen
+                    Serial.println("Input: Routing to MiniAddFriendScreen");
+                    socialScreen->getMiniAddFriend()->handleKeyPress(key);
+                    return;
+                }
             }
         }
         
@@ -210,13 +221,24 @@ void onMiniKeyboardKeySelected(const String& key) {
     
     // 2. SocialScreen and its children
     if (isSocialParentActive) {
+        // Navigation keys should always route to SocialScreen for tab navigation
+        bool isNavigationKey = (key == "up" || key == "down" || key == "left" || key == "right" || key == "select" || key == "exit");
+        
         // Check if on Add Friend tab and MiniAddFriend is active
         if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
             if (socialScreen->getMiniAddFriend() != nullptr && 
                 socialScreen->getMiniAddFriend()->isActive()) {
-                Serial.println("MiniKeyboard Input: Routing to MiniAddFriendScreen");
-                socialScreen->getMiniAddFriend()->handleKeyPress(key);
-                return;
+                // If it's a navigation key, route to parent (SocialScreen) for tab navigation
+                if (isNavigationKey) {
+                    Serial.println("MiniKeyboard Input: Navigation key on Add Friend tab - routing to SocialScreen for tab navigation");
+                    socialScreen->handleKeyPress(key);
+                    return;
+                } else {
+                    // Text input keys go to MiniAddFriendScreen
+                    Serial.println("MiniKeyboard Input: Routing to MiniAddFriendScreen");
+                    socialScreen->getMiniAddFriend()->handleKeyPress(key);
+                    return;
+                }
             }
         }
         
@@ -550,10 +572,13 @@ void onLoginSuccess() {
             keyboard->setDrawingEnabled(false);
         }
         
-        // Navigate to Notifications tab để test badge trên Friends icon
-        // (Comment out navigateToFriends() để không clear badge khi vào Friends tab)
-        // socialScreen->navigateToFriends();
-        socialScreen->navigateToNotifications();
+        // Sync navigation state before navigating (ensures clean state when switching to social screen)
+        if (socialScreen != nullptr) {
+            socialScreen->syncNavigation();
+        }
+        
+        // Navigate to Friends tab (default tab when entering social screen)
+        socialScreen->navigateToFriends();
         
         // Set callback để mở chat từ SocialScreen
         socialScreen->setOnOpenChatCallback(onOpenChat);
