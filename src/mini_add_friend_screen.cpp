@@ -34,8 +34,10 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
     tft->setTextSize(2);
     
     // Calculate text position (centered both horizontally and vertically)
+    // CRITICAL: Remove ALL pipe characters from enteredName before displaying
     String displayText = enteredName;
-    bool showPlaceholder = (enteredName.length() == 0);
+    displayText.replace("|", "");  // Remove all pipe characters
+    bool showPlaceholder = (displayText.length() == 0);
     
     if (showPlaceholder) {
         displayText = "Enter nickname...";
@@ -63,20 +65,7 @@ void MiniAddFriendScreen::draw(uint16_t x, uint16_t y, uint16_t w, uint16_t h, b
     tft->setCursor(textX, textY);
     tft->print(displayText);
     
-    // Draw blinking vertical cursor when active
-    if (hasFocus && !showPlaceholder) {
-        // Calculate cursor position at end of displayed text
-        // Use displayed text length (which may be truncated) for positioning
-        uint16_t cursorX = textX + (displayText.length() * 12);
-        // Ensure cursor doesn't go outside input box (leave 8px padding)
-        if (cursorX < x + w - 8) {
-            if ((millis() / 500) % 2 == 0) {  // Blink every 500ms
-                tft->setTextColor(SOCIAL_ACCENT, SOCIAL_INPUT_BG);
-                tft->setCursor(cursorX, textY);
-                tft->print("|");
-            }
-        }
-    }
+    // Cursor blink removed - no need for visual cursor indicator
     
     // Draw keyboard at bottom of content area
     if (keyboard != nullptr) {
@@ -173,45 +162,28 @@ void MiniAddFriendScreen::handleRight() {
 void MiniAddFriendScreen::handleSelect() {
     if (keyboard == nullptr) return;
     
-    // Physical Enter key pressed
-    // If there's text in input, submit form immediately
-    // Otherwise, type the selected character from keyboard
-    if (enteredName.length() > 0) {
-        // Submit form if there's text
-        submitRequested = true;
-        return;
-    } else {
-        // No text - type the selected character from keyboard
-        keyboard->moveCursor("select");
-        String currentChar = keyboard->getCurrentChar();
-        
-        // Handle the selected character
-        if (currentChar == "|e") {
-            // Enter key on keyboard was selected - but no text, do nothing
-            return;
-        } else if (currentChar == "<") {
-            // Backspace - nothing to remove
-            return;
-        } else if (currentChar == "shift") {
-            // Shift key - caps lock toggled in keyboard
-            return;
-        } else if (currentChar == "123" || currentChar == "ABC") {
-            // Mode toggle keys - already handled in keyboard
-            return;
-        } else if (currentChar == " ") {
-            // Space
-            if (enteredName.length() < MAX_NAME_LENGTH) {
-                enteredName += " ";
-            }
-            return;
-        } else if (currentChar.length() == 1) {
-            // Regular character (letter, number, or symbol)
-            if (enteredName.length() < MAX_NAME_LENGTH) {
-                enteredName += currentChar;
-            }
-            return;
+    // Physical Enter key pressed - process the selected character from keyboard
+    keyboard->moveCursor("select");
+    // Note: moveCursor("select") will call onKeySelected callback if set
+    // The callback routes to handleKeyPress(key) which handles regular character input
+    // So we only need to handle special keys here (Enter) that need special behavior
+    
+    String currentChar = keyboard->getCurrentChar();
+    
+    // Handle Enter key for form submission
+    if (currentChar == "|e") {
+        // Enter key on keyboard was selected
+        // If there's text, submit form; otherwise do nothing
+        if (enteredName.length() > 0) {
+            submitRequested = true;
         }
+        return;
     }
+    
+    // For all other keys (regular characters, backspace, shift, mode toggles):
+    // The callback (onKeySelected) will route to handleKeyPress(key) which handles them
+    // So we don't need to handle them here to avoid duplicate processing
+    // Only Enter key (|e) needs special handling here for form submission
 }
 
 void MiniAddFriendScreen::handleExit() {
@@ -273,11 +245,17 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         return;
     }
     
+    // CRITICAL: Block ALL keys containing pipe character from being added to text
+    // This includes "|e", "|u", "|d", "|l", "|r", "|b", and any single "|"
+    if (key.indexOf("|") >= 0) {
+        return;  // Reject any key containing pipe character
+    }
+    
     // Handle direct character input from callback (giống LoginScreen)
     // Keyboard gốc gọi callback với currentKey (ký tự), screen xử lý trực tiếp
     if (key.length() == 1) {
-        // Ignore special keys
-        if (key == "123" || key == "ABC" || key == "shift") {
+        // Ignore special keys and pipe character
+        if (key == "123" || key == "ABC" || key == "shift" || key == "|") {
             return;
         }
         
@@ -285,6 +263,8 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         // Validate length before adding
         if (enteredName.length() < MAX_NAME_LENGTH) {
             enteredName += key;
+            // Remove any pipe characters that might have been added (safety check)
+            enteredName.replace("|", "");
             // Clear error when user starts typing
             if (errorMessage.length() > 0) {
                 errorMessage = "";
@@ -300,6 +280,7 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
 
 void MiniAddFriendScreen::reset() {
     enteredName = "";
+    enteredName.replace("|", "");  // Safety check: remove any pipe characters
     cursorRow = 0;
     cursorCol = 0;
     submitRequested = false;

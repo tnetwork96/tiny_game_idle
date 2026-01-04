@@ -909,11 +909,13 @@ void SocialScreen::handleContentNavigation(const String& key) {
         if (miniAddFriend != nullptr) {
             miniAddFriend->handleKeyPress(key);
             
-            // Redraw content area to show updated text (giống LoginScreen redraw sau khi update)
-            // Chỉ redraw nếu là ký tự hoặc backspace để hiển thị text mới
-            if (key.length() == 1 || key == "<") {
-                drawContentArea();
-            }
+            // Always redraw content area for Add Friend tab to show keyboard updates and text changes
+            // This ensures immediate visual feedback for all keyboard interactions:
+            // - Character selection (select key)
+            // - Keyboard navigation (up/down/left/right)
+            // - Mode toggles (123/ABC)
+            // - Text input updates
+            drawContentArea();
             
             // Check if form should be submitted (Enter key on keyboard was selected and pressed)
             if (miniAddFriend->shouldSubmitForm()) {
@@ -1511,13 +1513,8 @@ void SocialScreen::handleUp() {
         // Focus on sidebar: navigate between tabs
         handleTabNavigation("up");
     } else if (focusMode == FOCUS_CONTENT) {
-        // Focus on content: navigate within content (scroll lists)
-        // Exception: If on Add Friend tab, UP/DOWN should navigate tabs, not content
-        if (currentTab == TAB_ADD_FRIEND) {
-            handleTabNavigation("up");
-        } else {
-            handleContentNavigation("up");
-        }
+        // Focus on content: navigate within content (scroll lists or keyboard)
+        handleContentNavigation("up");
     }
 }
 
@@ -1526,46 +1523,72 @@ void SocialScreen::handleDown() {
         // Focus on sidebar: navigate between tabs
         handleTabNavigation("down");
     } else if (focusMode == FOCUS_CONTENT) {
-        // Focus on content: navigate within content (scroll lists)
-        // Exception: If on Add Friend tab, UP/DOWN should navigate tabs, not content
-        if (currentTab == TAB_ADD_FRIEND) {
-            handleTabNavigation("down");
-        } else {
-            handleContentNavigation("down");
-        }
+        // Focus on content: navigate within content (scroll lists or keyboard)
+        handleContentNavigation("down");
     }
 }
 
 void SocialScreen::handleLeft() {
-    // Left: Move focus to sidebar
     if (focusMode == FOCUS_CONTENT) {
-        focusMode = FOCUS_SIDEBAR;
-        // Redraw sidebar tabs to show focus change
-        drawSidebar();
-        // Redraw selected card
-        if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
-            redrawFriendCard(selectedFriendIndex, true);
-        } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
-            redrawNotificationCard(selectedNotificationIndex, true);
+        // Left: navigate within content or return to sidebar
+        if (currentTab == TAB_ADD_FRIEND) {
+            // For Add Friend tab, LEFT navigates keyboard (moves cursor left)
+            handleContentNavigation("left");
+        } else {
+            // For other tabs, LEFT returns focus to sidebar
+            focusMode = FOCUS_SIDEBAR;
+            drawSidebar();
+            // Unhighlight current selection
+            if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+                redrawFriendCard(selectedFriendIndex, false);
+            } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+                redrawNotificationCard(selectedNotificationIndex, false);
+            } else if (currentTab == TAB_GAMES && selectedGameIndex >= 0) {
+                drawContentArea();
+            }
         }
     }
 }
 
 void SocialScreen::handleRight() {
-    // Right: Move focus to content
     if (focusMode == FOCUS_SIDEBAR) {
+        // Right: Move focus to content
         focusMode = FOCUS_CONTENT;
-        // Redraw sidebar tabs to show focus change
         drawSidebar();
-        // Redraw selected card
-        if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
-            redrawFriendCard(selectedFriendIndex, true);
-        } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
-            redrawNotificationCard(selectedNotificationIndex, true);
+        
+        // Set selection to first item when moving focus to content (only highlight when focus is on content)
+        if (currentTab == TAB_FRIENDS) {
+            if (friendsCount > 0) {
+                // Select first friend when moving focus to content
+                selectedFriendIndex = 0;
+                friendsScrollOffset = 0;
+                redrawFriendCard(selectedFriendIndex, true);  // Highlight first item
+            } else {
+                drawContentArea();
+            }
+        } else if (currentTab == TAB_NOTIFICATIONS) {
+            if (notificationsCount > 0) {
+                // Select first notification when moving focus to content
+                selectedNotificationIndex = 0;
+                notificationsScrollOffset = 0;
+                redrawNotificationCard(selectedNotificationIndex, true);  // Highlight first item
+            } else {
+                drawContentArea();
+            }
+        } else if (currentTab == TAB_GAMES) {
+            // For games tab, select first game
+            selectedGameIndex = 0;
+            selectedGameInviteIndex = (gameInviteCount > 0) ? 0 : -1;
+            drawContentArea();  // Redraw to show selection
+        } else if (currentTab == TAB_ADD_FRIEND) {
+            // For Add Friend tab, keyboard is already active, just redraw
+            drawContentArea();
         } else {
-            // Redraw content area if no selection
             drawContentArea();
         }
+    } else if (focusMode == FOCUS_CONTENT) {
+        // Right: navigate within content (keyboard or lists)
+        handleContentNavigation("right");
     }
 }
 
@@ -1582,8 +1605,27 @@ void SocialScreen::handleSelect() {
 }
 
 void SocialScreen::handleExit() {
-    // Exit/back - no specific action needed at SocialScreen level
-    // Child screens will handle their own exit logic
+    // Exit/back - return focus to sidebar from content
+    if (focusMode == FOCUS_CONTENT) {
+        // Move focus back to sidebar
+        focusMode = FOCUS_SIDEBAR;
+        // Redraw sidebar tabs to show focus change
+        drawSidebar();
+        
+        // Unhighlight current selection in content
+        if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+            redrawFriendCard(selectedFriendIndex, false);  // Unhighlight
+        } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+            redrawNotificationCard(selectedNotificationIndex, false);  // Unhighlight
+        } else if (currentTab == TAB_GAMES) {
+            // For games tab, redraw content area to remove highlight
+            drawContentArea();
+        } else if (currentTab == TAB_ADD_FRIEND) {
+            // For Add Friend tab, redraw content area to remove keyboard highlight
+            drawContentArea();
+        }
+    }
+    // If already on sidebar, EXIT doesn't do anything (child screens will handle their own exit logic if needed)
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
