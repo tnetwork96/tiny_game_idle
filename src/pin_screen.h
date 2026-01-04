@@ -17,6 +17,14 @@ public:
     void reset();
     void draw();
     void handleKeyPress(const String& key);
+    
+    // Navigation handlers (for consistency with WiFi password screen)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
 
     bool isPinAccepted() const { return pinAccepted; }
     bool wantsUsernameStep() const { return backToUsername; }

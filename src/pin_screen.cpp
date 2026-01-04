@@ -170,27 +170,106 @@ void PinScreen::ensureNumericMode() {
     }
 }
 
+// Navigation handlers (delegate to keyboard for navigation)
+void PinScreen::handleUp() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("up", 0, 0);
+    }
+}
+
+void PinScreen::handleDown() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("down", 0, 0);
+    }
+}
+
+void PinScreen::handleLeft() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("left", 0, 0);
+    }
+}
+
+void PinScreen::handleRight() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("right", 0, 0);
+    }
+}
+
+void PinScreen::handleSelect() {
+    // Select means type the selected character from keyboard
+    if (keyboard != nullptr) {
+        String currentChar = keyboard->getCurrentChar();
+        if (currentChar.length() > 0) {
+            if (currentChar == "<") {
+                // Delete key - handle as exit
+                handleExit();
+            } else {
+                // Use moveCursorByCommand to trigger the key selection
+                keyboard->moveCursorByCommand("select", 0, 0);
+            }
+        }
+    }
+}
+
+void PinScreen::handleExit() {
+    // Exit - delete last character (backspace behavior)
+    if (pinInput.length() > 0) {
+        pinInput.remove(pinInput.length() - 1);
+        showError = false;
+        updatePinInputArea(false);
+    } else {
+        backToUsername = true;
+    }
+}
+
 void PinScreen::handleKeyPress(const String& key) {
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
     pinCursorRow = keyboard->getCursorRow();
     pinCursorCol = keyboard->getCursorCol();
     pinAccepted = false;
     backToUsername = false;
 
-    if (key == "|e") {
-        // Accept PIN immediately (task: assume PIN is valid)
+    // Backward compatibility: handle old key format
+    if (key == "|u") {
+        handleUp();
+        return;
+    } else if (key == "|d") {
+        handleDown();
+        return;
+    } else if (key == "|l") {
+        handleLeft();
+        return;
+    } else if (key == "|r") {
+        handleRight();
+        return;
+    } else if (key == "|e") {
+        // Enter key - accept PIN immediately
         pinAccepted = true;
         showError = false;
         updatePinInputArea(false);
         return;
-    }
-
-    if (key == "<") {
-        if (pinInput.length() > 0) {
-            pinInput.remove(pinInput.length() - 1);
-            updatePinInputArea(showError);
-        } else {
-            backToUsername = true;
-        }
+    } else if (key == "<" || key == "|b") {
+        handleExit();
         return;
     }
 

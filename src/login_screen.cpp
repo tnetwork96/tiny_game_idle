@@ -256,10 +256,77 @@ void LoginScreen::goToPinStep() {
     pinScreen->draw();
 }
 
+// Navigation handlers (delegate to keyboard for navigation)
+void LoginScreen::handleUp() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("up", 0, 0);
+    }
+}
+
+void LoginScreen::handleDown() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("down", 0, 0);
+    }
+}
+
+void LoginScreen::handleLeft() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("left", 0, 0);
+    }
+}
+
+void LoginScreen::handleRight() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursorByCommand("right", 0, 0);
+    }
+}
+
+void LoginScreen::handleSelect() {
+    // Select means type the selected character from keyboard
+    if (keyboard != nullptr) {
+        String currentChar = keyboard->getCurrentChar();
+        if (currentChar.length() > 0) {
+            if (currentChar == "<") {
+                // Delete key - handle as exit
+                handleExit();
+            } else {
+                // Use moveCursorByCommand to trigger the key selection
+                keyboard->moveCursorByCommand("select", 0, 0);
+            }
+        }
+    }
+}
+
+void LoginScreen::handleExit() {
+    // Exit - delete last character (backspace behavior)
+    if (state == LOGIN_USERNAME) {
+        if (username.length() > 0) {
+            username.remove(username.length() - 1);
+            showUsernameEmpty = false;
+            updateUsernameInputArea(false);
+        }
+    }
+}
+
 void LoginScreen::handleUsernameKey(const String& key) {
     usernameCursorRow = keyboard->getCursorRow();
     usernameCursorCol = keyboard->getCursorCol();
-    if (key == "|e") {
+    
+    // Backward compatibility: handle old key format
+    if (key == "|u") {
+        handleUp();
+        return;
+    } else if (key == "|d") {
+        handleDown();
+        return;
+    } else if (key == "|l") {
+        handleLeft();
+        return;
+    } else if (key == "|r") {
+        handleRight();
+        return;
+    } else if (key == "|e") {
+        // Enter key - proceed to PIN step
         if (username.length() == 0) {
             showUsernameEmpty = true;
             updateUsernameInputArea(true);
@@ -267,14 +334,8 @@ void LoginScreen::handleUsernameKey(const String& key) {
             goToPinStep();
         }
         return;
-    }
-
-    if (key == "<") {
-        if (username.length() > 0) {
-            username.remove(username.length() - 1);
-            showUsernameEmpty = false;
-            updateUsernameInputArea(false);
-        }
+    } else if (key == "<" || key == "|b") {
+        handleExit();
         return;
     }
 
@@ -290,6 +351,27 @@ void LoginScreen::handleUsernameKey(const String& key) {
 }
 
 void LoginScreen::handleKeyPress(const String& key) {
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
     if (state == LOGIN_USERNAME) {
         handleUsernameKey(key);
     } else if (state == LOGIN_PIN) {

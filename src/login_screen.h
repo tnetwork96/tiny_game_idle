@@ -30,6 +30,14 @@ public:
     // Handle keyboard key (coming from onKeySelected)
     void handleKeyPress(const String& key);
     
+    // Navigation handlers (for consistency with WiFi password screen)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
+    
     // Update state (called from main loop for auto-confirm)
     void update();
 

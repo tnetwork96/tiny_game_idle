@@ -150,9 +150,14 @@ void WiFiPasswordScreen::handleSelect() {
     // Always type the character, don't check for Enter key
     if (keyboard != nullptr) {
         String currentChar = keyboard->getCurrentChar();
-        if (currentChar.length() > 0 && currentChar != "<") {
-            // Use moveCursorByCommand to trigger the key selection
-            keyboard->moveCursorByCommand("select", 0, 0);
+        if (currentChar.length() > 0) {
+            if (currentChar == "<") {
+                // Delete key - handle as exit
+                handleExit();
+            } else {
+                // Use moveCursorByCommand to trigger the key selection
+                keyboard->moveCursorByCommand("select", 0, 0);
+            }
         }
     }
 }
