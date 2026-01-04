@@ -41,7 +41,7 @@ public:
     void pressEnter();
     
     // Set callback for when a key is selected (giống Keyboard gốc)
-    void setOnKeySelectedCallback(void (*callback)(String key)) { 
+    void setOnKeySelectedCallback(void (*callback)(const String& key)) { 
         onKeySelected = callback; 
     }
 
@@ -63,7 +63,7 @@ private:
     uint16_t lastDrawY;
     
     // Callback function pointer cho khi nhấn select (giống Keyboard gốc)
-    void (*onKeySelected)(String key);
+    void (*onKeySelected)(const String& key);
 
     // Local constants
     static const uint16_t KEY_WIDTH = 24;

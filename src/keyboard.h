@@ -79,7 +79,7 @@ private:
     String formatKeyLabel(const String& rawKey) const;
     
     // Callback function pointer cho khi nhấn select
-    void (*onKeySelected)(String key);
+    void (*onKeySelected)(const String& key);
 
 public:
     // Các hằng số phím đặc biệt (public để các màn hình khác dùng)
@@ -128,7 +128,7 @@ public:
     void setTextSize(uint16_t size) { textSize = size; }
     
     // Set callback khi nhấn phím
-    void setOnKeySelectedCallback(void (*callback)(String key)) { onKeySelected = callback; }
+    void setOnKeySelectedCallback(void (*callback)(const String& key)) { onKeySelected = callback; }
     
     // Setter cho màu sắc
     void setKeyBgColor(uint16_t color) { keyBgColor = color; }

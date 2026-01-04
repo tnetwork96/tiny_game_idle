@@ -224,6 +224,11 @@ void AutoNavigator::processSerialInput() {
     if (Serial.available() > 0) {
         String input = Serial.readStringUntil('\n');
         input.trim();
+        
+        // Debug: Print raw input
+        Serial.print("AutoNavigator: Raw input received: [");
+        Serial.print(input);
+        Serial.println("]");
 
         // Check for special commands
         if (input.startsWith("auto:load:")) {

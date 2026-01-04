@@ -43,27 +43,37 @@ bool isSocialScreenActive = false;
 bool hasTransitionedToLogin = false;  // Track if we've already transitioned to login screen
 
 // Forward declaration
-void onKeyboardKeySelected(String key);
+void onKeyboardKeySelected(const String& key);
 
 // Function to handle Serial input for navigation
 void handleSerialNavigation() {
     // First, check for auto navigator commands
-    if (autoNavigator != nullptr) {
-        autoNavigator->processSerialInput();
-    }
+    // if (autoNavigator != nullptr) {
+    //     autoNavigator->processSerialInput();
+    // }
     
     // Then handle regular navigation commands
     if (Serial.available() > 0) {
         String command = Serial.readStringUntil('\n');
         command.trim();  // Remove whitespace and newline
         
+        // Debug: Print raw input
+        Serial.print("Serial: Raw input received: [");
+        Serial.print(command);
+        Serial.println("]");
+        
         // Skip if it's an auto navigator command (already processed)
         if (command.startsWith("auto:")) {
+            Serial.println("Serial: Auto navigator command, skipping regular handling");
             return;
         }
         
         // Convert to lowercase for case-insensitive matching
+        String originalCommand = command;  // Keep original for debug
         command.toLowerCase();
+        Serial.print("Serial: Processed command: [");
+        Serial.print(command);
+        Serial.println("]");
         
         // Map serial commands to navigation keys
         if (command == "up" || command == "u") {
@@ -96,10 +106,16 @@ void handleSerialNavigation() {
 
 // Callback function for keyboard input - routes to appropriate screen
 // RULE: Check parent active TRƯỚC, sau đó check child active
-void onKeyboardKeySelected(String key) {
+void onKeyboardKeySelected(const String& key) {
+    // Debug: Print input key
+    Serial.print("Input: Key selected: [");
+    Serial.print(key);
+    Serial.println("]");
+    
     // 1. ChatScreen (child of SocialScreen)
     bool isSocialParentActive = isSocialScreenActive && socialScreen != nullptr && socialScreen->getActive();
     if (isSocialParentActive && isChatScreenActive && chatScreen != nullptr && chatScreen->isActive()) {
+        Serial.println("Input: Routing to ChatScreen");
         chatScreen->handleKeyPress(key);
         return;
     }
@@ -112,6 +128,7 @@ void onKeyboardKeySelected(String key) {
         if (screenState == SocialScreen::STATE_PLAYING_GAME) {
             if (socialScreen->getCaroGameScreen() != nullptr && 
                 socialScreen->getCaroGameScreen()->isActive()) {
+                Serial.println("Input: Routing to CaroGameScreen");
                 socialScreen->getCaroGameScreen()->handleKeyPress(key);
                 return;
             }
@@ -121,6 +138,7 @@ void onKeyboardKeySelected(String key) {
         if (screenState == SocialScreen::STATE_WAITING_GAME) {
             if (socialScreen->getGameLobby() != nullptr && 
                 socialScreen->getGameLobby()->isActive()) {
+                Serial.println("Input: Routing to GameLobbyScreen");
                 socialScreen->getGameLobby()->handleKeyPress(key);
                 return;
             }
@@ -130,12 +148,14 @@ void onKeyboardKeySelected(String key) {
         if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
             if (socialScreen->getMiniAddFriend() != nullptr && 
                 socialScreen->getMiniAddFriend()->isActive()) {
+                Serial.println("Input: Routing to MiniAddFriendScreen");
                 socialScreen->getMiniAddFriend()->handleKeyPress(key);
                 return;
             }
         }
         
         // 2d. Parent (SocialScreen) - no child active
+        Serial.println("Input: Routing to SocialScreen (parent)");
         socialScreen->handleKeyPress(key);
         return;
     }
@@ -147,6 +167,7 @@ void onKeyboardKeySelected(String key) {
         // If WiFi is not connected, WiFi Manager should handle all input
         if (wifiState != WIFI_STATE_CONNECTED) {
             // Route all keys to WiFi Manager (navigation keys and password input)
+            Serial.println("Input: Routing to WiFiManager (not connected)");
             wifiManager->handleKeyboardInput(key);
             return;
         }
@@ -155,23 +176,34 @@ void onKeyboardKeySelected(String key) {
     // 4. LoginScreen - Only when WiFi is connected
     if (wifiManager != nullptr && wifiManager->isConnected() && 
         loginScreen != nullptr && !isSocialScreenActive && !isChatScreenActive) {
+        Serial.println("Input: Routing to LoginScreen");
         loginScreen->handleKeyPress(key);
         return;
     }
     
     // 5. WiFi Manager fallback (for connected state if needed)
     if (wifiManager != nullptr) {
+        Serial.println("Input: Routing to WiFiManager (fallback)");
         wifiManager->handleKeyboardInput(key);
         return;
     }
+    
+    // Debug: No handler found
+    Serial.println("Input: WARNING - No handler found for key!");
 }
 
 // Callback function for MiniKeyboard - routes to Add Friend screen
 // RULE: Check parent active TRƯỚC, sau đó check child active
-void onMiniKeyboardKeySelected(String key) {
+void onMiniKeyboardKeySelected(const String& key) {
+    // Debug: Print input key
+    Serial.print("MiniKeyboard Input: Key selected: [");
+    Serial.print(key);
+    Serial.println("]");
+    
     // 1. ChatScreen (child of SocialScreen)
     bool isSocialParentActive = isSocialScreenActive && socialScreen != nullptr && socialScreen->getActive();
     if (isSocialParentActive && isChatScreenActive && chatScreen != nullptr && chatScreen->isActive()) {
+        Serial.println("MiniKeyboard Input: Routing to ChatScreen");
         chatScreen->handleKeyPress(key);
         return;
     }
@@ -182,15 +214,20 @@ void onMiniKeyboardKeySelected(String key) {
         if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
             if (socialScreen->getMiniAddFriend() != nullptr && 
                 socialScreen->getMiniAddFriend()->isActive()) {
+                Serial.println("MiniKeyboard Input: Routing to MiniAddFriendScreen");
                 socialScreen->getMiniAddFriend()->handleKeyPress(key);
                 return;
             }
         }
         
         // Otherwise route to parent
+        Serial.println("MiniKeyboard Input: Routing to SocialScreen (parent)");
         socialScreen->handleKeyPress(key);
         return;
     }
+    
+    // Debug: No handler found
+    Serial.println("MiniKeyboard Input: WARNING - No handler found for key!");
 }
 
 

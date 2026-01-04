@@ -74,8 +74,11 @@ void WiFiManager::begin() {
     Serial.print("WiFi Manager: Network count = ");
     Serial.println(wifiList->getNetworkCount());
     
-    // Không chọn WiFi ngay, để mặc định chọn item đầu tiên trong lần vẽ đầu tiên
-    // (selectedIndex đã được khởi tạo = 0 trong constructor)
+    // Ensure first item is selected after scan
+    if (wifiList->getNetworkCount() > 0) {
+        wifiList->selectIndex(0);
+        Serial.println("WiFi Manager: First WiFi item selected");
+    }
     
     // Vẽ danh sách WiFi
     delay(200);
@@ -344,6 +347,11 @@ void WiFiManager::handleExit() {
             // Go back to WiFi list selection
             Serial.println("WiFi Manager: Exit from password screen - returning to WiFi list");
             currentState = WIFI_STATE_SELECT;
+            // Ensure selection is maintained and visible
+            if (wifiList->getNetworkCount() > 0) {
+                uint16_t currentIndex = wifiList->getSelectedIndex();
+                wifiList->selectIndex(currentIndex);  // Re-select current item to ensure it's marked
+            }
             wifiList->draw();
             break;
             
@@ -364,6 +372,11 @@ void WiFiManager::handleExit() {
             // Return to WiFi list selection
             Serial.println("WiFi Manager: Exit from error state - returning to WiFi list");
             currentState = WIFI_STATE_SELECT;
+            // Ensure selection is maintained and visible
+            if (wifiList->getNetworkCount() > 0) {
+                uint16_t currentIndex = wifiList->getSelectedIndex();
+                wifiList->selectIndex(currentIndex);  // Re-select current item to ensure it's marked
+            }
             wifiList->draw();
             break;
     }

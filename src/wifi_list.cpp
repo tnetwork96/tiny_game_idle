@@ -274,6 +274,16 @@ void WiFiListScreen::draw() {
     Serial.print(networkCount);
     Serial.println(" networks");
     
+    // Ensure the selected item is marked as selected before drawing
+    if (networkCount > 0 && selectedIndex < networkCount) {
+        // Clear all selections first
+        for (uint16_t i = 0; i < networkCount; i++) {
+            networks[i].isSelected = false;
+        }
+        // Mark the selected item
+        networks[selectedIndex].isSelected = true;
+    }
+    
     // Fill background
     tft->fillScreen(bgColor);
     
