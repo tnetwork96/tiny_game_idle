@@ -92,6 +92,13 @@ public:
  
     // Configuration
     void setExpectedPin(const String& pin) { if (pinScreen) pinScreen->setExpectedPin(pin); }
+    
+    // Set username and PIN (for loading saved credentials)
+    void setUsername(const String& user) { username = user; }
+    void setPin(const String& pin) { if (pinScreen) pinScreen->setPin(pin); }
+    
+    // Load saved credentials from file
+    bool loadSavedCredentials();
 
 private:
     Adafruit_ST7789* tft;

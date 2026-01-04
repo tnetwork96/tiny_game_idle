@@ -14,6 +14,7 @@ public:
 
     void setUsername(const String& user) { username = user; }
     void setExpectedPin(const String& pin) { expectedPin = pin; }
+    void setPin(const String& pin) { pinInput = pin; }  // Set PIN input directly (for loading saved credentials)
     void reset();
     void draw();
     void handleKeyPress(const String& key);

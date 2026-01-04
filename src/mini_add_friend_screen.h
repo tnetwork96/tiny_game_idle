@@ -18,6 +18,14 @@ public:
 
     // Handle keyboard input
     void handleKeyPress(const String& key);
+    
+    // Navigation handlers (for consistency with WiFi password/login/pin screens)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
 
     // Get the entered username
     String getEnteredName() const { return enteredName; }

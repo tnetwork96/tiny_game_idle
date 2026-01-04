@@ -30,6 +30,14 @@ public:
     void handleKeyPress(const String& key);
     void update();  // Check auto-start timer
     
+    // Navigation handlers (for consistency with WiFi password/login/pin screens)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
+    
     // Setters for dynamic data
     void setGuest(const String& name);
     void setGuestReady(bool ready);

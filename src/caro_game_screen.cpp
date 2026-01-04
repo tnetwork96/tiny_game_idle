@@ -130,8 +130,97 @@ void CaroGameScreen::drawTurnIndicator() {
     }
 }
 
+// Navigation handlers
+void CaroGameScreen::handleUp() {
+    if (!active) return;
+    if (gameStatus == "completed") return;
+    
+    caroGame->setCursorColor(isMyTurn());  // Update color before move
+    caroGame->handleUp();
+    needsRedraw = true;  // Cursor moved, need redraw
+    draw();
+}
+
+void CaroGameScreen::handleDown() {
+    if (!active) return;
+    if (gameStatus == "completed") return;
+    
+    caroGame->setCursorColor(isMyTurn());  // Update color before move
+    caroGame->handleDown();
+    needsRedraw = true;  // Cursor moved, need redraw
+    draw();
+}
+
+void CaroGameScreen::handleLeft() {
+    if (!active) return;
+    if (gameStatus == "completed") return;
+    
+    caroGame->setCursorColor(isMyTurn());  // Update color before move
+    caroGame->handleLeft();
+    needsRedraw = true;  // Cursor moved, need redraw
+    draw();
+}
+
+void CaroGameScreen::handleRight() {
+    if (!active) return;
+    if (gameStatus == "completed") return;
+    
+    caroGame->setCursorColor(isMyTurn());  // Update color before move
+    caroGame->handleRight();
+    needsRedraw = true;  // Cursor moved, need redraw
+    draw();
+}
+
+void CaroGameScreen::handleSelect() {
+    if (!active) return;
+    if (gameStatus == "completed") {
+        // Game finished, any key to exit
+        if (onExit != nullptr) {
+            onExit();
+        }
+        return;
+    }
+    
+    // Submit move
+    if (isMyTurn() && caroGame->getGameState() == GAME_PLAYING) {
+        int row = caroGame->getCursorRow();
+        int col = caroGame->getCursorCol();
+        submitMove(row, col);
+    }
+}
+
+void CaroGameScreen::handleExit() {
+    if (!active) return;
+    
+    // Exit game
+    if (onExit != nullptr) {
+        onExit();
+    }
+}
+
 void CaroGameScreen::handleKeyPress(const String& key) {
     if (!active) return;
+    
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
     
     if (gameStatus == "completed") {
         // Game finished, any key to exit
@@ -141,38 +230,25 @@ void CaroGameScreen::handleKeyPress(const String& key) {
         return;
     }
     
+    // Backward compatibility: handle old key format
     if (key == "|u") {
-        caroGame->setCursorColor(isMyTurn());  // Update color before move
-        caroGame->handleUp();
-        needsRedraw = true;  // Cursor moved, need redraw
-        draw();
+        handleUp();
+        return;
     } else if (key == "|d") {
-        caroGame->setCursorColor(isMyTurn());  // Update color before move
-        caroGame->handleDown();
-        needsRedraw = true;  // Cursor moved, need redraw
-        draw();
+        handleDown();
+        return;
     } else if (key == "|l") {
-        caroGame->setCursorColor(isMyTurn());  // Update color before move
-        caroGame->handleLeft();
-        needsRedraw = true;  // Cursor moved, need redraw
-        draw();
+        handleLeft();
+        return;
     } else if (key == "|r") {
-        caroGame->setCursorColor(isMyTurn());  // Update color before move
-        caroGame->handleRight();
-        needsRedraw = true;  // Cursor moved, need redraw
-        draw();
+        handleRight();
+        return;
     } else if (key == "|e") {
-        // Submit move
-        if (isMyTurn() && caroGame->getGameState() == GAME_PLAYING) {
-            int row = caroGame->getCursorRow();
-            int col = caroGame->getCursorCol();
-            submitMove(row, col);
-        }
+        handleSelect();
+        return;
     } else if (key == "<" || key == "|b") {
-        // Exit game
-        if (onExit != nullptr) {
-            onExit();
-        }
+        handleExit();
+        return;
     }
 }
 

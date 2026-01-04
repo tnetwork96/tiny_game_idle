@@ -166,41 +166,94 @@ void GameLobbyScreen::drawStartButton() {
     tft->print("START");
 }
 
+// Navigation handlers
+void GameLobbyScreen::handleUp() {
+    if (currentFocus == FOCUS_LEFT_PANEL && selectedFriendIndex > 0) {
+        selectedFriendIndex--;
+        drawFriendBox();
+    }
+}
+
+void GameLobbyScreen::handleDown() {
+    if (currentFocus == FOCUS_LEFT_PANEL && selectedFriendIndex < friendsCount - 1) {
+        selectedFriendIndex++;
+        drawFriendBox();
+    }
+}
+
+void GameLobbyScreen::handleLeft() {
+    if (currentFocus == FOCUS_RIGHT_PANEL) {
+        currentFocus = FOCUS_LEFT_PANEL;
+        draw();
+    }
+}
+
+void GameLobbyScreen::handleRight() {
+    if (currentFocus == FOCUS_LEFT_PANEL) {
+        currentFocus = FOCUS_RIGHT_PANEL;
+        startButtonFocused = true;
+        draw();
+    }
+}
+
+void GameLobbyScreen::handleSelect() {
+    if (currentFocus == FOCUS_LEFT_PANEL) {
+        Serial.println("Lobby: Inviting friend " + lobbyFriends[selectedFriendIndex].name);
+    } else if (currentFocus == FOCUS_RIGHT_PANEL && startButtonFocused) {
+        // Luôn cho phép click START (bỏ điều kiện check guest)
+        if (onStart) {
+            onStart();
+        } else {
+            Serial.println("Lobby: ⚠️ onStart callback is NULL!");
+        }
+    }
+}
+
+void GameLobbyScreen::handleExit() {
+    if (onExit) onExit();
+}
+
 void GameLobbyScreen::handleKeyPress(const String& key) {
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
+    // Backward compatibility: handle old key format
     if (key == "|l") {
-        if (currentFocus == FOCUS_RIGHT_PANEL) {
-            currentFocus = FOCUS_LEFT_PANEL;
-            draw();
-        }
+        handleLeft();
+        return;
     } else if (key == "|r") {
-        if (currentFocus == FOCUS_LEFT_PANEL) {
-            currentFocus = FOCUS_RIGHT_PANEL;
-            startButtonFocused = true;
-            draw();
-        }
+        handleRight();
+        return;
     } else if (key == "|u") {
-        if (currentFocus == FOCUS_LEFT_PANEL && selectedFriendIndex > 0) {
-            selectedFriendIndex--;
-            drawFriendBox();
-        }
+        handleUp();
+        return;
     } else if (key == "|d") {
-        if (currentFocus == FOCUS_LEFT_PANEL && selectedFriendIndex < friendsCount - 1) {
-            selectedFriendIndex++;
-            drawFriendBox();
-        }
+        handleDown();
+        return;
     } else if (key == "|e") {
-        if (currentFocus == FOCUS_LEFT_PANEL) {
-            Serial.println("Lobby: Inviting friend " + lobbyFriends[selectedFriendIndex].name);
-        } else if (currentFocus == FOCUS_RIGHT_PANEL && startButtonFocused) {
-            // Luôn cho phép click START (bỏ điều kiện check guest)
-            if (onStart) {
-                onStart();
-            } else {
-                Serial.println("Lobby: ⚠️ onStart callback is NULL!");
-            }
-        }
+        handleSelect();
+        return;
     } else if (key == "<" || key == "|b") {
-        if (onExit) onExit();
+        handleExit();
+        return;
     }
 }
 

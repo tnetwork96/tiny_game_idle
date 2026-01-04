@@ -54,6 +54,14 @@ public:
 
     // Handle keyboard key (coming from onKeySelected)
     void handleKeyPress(const String& key);
+    
+    // Navigation handlers (for consistency with WiFi password/login/pin screens)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
 
     // State helpers
     void setUserId(int userId) { this->userId = userId; }

@@ -344,6 +344,89 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
     chatScreen->forceRedraw();
 }
 
+// Function to load login credentials from file
+bool loadLoginCredentials() {
+    if (loginScreen == nullptr) {
+        return false;
+    }
+    
+    // Initialize SPIFFS if not already initialized
+    if (!SPIFFS.begin(true)) {
+        Serial.println("Main: SPIFFS initialization failed for loading login credentials!");
+        return false;
+    }
+    
+    String fileName = "/login_credentials.txt";
+    
+    Serial.print("Main: Loading login credentials from file: ");
+    Serial.println(fileName);
+    
+    // Open file for reading
+    File file = SPIFFS.open(fileName, "r");
+    if (!file) {
+        Serial.print("Main: File not found or cannot open: ");
+        Serial.println(fileName);
+        return false;
+    }
+    
+    String username = "";
+    String pin = "";
+    bool foundUsername = false;
+    bool foundPin = false;
+    
+    // Read file line by line
+    while (file.available()) {
+        String line = file.readStringUntil('\n');
+        line.trim();
+        
+        // Skip empty lines and separators
+        if (line.length() == 0 || line.startsWith("===") || line.startsWith("====")) {
+            continue;
+        }
+        
+        // Parse username
+        if (line.startsWith("Username: ")) {
+            username = line.substring(10);  // Remove "Username: " prefix
+            username.trim();
+            foundUsername = true;
+            Serial.print("Main: Loaded username: ");
+            Serial.println(username);
+        }
+        // Parse PIN
+        else if (line.startsWith("PIN: ")) {
+            pin = line.substring(5);  // Remove "PIN: " prefix
+            pin.trim();
+            foundPin = true;
+            Serial.print("Main: Loaded PIN (length): ");
+            Serial.println(pin.length());
+        }
+    }
+    
+    file.close();
+    
+    // Set credentials if found
+    if (foundUsername && username.length() > 0) {
+        loginScreen->setUsername(username);
+        Serial.print("Main: Username set to: ");
+        Serial.println(username);
+    }
+    
+    if (foundPin && pin.length() > 0) {
+        loginScreen->setPin(pin);
+        Serial.print("Main: PIN set (length: ");
+        Serial.print(pin.length());
+        Serial.println(")");
+    }
+    
+    if (foundUsername && foundPin) {
+        Serial.println("Main: Login credentials loaded successfully!");
+        return true;
+    } else {
+        Serial.println("Main: Failed to load complete credentials");
+        return false;
+    }
+}
+
 // Function to save login credentials to file
 void saveLoginCredentials() {
     if (loginScreen == nullptr) {
@@ -358,6 +441,7 @@ void saveLoginCredentials() {
     
     String username = loginScreen->getUsername();
     String pin = loginScreen->getPin();
+    int userId = loginScreen->getUserId();
     
     if (username.length() == 0 || pin.length() == 0) {
         Serial.println("Main: Cannot save login credentials - username or PIN is empty");
@@ -377,15 +461,25 @@ void saveLoginCredentials() {
         return;
     }
     
-    // Write username and PIN to file (one per line)
+    // Write login information to file
+    file.println("=== Login Information ===");
+    file.print("Username: ");
     file.println(username);
+    file.print("User ID: ");
+    file.println(userId);
+    file.print("PIN: ");
     file.println(pin);
+    file.print("Login Time: ");
+    file.println(millis() / 1000);  // Time in seconds since boot
+    file.println("========================");
     file.close();
     
     Serial.print("Main: Login credentials saved successfully to: ");
     Serial.println(fileName);
     Serial.print("Main: Username: ");
     Serial.println(username);
+    Serial.print("Main: User ID: ");
+    Serial.println(userId);
     Serial.print("Main: PIN length: ");
     Serial.println(pin.length());
 }
@@ -540,6 +634,14 @@ void setup() {
     // Initialize LoginScreen (sẽ được hiển thị sau khi WiFi kết nối)
     loginScreen = new LoginScreen(&tft, keyboard);
     // Note: setExpectedPin() is no longer used - all PIN verification is done via API against database
+    
+    // Try to load saved login credentials
+    Serial.println("Main: Attempting to load saved login credentials...");
+    if (loadLoginCredentials()) {
+        Serial.println("Main: Saved credentials loaded - username and PIN will be pre-filled");
+    } else {
+        Serial.println("Main: No saved credentials found - user will need to enter manually");
+    }
     
     // Initialize SocialScreen
     socialScreen = new SocialScreen(&tft, keyboard);

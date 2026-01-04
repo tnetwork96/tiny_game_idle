@@ -769,7 +769,20 @@ void SocialScreen::draw() {
 }
 
 void SocialScreen::handleTabNavigation(const String& key) {
-    if (key == "|u") {
+    // Handle new format first
+    if (key == "up") {
+        // Move to previous tab
+        if (currentTab > TAB_FRIENDS) {
+            switchTab((Tab)(currentTab - 1));
+        }
+    } else if (key == "down") {
+        // Move to next tab
+        if (currentTab < TAB_GAMES) {
+            switchTab((Tab)(currentTab + 1));
+        }
+    }
+    // Backward compatibility: handle old format
+    else if (key == "|u") {
         // Move to previous tab
         if (currentTab > TAB_FRIENDS) {
             switchTab((Tab)(currentTab - 1));
@@ -1478,7 +1491,99 @@ void SocialScreen::openChatWithFriend(int friendIndex) {
     }
 }
 
+// Navigation handlers
+void SocialScreen::handleUp() {
+    if (focusMode == FOCUS_SIDEBAR) {
+        // Focus on sidebar: navigate between tabs
+        handleTabNavigation("up");
+    } else if (focusMode == FOCUS_CONTENT) {
+        // Focus on content: navigate within content (scroll lists)
+        handleContentNavigation("up");
+    }
+}
+
+void SocialScreen::handleDown() {
+    if (focusMode == FOCUS_SIDEBAR) {
+        // Focus on sidebar: navigate between tabs
+        handleTabNavigation("down");
+    } else if (focusMode == FOCUS_CONTENT) {
+        // Focus on content: navigate within content (scroll lists)
+        handleContentNavigation("down");
+    }
+}
+
+void SocialScreen::handleLeft() {
+    // Left: Move focus to sidebar
+    if (focusMode == FOCUS_CONTENT) {
+        focusMode = FOCUS_SIDEBAR;
+        // Redraw sidebar tabs to show focus change
+        drawSidebar();
+        // Redraw selected card
+        if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+            redrawFriendCard(selectedFriendIndex, true);
+        } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+            redrawNotificationCard(selectedNotificationIndex, true);
+        }
+    }
+}
+
+void SocialScreen::handleRight() {
+    // Right: Move focus to content
+    if (focusMode == FOCUS_SIDEBAR) {
+        focusMode = FOCUS_CONTENT;
+        // Redraw sidebar tabs to show focus change
+        drawSidebar();
+        // Redraw selected card
+        if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+            redrawFriendCard(selectedFriendIndex, true);
+        } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
+            redrawNotificationCard(selectedNotificationIndex, true);
+        } else {
+            // Redraw content area if no selection
+            drawContentArea();
+        }
+    }
+}
+
+void SocialScreen::handleSelect() {
+    if (focusMode == FOCUS_CONTENT) {
+        handleContentNavigation("select");
+    }
+    // If focus is on sidebar, Enter could select the tab (but tab is already selected)
+    // So we move focus to content when Enter is pressed on sidebar
+    else if (focusMode == FOCUS_SIDEBAR) {
+        focusMode = FOCUS_CONTENT;
+        draw();
+    }
+}
+
+void SocialScreen::handleExit() {
+    // Exit/back - no specific action needed at SocialScreen level
+    // Child screens will handle their own exit logic
+}
+
 void SocialScreen::handleKeyPress(const String& key) {
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
     // If in game playing state: delegate to game screen
     if (screenState == STATE_PLAYING_GAME) {
         if (caroGameScreen != nullptr) {
@@ -1491,7 +1596,7 @@ void SocialScreen::handleKeyPress(const String& key) {
     if (screenState == STATE_WAITING_GAME) {
         if (gameLobby != nullptr) {
             // Add a special case for exiting the lobby
-            if (key == "<" || key == "|b") {
+            if (key == "<" || key == "|b" || key == "exit") {
                 Serial.println("Social Screen: Leaving game room, returning to games tab");
                 screenState = STATE_NORMAL;
                 pendingGameName = "";
@@ -1510,13 +1615,14 @@ void SocialScreen::handleKeyPress(const String& key) {
     
     // If on Add Friend tab and typing, forward to MiniAddFriendScreen
     if (currentTab == TAB_ADD_FRIEND && 
-        (key.length() == 1 || key == "|e" || key == "<" || key == "123" || key == "ABC")) {
+        (key.length() == 1 || key == "|e" || key == "select" || key == "<" || key == "exit" || key == "123" || key == "ABC")) {
         // When typing in Add Friend, focus should be on content
         focusMode = FOCUS_CONTENT;
         handleContentNavigation(key);
         return;
     }
     
+    // Backward compatibility: handle old key format
     // Left/Right: Switch focus between sidebar and content
     if (key == "|l") {
         // Left: Move focus to sidebar
@@ -1551,29 +1657,18 @@ void SocialScreen::handleKeyPress(const String& key) {
         return;
     }
     
-    // Up/Down: Navigate based on focus mode
-    if (key == "|u" || key == "|d") {
-        if (focusMode == FOCUS_SIDEBAR) {
-            // Focus on sidebar: navigate between tabs
-            handleTabNavigation(key);
-        } else if (focusMode == FOCUS_CONTENT) {
-            // Focus on content: navigate within content (scroll lists)
-            handleContentNavigation(key);
-        }
+    // Backward compatibility: Up/Down: Navigate based on focus mode
+    if (key == "|u") {
+        handleUp();
+        return;
+    } else if (key == "|d") {
+        handleDown();
         return;
     }
     
-    // Enter key: handle based on current tab and focus
+    // Backward compatibility: Enter key: handle based on current tab and focus
     if (key == "|e") {
-        if (focusMode == FOCUS_CONTENT) {
-            handleContentNavigation(key);
-        }
-        // If focus is on sidebar, Enter could select the tab (but tab is already selected)
-        // So we move focus to content when Enter is pressed on sidebar
-        else if (focusMode == FOCUS_SIDEBAR) {
-            focusMode = FOCUS_CONTENT;
-            draw();
-        }
+        handleSelect();
         return;
     }
     

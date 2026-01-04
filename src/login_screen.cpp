@@ -252,7 +252,12 @@ void LoginScreen::resetToUsernameStep() {
 void LoginScreen::goToPinStep() {
     state = LOGIN_PIN;
     pinScreen->setUsername(username);
-    pinScreen->reset();
+    // Don't reset PIN if it was already loaded from saved credentials
+    // Only reset if pinInput is empty (user manually navigated to PIN step)
+    String currentPin = pinScreen->getPin();
+    if (currentPin.length() == 0) {
+        pinScreen->reset();
+    }
     pinScreen->draw();
 }
 

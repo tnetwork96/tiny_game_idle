@@ -145,65 +145,132 @@ void MiniAddFriendScreen::clearError() {
     errorMessage = "";
 }
 
+// Navigation handlers
+void MiniAddFriendScreen::handleUp() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursor("up");
+    }
+}
+
+void MiniAddFriendScreen::handleDown() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursor("down");
+    }
+}
+
+void MiniAddFriendScreen::handleLeft() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursor("left");
+    }
+}
+
+void MiniAddFriendScreen::handleRight() {
+    if (keyboard != nullptr) {
+        keyboard->moveCursor("right");
+    }
+}
+
+void MiniAddFriendScreen::handleSelect() {
+    if (keyboard == nullptr) return;
+    
+    // Physical Enter key pressed
+    // If there's text in input, submit form immediately
+    // Otherwise, type the selected character from keyboard
+    if (enteredName.length() > 0) {
+        // Submit form if there's text
+        submitRequested = true;
+        return;
+    } else {
+        // No text - type the selected character from keyboard
+        keyboard->moveCursor("select");
+        String currentChar = keyboard->getCurrentChar();
+        
+        // Handle the selected character
+        if (currentChar == "|e") {
+            // Enter key on keyboard was selected - but no text, do nothing
+            return;
+        } else if (currentChar == "<") {
+            // Backspace - nothing to remove
+            return;
+        } else if (currentChar == "shift") {
+            // Shift key - caps lock toggled in keyboard
+            return;
+        } else if (currentChar == "123" || currentChar == "ABC") {
+            // Mode toggle keys - already handled in keyboard
+            return;
+        } else if (currentChar == " ") {
+            // Space
+            if (enteredName.length() < MAX_NAME_LENGTH) {
+                enteredName += " ";
+            }
+            return;
+        } else if (currentChar.length() == 1) {
+            // Regular character (letter, number, or symbol)
+            if (enteredName.length() < MAX_NAME_LENGTH) {
+                enteredName += currentChar;
+            }
+            return;
+        }
+    }
+}
+
+void MiniAddFriendScreen::handleExit() {
+    // Exit - delete last character (backspace behavior)
+    if (enteredName.length() > 0) {
+        enteredName.remove(enteredName.length() - 1);
+        // Clear error when user starts editing
+        if (errorMessage.length() > 0) {
+            errorMessage = "";
+        }
+    }
+}
+
 void MiniAddFriendScreen::handleKeyPress(const String& key) {
     if (keyboard == nullptr) return;
     
     // Reset submit flag at start of each key press
     submitRequested = false;
     
-    // Handle navigation keys - delegate to keyboard
+    // Handle new navigation key format first (similar to WiFi password screen)
+    if (key == "up") {
+        handleUp();
+        return;
+    } else if (key == "down") {
+        handleDown();
+        return;
+    } else if (key == "left") {
+        handleLeft();
+        return;
+    } else if (key == "right") {
+        handleRight();
+        return;
+    } else if (key == "select") {
+        handleSelect();
+        return;
+    } else if (key == "exit") {
+        handleExit();
+        return;
+    }
+    
+    // Backward compatibility: handle old key format
     if (key == "|u") {
-        keyboard->moveCursor("up");
+        handleUp();
         return;
     } else if (key == "|d") {
-        keyboard->moveCursor("down");
+        handleDown();
         return;
     } else if (key == "|l") {
-        keyboard->moveCursor("left");
+        handleLeft();
         return;
     } else if (key == "|r") {
-        keyboard->moveCursor("right");
+        handleRight();
         return;
     } else if (key == "|e") {
-        // Physical Enter key pressed
-        // If there's text in input, submit form immediately
-        // Otherwise, type the selected character from keyboard
-        if (enteredName.length() > 0) {
-            // Submit form if there's text
-            submitRequested = true;
-            return;
-        } else {
-            // No text - type the selected character from keyboard
-            keyboard->moveCursor("select");
-            String currentChar = keyboard->getCurrentChar();
-            
-            // Handle the selected character
-            if (currentChar == "|e") {
-                // Enter key on keyboard was selected - but no text, do nothing
-                return;
-            } else if (currentChar == "<") {
-                // Backspace - nothing to remove
-                return;
-            } else if (currentChar == "shift") {
-                // Shift key - caps lock toggled in keyboard
-                return;
-            } else if (currentChar == "123" || currentChar == "ABC") {
-                // Mode toggle keys - already handled in keyboard
-                return;
-            } else if (currentChar == " ") {
-                // Space
-                if (enteredName.length() < MAX_NAME_LENGTH) {
-                    enteredName += " ";
-                }
-                return;
-            } else if (currentChar.length() == 1) {
-                // Regular character (letter, number, or symbol)
-                if (enteredName.length() < MAX_NAME_LENGTH) {
-                    enteredName += currentChar;
-                }
-                return;
-            }
-        }
+        handleSelect();
+        return;
+    } else if (key == "<" || key == "|b") {
+        handleExit();
+        return;
     }
     
     // Handle direct character input from callback (giống LoginScreen)
@@ -219,18 +286,6 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         if (enteredName.length() < MAX_NAME_LENGTH) {
             enteredName += key;
             // Clear error when user starts typing
-            if (errorMessage.length() > 0) {
-                errorMessage = "";
-            }
-        }
-        return;
-    }
-    
-    // Handle backspace from callback
-    if (key == "<") {
-        if (enteredName.length() > 0) {
-            enteredName.remove(enteredName.length() - 1);
-            // Clear error when user starts editing
             if (errorMessage.length() > 0) {
                 errorMessage = "";
             }

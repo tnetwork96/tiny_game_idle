@@ -18,6 +18,14 @@ public:
     void handleKeyPress(const String& key);
     void update();
     
+    // Navigation handlers (for consistency with WiFi password/login/pin screens)
+    void handleUp();
+    void handleDown();
+    void handleLeft();
+    void handleRight();
+    void handleSelect();
+    void handleExit();
+    
     // Handle move received from server
     void onMoveReceived(int row, int col, int userId, const String& gameStatus, int winnerId, int currentTurn);
     
