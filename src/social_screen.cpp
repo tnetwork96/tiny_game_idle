@@ -144,8 +144,6 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     // Red dot badge for unread chat messages
     this->hasUnreadChatFlag = false;
     
-    // Initialize auto-navigation demo timer
-    this->lastAutoSwitchTime = millis();
     
     // Create semaphore for thread-safe notifications access
     notificationsMutex = xSemaphoreCreateMutex();
@@ -2141,22 +2139,6 @@ void SocialScreen::update() {
         caroGameScreen->update();
     }
     
-    // Auto-navigation demo mode: cycle through tabs every 5 seconds
-    // Only when in normal state (not in game or lobby)
-    // IMPORTANT: This only switches tabs visually - it does NOT trigger game selection or Enter key presses
-    if (screenState == STATE_NORMAL) {
-        unsigned long currentTime = millis();
-        if (currentTime - lastAutoSwitchTime >= 5000) {  // 5 seconds
-            // Calculate next tab index (0-3): Friends -> Notifications -> Add Friend -> Games -> Friends...
-            Tab nextTab = static_cast<Tab>((currentTab + 1) % 4);
-            
-            // Only switch tab - switchTab() only changes the view, it does NOT call handleKeyPress or trigger game actions
-            switchTab(nextTab);
-            
-            // Reset timer after switching to wait 5 seconds at the new tab
-            lastAutoSwitchTime = currentTime;
-        }
-    }
 }
 
 void SocialScreen::onGameComingSoonConfirm() {
