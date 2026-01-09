@@ -22,11 +22,21 @@
 #include "auto_navigator.h"
 
 // ST7789 pins
-#define TFT_CS    15
-#define TFT_DC    2
-#define TFT_RST   4
-#define TFT_MOSI  19
-#define TFT_SCLK  18
+#define TFT_CS    15   // CS pin
+#define TFT_DC    2    // IO2 - LCD_DC
+#define TFT_RST   4    // IO4 - LCD_RESET
+#define TFT_MOSI  23   // IO23 - LCD_MOSI
+#define TFT_SCLK  18   // IO18 - LCD_SCLK
+#define TFT_BLK   27   // IO27 - LCD_BLK (Backlight control)
+
+// Button pins (GPIO36 và GPIO39 là input-only, không có internal pull-up)
+#define BTN_UP      39  // GPIO39 (SENSOR_VN) - Input only, no internal pull-up
+#define BTN_DOWN    14  // GPIO14 - Input (supports pull-up), if wired as a button
+#define BTN_SELECT  36  // GPIO36 (SENSOR_VP) - Input only, no internal pull-up
+
+// Rotary encoder pins (GPIO number - không phải index)
+#define ENCODER_CLK  14  // GPIO14 - Encoder CLK pin
+#define ENCODER_DT   16  // GPIO16 - Encoder DT pin
 
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 Keyboard* keyboard;
@@ -42,8 +52,112 @@ int currentChatFriendUserId = -1;  // ID của friend đang chat (nếu ChatScre
 bool isSocialScreenActive = false;
 bool hasTransitionedToLogin = false;  // Track if we've already transitioned to login screen
 
+// Button state tracking (debounce + auto-detect active level by sampling idle state at boot)
+struct ButtonDebounce {
+    uint8_t pin;
+    bool idleState;              // sampled at boot
+    bool stableState;            // debounced current state
+    bool lastReading;            // last raw reading
+    unsigned long lastChangeMs;  // last time raw reading changed
+};
+
+static const unsigned long DEBOUNCE_DELAY = 50;  // 50ms debounce
+ButtonDebounce btnUp   = { BTN_UP,   true, true, true, 0 };
+ButtonDebounce btnDown = { BTN_DOWN, true, true, true, 0 };
+ButtonDebounce btnSelect = { BTN_SELECT, true, true, true, 0 };
+
+// Encoder state tracking
+int lastEncoderCLK = HIGH;
+int lastEncoderDT = HIGH;
+unsigned long lastEncoderTime = 0;
+const unsigned long ENCODER_DEBOUNCE = 5;  // 5ms debounce
+
 // Forward declaration
 void onKeyboardKeySelected(const String& key);
+
+static void initButton(ButtonDebounce& b) {
+    bool r = digitalRead(b.pin);
+    b.idleState = r;
+    b.stableState = r;
+    b.lastReading = r;
+    b.lastChangeMs = millis();
+}
+
+// Returns true only on a debounced PRESS (state deviates from idle)
+static bool readButtonPressed(ButtonDebounce& b) {
+    bool reading = digitalRead(b.pin);
+    unsigned long now = millis();
+
+    if (reading != b.lastReading) {
+        b.lastReading = reading;
+        b.lastChangeMs = now;
+    }
+
+    if ((now - b.lastChangeMs) < DEBOUNCE_DELAY) {
+        return false;
+    }
+
+    if (reading != b.stableState) {
+        b.stableState = reading;
+        // Press = stable state differs from idle state
+        return (b.stableState != b.idleState);
+    }
+
+    return false;
+}
+
+// Function to read rotary encoder
+void readEncoder() {
+    int clkState = digitalRead(ENCODER_CLK);
+    int dtState = digitalRead(ENCODER_DT);
+    unsigned long now = millis();
+    
+    // Debounce
+    if (now - lastEncoderTime < ENCODER_DEBOUNCE) {
+        return;
+    }
+    
+    if (clkState != lastEncoderCLK) {
+        lastEncoderTime = now;
+        if (dtState != clkState) {
+            // Clockwise rotation -> Right
+            onKeyboardKeySelected("right");
+        } else {
+            // Counter-clockwise rotation -> Left
+            onKeyboardKeySelected("left");
+        }
+    }
+    
+    lastEncoderCLK = clkState;
+    lastEncoderDT = dtState;
+}
+
+// Function to handle hardware buttons and encoder
+void handleHardwareInputs() {
+    // Read Up button (GPIO36) - map to "up"
+    if (readButtonPressed(btnUp)) {
+        onKeyboardKeySelected("up");
+    }
+    
+    // Read Down button (GPIO39) - map to "down"
+    if (readButtonPressed(btnDown)) {
+        onKeyboardKeySelected("down");
+    }
+
+    // Read Select button - map to "select"
+    if (readButtonPressed(btnSelect)) {
+        onKeyboardKeySelected("select");
+    }
+    
+    // Read rotary encoder
+    // Avoid conflicts if encoder pins overlap with button pins
+    const bool encoderEnabled =
+        (ENCODER_CLK != BTN_UP) && (ENCODER_CLK != BTN_DOWN) && (ENCODER_CLK != BTN_SELECT) &&
+        (ENCODER_DT != BTN_UP) && (ENCODER_DT != BTN_DOWN) && (ENCODER_DT != BTN_SELECT);
+    if (encoderEnabled) {
+        readEncoder();
+    }
+}
 
 // Function to handle Serial input for navigation
 void handleSerialNavigation() {
@@ -629,6 +743,30 @@ void setup() {
     Serial.begin(115200);
     delay(200);
 
+    // Initialize backlight (IO27) - must be HIGH to turn on
+    pinMode(TFT_BLK, OUTPUT);
+    digitalWrite(TFT_BLK, HIGH);
+    Serial.println("Backlight enabled on IO27");
+    delay(50);
+
+    // Initialize button pins
+    // GPIO36/39 are input-only (no internal pull-up). GPIO14 supports pull-up if your wiring uses active-low.
+    pinMode(BTN_UP, INPUT);      // GPIO39 - Input only, no pull-up
+    pinMode(BTN_DOWN, INPUT);    // GPIO14 - Input (change to INPUT_PULLUP if needed)
+    pinMode(BTN_SELECT, INPUT);  // GPIO36 - Input only, no pull-up
+    Serial.println("Buttons initialized (Up: GPIO" + String(BTN_UP) + ", Down: GPIO" + String(BTN_DOWN) + ", Select: GPIO" + String(BTN_SELECT) + ")");
+    // Sample idle state after pinMode so we can auto-detect active level
+    initButton(btnUp);
+    initButton(btnDown);
+    initButton(btnSelect);
+    
+    // Initialize rotary encoder pins (INPUT_PULLUP)
+    pinMode(ENCODER_CLK, INPUT_PULLUP);
+    pinMode(ENCODER_DT, INPUT_PULLUP);
+    lastEncoderCLK = digitalRead(ENCODER_CLK);
+    lastEncoderDT = digitalRead(ENCODER_DT);
+    Serial.println("Rotary encoder initialized (CLK: GPIO" + String(ENCODER_CLK) + ", DT: GPIO" + String(ENCODER_DT) + ")");
+
     SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
     SPI.setFrequency(27000000);
 
@@ -696,6 +834,9 @@ void setup() {
 }
 
 void loop() {
+    // Handle hardware buttons and encoder
+    handleHardwareInputs();
+    
     // Handle Serial navigation input
     handleSerialNavigation();
     

@@ -997,7 +997,6 @@ void SocialScreen::handleContentNavigation(const String& key) {
     } else if (currentTab == TAB_FRIENDS) {
         // Navigate friends list with partial redraw
         int oldIndex = selectedFriendIndex;
-select
         
         // Handle new key format: "up", "down", "select"
         if (key == "up" && selectedFriendIndex > 0) {
@@ -1044,7 +1043,7 @@ select
         }
         
         // Backward compatibility: handle old key format
-        else if (key == "|u" && selectedFriendIndex > 0) {
+        if (key == "|u" && selectedFriendIndex > 0) {
             selectedFriendIndex--;
             // Adjust scroll if needed
             const uint16_t cardHeight = currentTheme.rowHeight;

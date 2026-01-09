@@ -1,0 +1,6 @@
+10-11/2026
+
+- check điều hướng lên xuống cho item của thông báo
+- có thể chat được với thiết bị
+- có thể nhận thông báo kết bạn được
+- có thể nhận thông báo mời chơi game 
