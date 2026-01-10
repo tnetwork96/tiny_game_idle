@@ -28,6 +28,10 @@ public:
     uint16_t getCursorRow() const { return cursorRow; }
     int8_t getCursorCol() const { return cursorCol; }
 
+    // Partial redraw helper: redraw only the old/new cursor keys.
+    // Call this AFTER cursorRow/cursorCol have been updated (e.g. after moveCursor()).
+    void redrawAfterCursorMove(uint16_t oldRow, int8_t oldCol);
+
     // Move cursor to specific position (giống Keyboard gốc)
     void moveCursorTo(uint16_t row, int8_t col);
 
@@ -81,6 +85,11 @@ private:
     void moveCursorInternal(int8_t deltaRow, int8_t deltaCol);
     void drawKey(uint16_t x, uint16_t y, const String& key, bool isSelected);
     String getKeyDisplayText(const String& key) const;
+
+    // Drawing helpers for partial redraw
+    uint16_t computeXStart(uint16_t x) const;
+    void redrawKeyAt(uint16_t row, int8_t col, bool isSelected);
+    void redrawSpacebarAt(uint16_t xStart, uint16_t y, bool isSelected);
 };
 
 #endif

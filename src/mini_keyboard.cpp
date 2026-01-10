@@ -40,6 +40,62 @@ MiniKeyboard::MiniKeyboard(Adafruit_ST7789* tft) {
     this->onKeySelected = nullptr;  // Khởi tạo callback = null (giống Keyboard gốc)
 }
 
+uint16_t MiniKeyboard::computeXStart(uint16_t x) const {
+    uint16_t xStart = x;
+    if (x == 0) {
+        // If x not provided, use hardcoded center calculation (same as draw()).
+        xStart = 26 + (294 - (10 * KEY_WIDTH + 9 * SPACING)) / 2;
+    }
+    return xStart;
+}
+
+void MiniKeyboard::redrawSpacebarAt(uint16_t xStart, uint16_t y, bool isSelected) {
+    // Spacebar only exists in QWERTY mode.
+    if (isNumericMode) return;
+
+    uint16_t totalW = 10 * KEY_WIDTH + 9 * SPACING;  // 267px
+    uint16_t spaceKeyWidth = 8 * (KEY_WIDTH + SPACING) - SPACING; // Phím Space chiếm 8 ô
+    uint16_t spaceXStart = xStart + (totalW - spaceKeyWidth) / 2;
+    uint16_t spaceYStart = y + 3 * (KEY_HEIGHT + SPACING);
+
+    uint16_t spaceBgColor = isSelected ? MKB_HIGHLIGHT : MKB_KEY_BG;
+    tft->fillRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, KEY_HEIGHT, 3, spaceBgColor);
+    tft->drawRoundRect(spaceXStart, spaceYStart, spaceKeyWidth, KEY_HEIGHT, 3, MKB_BORDER_COLOR);
+}
+
+void MiniKeyboard::redrawKeyAt(uint16_t row, int8_t col, bool isSelected) {
+    // Row 3 is spacebar (QWERTY only)
+    uint16_t xStart = computeXStart(lastDrawX);
+    if (!isNumericMode && row == 3) {
+        redrawSpacebarAt(xStart, lastDrawY, isSelected);
+        return;
+    }
+
+    if (row >= 3 || col < 0 || col >= (int8_t)COLS) return;
+
+    const String (*activeLayout)[10] = isNumericMode ? numericLayout : qwertyLayout;
+    String key = activeLayout[row][col];
+    if (key.length() == 0) {
+        // Empty key slots exist in numeric layout; nothing to draw.
+        return;
+    }
+
+    uint16_t xPos = xStart + (uint16_t)col * (KEY_WIDTH + SPACING);
+    uint16_t yPos = lastDrawY + row * (KEY_HEIGHT + SPACING);
+    drawKey(xPos, yPos, key, isSelected);
+}
+
+void MiniKeyboard::redrawAfterCursorMove(uint16_t oldRow, int8_t oldCol) {
+    // Nothing to redraw if we never drew the keyboard yet.
+    // (lastDrawX/lastDrawY are set in draw()).
+    // Note: lastDrawX can be 0 in some call paths, but computeXStart handles it.
+
+    // Un-highlight old position
+    redrawKeyAt(oldRow, oldCol, false);
+    // Highlight new position (current cursor)
+    redrawKeyAt(cursorRow, cursorCol, true);
+}
+
 void MiniKeyboard::draw(uint16_t x, uint16_t y) {
     // Store position for refresh after mode toggle
     lastDrawX = x;

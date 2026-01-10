@@ -989,14 +989,30 @@ void SocialScreen::handleContentNavigation(const String& key) {
         // Forward to MiniAddFriendScreen - it will handle Enter key appropriately
         // (typing selected character, or submitting if Enter key on keyboard is selected)
         if (miniAddFriend != nullptr) {
+            // For keyboard navigation (up/down/left/right), avoid full redraw to prevent flicker.
+            // We only redraw the old/new key highlight.
+            bool isNavKey =
+                (key == "up" || key == "down" || key == "left" || key == "right" ||
+                 key == "|u" || key == "|d" || key == "|l" || key == "|r");
+
+            uint16_t oldRow = 0;
+            int8_t oldCol = 0;
+            if (isNavKey && miniKeyboard != nullptr) {
+                oldRow = miniKeyboard->getCursorRow();
+                oldCol = miniKeyboard->getCursorCol();
+            }
+
             miniAddFriend->handleKeyPress(key);
-            
-            // Always redraw content area for Add Friend tab to show keyboard updates and text changes
-            // This ensures immediate visual feedback for all keyboard interactions:
-            // - Character selection (select key)
-            // - Keyboard navigation (up/down/left/right)
-            // - Mode toggles (123/ABC)
-            // - Text input updates
+
+            if (isNavKey && miniKeyboard != nullptr) {
+                // Cursor moved inside the keyboard; redraw only affected keys.
+                if (oldRow != miniKeyboard->getCursorRow() || oldCol != miniKeyboard->getCursorCol()) {
+                    miniKeyboard->redrawAfterCursorMove(oldRow, oldCol);
+                }
+                return; // No full redraw needed for pure navigation
+            }
+
+            // Non-navigation (select/exit/etc): full redraw to update input text / status message.
             drawContentArea();
             
             // Check if form should be submitted (Enter key on keyboard was selected and pressed)
@@ -1073,9 +1089,7 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 }
             }
         }
-        
-        // Redraw content area
-        drawContentArea();
+        return;
     } else if (currentTab == TAB_FRIENDS) {
         // Navigate friends list with partial redraw
         int oldIndex = selectedFriendIndex;
