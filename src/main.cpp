@@ -38,6 +38,12 @@
 #define ENCODER_CLK  14  // GPIO14 - Encoder CLK pin
 #define ENCODER_DT   16  // GPIO16 - Encoder DT pin
 
+// Analog thumbwheel navigation (VR1) - net "ADC" goes to GPIO32 in schematic
+#define PIN_VR_NAV   32
+
+// Set to 1 to print VR1 ADC readings to Serial (throttled)
+#define VR_NAV_DEBUG 0
+
 Adafruit_ST7789 tft = Adafruit_ST7789(&SPI, TFT_CS, TFT_DC, TFT_RST);
 Keyboard* keyboard;
 WiFiManager* wifiManager;
@@ -147,6 +153,76 @@ void handleHardwareInputs() {
     // Read Select button - map to "select"
     if (readButtonPressed(btnSelect)) {
         onKeyboardKeySelected("select");
+    }
+
+    // Read analog value from GPIO 32 (VR1 net ADC, 0-4095)
+    // Average more samples to reduce noise (helps consistent stepping)
+    int vrValue = 0;
+    for (int i = 0; i < 8; i++) {
+        vrValue += analogRead(PIN_VR_NAV);
+    }
+    vrValue >>= 3;
+
+    unsigned long nowMs = millis();
+    
+#if VR_NAV_DEBUG
+    static unsigned long vrLastPrintMs = 0;
+    static int vrMin = 4095;
+    static int vrMax = 0;
+    if (vrValue < vrMin) vrMin = vrValue;
+    if (vrValue > vrMax) vrMax = vrValue;
+    if (nowMs - vrLastPrintMs >= 200) {
+        vrLastPrintMs = nowMs;
+        Serial.print("VR1=");
+        Serial.print(vrValue);
+        Serial.print(" min=");
+        Serial.print(vrMin);
+        Serial.print(" max=");
+        Serial.println(vrMax);
+    }
+#endif
+    
+    // VR1 thumbwheel: delta + accumulator stepping
+    // Goal: nudge a little -> move 1 key; keep rolling -> move evenly; stop -> stop immediately.
+    static int vrLastValue = -1;   // last ADC reading
+    static int vrAcc = 0;          // accumulated delta
+
+    // STEP: how many ADC counts equals 1 navigation step.
+    // We use a smaller step near the ADC ends because readings can "stick" near min/max.
+    const int STEP_BASE = 120;   // normal
+    const int STEP_EDGE = 60;    // more sensitive near ends (prevents "not eating" at extremes)
+    // Ignore tiny ADC jitter so it doesn't spam when your hand is steady.
+    const int NOISE = 1;
+
+    if (vrLastValue < 0) {
+        vrLastValue = vrValue;
+        vrAcc = 0;
+    } else {
+        int dv = vrValue - vrLastValue;
+        vrLastValue = vrValue;
+
+        // Clamp dv so occasional slow frames don't create huge jumps
+        if (dv > 400) dv = 400;
+        if (dv < -400) dv = -400;
+
+        if (abs(dv) < NOISE) {
+            dv = 0;
+        }
+
+        vrAcc += dv;
+
+        const bool atEdge = (vrValue < 400) || (vrValue > 3800);
+        const int step = atEdge ? STEP_EDGE : STEP_BASE;
+
+        // Direction swap: ADC increases should navigate LEFT, decreases should navigate RIGHT
+        while (vrAcc >= step) {
+            onKeyboardKeySelected("left");
+            vrAcc -= step;
+        }
+        while (vrAcc <= -step) {
+            onKeyboardKeySelected("right");
+            vrAcc += step;
+        }
     }
     
     // Read rotary encoder
@@ -754,6 +830,12 @@ void setup() {
     pinMode(BTN_UP, INPUT);      // GPIO39 - Input only, no pull-up
     pinMode(BTN_DOWN, INPUT);    // GPIO14 - Input (change to INPUT_PULLUP if needed)
     pinMode(BTN_SELECT, INPUT);  // GPIO36 - Input only, no pull-up
+    pinMode(PIN_VR_NAV, INPUT);  // GPIO34 - Analog thumbwheel (VR1), input-only
+
+    // Configure ADC for GPIO34 (ADC1) to better cover 0..3.3V range
+    analogReadResolution(12);  // 0..4095
+    analogSetPinAttenuation(PIN_VR_NAV, ADC_11db);
+
     Serial.println("Buttons initialized (Up: GPIO" + String(BTN_UP) + ", Down: GPIO" + String(BTN_DOWN) + ", Select: GPIO" + String(BTN_SELECT) + ")");
     // Sample idle state after pinMode so we can auto-detect active level
     initButton(btnUp);
@@ -882,5 +964,5 @@ void loop() {
         socialScreen->update();
     }
     
-    delay(100);
+    delay(10);  // Fast polling for ultra real-time VR1 response
 }
