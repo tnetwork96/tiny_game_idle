@@ -1988,6 +1988,33 @@ void SocialScreen::handleKeyPress(const String& key) {
 }
 
 void SocialScreen::parseFriendsString(const String& friendsString) {
+    // Some DB rows may contain stray quotes in nickname (e.g. `"Admin"`),
+    // and the ESP32 friend-list endpoint returns raw text (not JSON).
+    // Sanitize at parse-time so UI always renders clean display names.
+    auto sanitizeDisplayName = [](String name) -> String {
+        name.trim();
+        // Unescape common JSON escape if it leaked into stored data
+        name.replace("\\\"", "\"");
+        name.replace("\\\\", "\\");
+        name.trim();
+
+        // Strip wrapping/stray quotes (defensive; removes multiple if present)
+        while (name.length() > 0 && (name.charAt(0) == '"' || name.charAt(0) == '\'')) {
+            name.remove(0, 1);
+            name.trim();
+        }
+        while (name.length() > 0 && (name.charAt(name.length() - 1) == '"' || name.charAt(name.length() - 1) == '\'')) {
+            name.remove(name.length() - 1, 1);
+            name.trim();
+        }
+
+        // Remove accidental line breaks (would mess up rendering)
+        name.replace("\r", "");
+        name.replace("\n", "");
+        name.trim();
+        return name;
+    };
+
     clearFriends();
     
     if (friendsString.length() == 0) {
@@ -2017,7 +2044,7 @@ void SocialScreen::parseFriendsString(const String& friendsString) {
                 // Parse: "nickname,userId,online"
                 int comma1 = entry.indexOf(',');
                 if (comma1 > 0) {
-                    friends[entryIndex].nickname = entry.substring(0, comma1);
+                    friends[entryIndex].nickname = sanitizeDisplayName(entry.substring(0, comma1));
                     
                     int comma2 = entry.indexOf(',', comma1 + 1);
                     if (comma2 > comma1) {
