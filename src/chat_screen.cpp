@@ -20,6 +20,42 @@
 // Static member definition (must be defined in .cpp file)
 ChatScreen* ChatScreen::instanceForCallback = nullptr;
 
+// Reset shared Keyboard instance to default typing mode (alphabet + lowercase).
+// NOTE: Keyboard is shared across screens, so it can "remember" the previous mode (123/icon/shift).
+// We disable drawing during the reset to avoid keyboard drawing over the current screen.
+static void resetKeyboardToAlphabetLowercase(Keyboard* keyboard) {
+    if (keyboard == nullptr) return;
+
+    // Prevent the keyboard from drawing while we navigate its internal state.
+    keyboard->setDrawingEnabled(false);
+
+    // Probe key at (0,0) to detect current layout safely:
+    // - alphabet: "q"/"Q"
+    // - numeric:  "1"
+    // - icon:     "ABC" (in iconKeysArray[0][0])
+    keyboard->moveCursorTo(0, 0);
+    String k00 = keyboard->getCurrentChar();
+
+    // If numeric, press "ABC" at (1,0) to return to alphabet
+    if (k00 == "1") {
+        keyboard->moveCursorTo(1, 0);                 // "ABC" in numeric layout
+        keyboard->moveCursorByCommand("select", 0, 0);
+    }
+    // If icon mode, pressing "ABC" (at 0,0) returns to alphabet
+    else if (k00 == "ABC") {
+        keyboard->moveCursorByCommand("select", 0, 0);
+    }
+
+    // Ensure lowercase (Shift toggles uppercase in alphabet mode)
+    if (keyboard->getIsUppercaseMode()) {
+        keyboard->moveCursorTo(2, 0);                 // "shift" in alphabet layout
+        keyboard->moveCursorByCommand("select", 0, 0);
+    }
+
+    // Put cursor somewhere predictable (top-left)
+    keyboard->moveCursorTo(0, 0);
+}
+
 ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->tft = tft;
     this->keyboard = keyboard;
@@ -1137,6 +1173,8 @@ void ChatScreen::handleKeyPress(String key) {
         // If keyboard is not visible, SELECT opens it (enter typing mode)
         keyboardVisible = true;
         if (keyboard != nullptr) {
+            // Default keyboard mode in chat: alphabet (ABC) + lowercase
+            resetKeyboardToAlphabetLowercase(keyboard);
             keyboard->setDrawingEnabled(true);
         }
         needsRedraw = true;
@@ -1428,7 +1466,13 @@ void ChatScreen::handleSelect() {
     // Toggle keyboard visibility (when not in Title Bar and not in popup)
     keyboardVisible = !keyboardVisible;
     if (keyboard != nullptr) {
-        keyboard->setDrawingEnabled(keyboardVisible);
+        if (keyboardVisible) {
+            // Default keyboard mode in chat: alphabet (ABC) + lowercase
+            resetKeyboardToAlphabetLowercase(keyboard);
+            keyboard->setDrawingEnabled(true);
+        } else {
+            keyboard->setDrawingEnabled(false);
+        }
     }
     // Bố cục thay đổi -> đánh dấu cần vẽ lại toàn bộ
     needsRedraw = true;
