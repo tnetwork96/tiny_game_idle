@@ -61,7 +61,7 @@ ChatScreen::ChatScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->currentMessage = "";
     this->inputCursorPos = 0;
     this->keyboardVisible = false;  // Bàn phím ẩn mặc định
-    this->friendStatus = 2;  // 0 = offline, 1 = online, 2 = typing
+    this->friendStatus = 0;  // 0 = offline, 1 = online, 2 = typing
     
     // Khởi tạo nickname mặc định
     this->ownerNickname = "You";      // Tên mặc định của người dùng
@@ -689,13 +689,13 @@ void ChatScreen::drawMessages() {
                 }
                 
                 // Vẽ dòng này
-                tft->setTextColor(msgColor, bgColor);
+                tft->setTextColor(msgColor, chatAreaBgColor);
                 tft->setTextSize(2);
                 uint16_t cursorX = textX;
                 for (uint16_t cIndex = 0; cIndex < lineText.length(); cIndex++) {
                     char c = lineText.charAt(cIndex);
                     if (c >= Keyboard::ICON_SMILE && c <= Keyboard::ICON_WINK) {
-                        drawIconInline(cursorX, yPos, 12, msgColor, bgColor, c);
+                        drawIconInline(cursorX, yPos, 12, msgColor, chatAreaBgColor, c);
                         cursorX += 12;
                     } else {
                         tft->setCursor(cursorX, yPos);
@@ -1031,10 +1031,19 @@ void ChatScreen::draw() {
 }
 
 void ChatScreen::redrawMessages() {
-    // Set flag để drawMessages() được gọi
+    // Redraw messages without "ghosting":
+    // We must clear the chat area first, otherwise text from previous frames remains.
     needsMessagesRedraw = true;
-    needsRedraw = true;
-    // Gọi drawMessages() trực tiếp
+
+    // Clear chat area background
+    if (tft != nullptr) {
+        tft->fillRect(0, chatAreaY, chatAreaWidth, chatAreaHeight, chatAreaBgColor);
+    }
+
+    // Redraw chat area decor (if enabled)
+    drawChatArea();
+
+    // Draw messages (includes scrollbar)
     drawMessages();
 }
 
@@ -1163,7 +1172,7 @@ void ChatScreen::handleKeyPress(String key) {
     }
 }
 
-void ChatScreen::addMessage(String text, bool isUser) {
+void ChatScreen::addMessage(String text, bool isUser, bool persist) {
     if (messageCount >= MAX_MESSAGES) {
         // Dịch chuyển mảng, xóa tin nhắn cũ nhất
         for (int i = 0; i < MAX_MESSAGES - 1; i++) {
@@ -1180,8 +1189,10 @@ void ChatScreen::addMessage(String text, bool isUser) {
     // Tự động cuộn xuống tin nhắn mới nhất
     scrollToLatest();
     
-    // Lưu tin nhắn vào file
-    saveMessagesToFile();
+    // Lưu tin nhắn vào file (optional)
+    if (persist) {
+        saveMessagesToFile();
+    }
     
     // Đánh dấu cần vẽ lại messages
     needsMessagesRedraw = true;

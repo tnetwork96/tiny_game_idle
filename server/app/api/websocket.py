@@ -31,14 +31,30 @@ class WebSocketManager:
     
     async def disconnect(self, client_id: str):
         if client_id in self.active_connections:
+            # Capture user_id (if any) before cleanup so we can broadcast offline
+            user_id: Optional[int] = self.client_to_user.get(client_id)
+
             del self.active_connections[client_id]
             # Remove user_id mapping if exists
-            if client_id in self.client_to_user:
-                user_id = self.client_to_user[client_id]
+            if user_id is not None:
                 if user_id in self.user_to_client and self.user_to_client[user_id] == client_id:
                     del self.user_to_client[user_id]
-                del self.client_to_user[client_id]
+                if client_id in self.client_to_user:
+                    del self.client_to_user[client_id]
+            else:
+                # No mapped user for this client
+                if client_id in self.client_to_user:
+                    del self.client_to_user[client_id]
+
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] WebSocket client disconnected: {client_id}")
+
+            # Broadcast offline status to online friends
+            if user_id is not None:
+                try:
+                    await self.send_status_update_to_friends(user_id, status="offline")
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Auto-sent offline status to friends of user {user_id}")
+                except Exception as status_error:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to auto-send offline status: {str(status_error)}")
     
     async def send_notification_to_user(self, user_id: int, notification_data: dict):
         """
@@ -335,9 +351,9 @@ class WebSocketManager:
             logger.error(f"Error sending read receipt: {str(e)}", exc_info=True)
             return False
     
-    async def send_status_update_to_friends(self, user_id: int):
+    async def send_status_update_to_friends(self, user_id: int, status: str = "online"):
         """
-        Send status update (online) to all friends of a user when they log in.
+        Send status update (online/offline) to all friends of a user.
         Only sends to friends who are currently online.
         """
         # Import here to avoid circular dependency
@@ -359,7 +375,7 @@ class WebSocketManager:
             status_message = {
                 "type": "user_status_update",
                 "user_id": user_id,
-                "status": "online",
+                "status": status,
                 "timestamp": datetime.now().isoformat()
             }
             message_json = json.dumps(status_message)
@@ -388,6 +404,53 @@ class WebSocketManager:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error in send_status_update_to_friends: {str(e)}")
             logger.error(f"Error sending status update to friends: {str(e)}", exc_info=True)
             # Don't raise exception, just log error
+
+    async def send_online_friends_to_user(self, user_id: int):
+        """
+        Sync presence state: send "online" updates of currently-online friends to the given user.
+
+        This fixes the one-way broadcast issue:
+        - If B is online first, then A comes online later, A must learn that B is already online.
+        """
+        from app.api.auth import get_friend_ids
+
+        try:
+            # Ensure target user is connected
+            if user_id not in self.user_to_client:
+                return
+            target_client_id = self.user_to_client[user_id]
+            if target_client_id not in self.active_connections:
+                return
+            target_ws = self.active_connections[target_client_id]
+
+            friend_ids = get_friend_ids(user_id)
+            if not friend_ids:
+                return
+
+            sent = 0
+            for friend_id in friend_ids:
+                # Only report friends who are online (mapped + active connection exists)
+                if friend_id in self.user_to_client:
+                    friend_client_id = self.user_to_client[friend_id]
+                    if friend_client_id in self.active_connections:
+                        msg = {
+                            "type": "user_status_update",
+                            "user_id": friend_id,
+                            "status": "online",
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        try:
+                            await target_ws.send_text(json.dumps(msg))
+                            sent += 1
+                        except Exception as e:
+                            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Error syncing online friend {friend_id} to user {user_id}: {str(e)}")
+
+            if sent > 0:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Synced {sent} online friends to user {user_id}")
+
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error in send_online_friends_to_user: {str(e)}")
+            logger.error(f"Error syncing online friends: {str(e)}", exc_info=True)
     
     async def cleanup_typing_indicators(self):
         """Clean up expired typing indicators (auto-timeout after 5 seconds)"""
@@ -457,12 +520,18 @@ class WebSocketManager:
                     self.client_to_user[client_id] = user_id
                     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Mapped user_id {user_id} to client_id {client_id}")
                     
-                    # Tự động gửi status update đến friends khi user connect WebSocket
+                    # 1) Broadcast: notify online friends that this user is online
                     try:
                         await self.send_status_update_to_friends(user_id)
                         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Auto-sent status update to friends of user {user_id}")
                     except Exception as status_error:
                         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to auto-send status update: {str(status_error)}")
+
+                    # 2) Sync: tell this user which friends are already online
+                    try:
+                        await self.send_online_friends_to_user(user_id)
+                    except Exception as sync_error:
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to sync online friends: {str(sync_error)}")
                 
                 # Send acknowledgment
                 ack = {

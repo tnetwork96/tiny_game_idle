@@ -503,8 +503,12 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
     // Update global variable để track friend đang chat
     currentChatFriendUserId = friendUserId;
     
-    // Set friend status (có thể lấy từ friends list sau)
-    chatScreen->setFriendStatus(0);  // Default offline, có thể update sau
+    // Set friend status immediately from SocialScreen presence (fallback offline)
+    bool isOnline = false;
+    if (socialScreen != nullptr) {
+        isOnline = socialScreen->isFriendOnline(friendUserId);
+    }
+    chatScreen->setFriendStatus(isOnline ? 1 : 0);
     
     // Load messages từ file (sau khi đã set friend info để tạo đúng tên file)
     Serial.println("Main: Loading messages from file...");
@@ -757,8 +761,43 @@ void onLoginSuccess() {
                 Serial.println("Main: Set SocialScreen state for SocketManager");
             }
             
-            // Set callback for user status updates
-            socketManager->setOnUserStatusUpdateCallback(SocialScreen::onUserStatusUpdate);
+            // Set callback for user status updates (update both SocialScreen + ChatScreen)
+            socketManager->setOnUserStatusUpdateCallback([](int userId, const String& status) {
+                bool online = (status == "online");
+                
+                // Always update SocialScreen presence data
+                if (socialScreen != nullptr) {
+                    socialScreen->updateFriendStatus(userId, online);
+                }
+                
+                // If currently chatting with this user, update ChatScreen dot too.
+                if (chatScreen != nullptr && isChatScreenActive && chatScreen->isActive() &&
+                    chatScreen->getFriendUserId() == userId) {
+                    // Don't override typing indicator (status=2) here.
+                    if (chatScreen->getFriendStatus() != 2) {
+                        chatScreen->setFriendStatus(online ? 1 : 0);
+                    }
+                }
+            });
+
+            // Typing indicator callback: show typing dot in ChatScreen
+            socketManager->setOnTypingIndicatorCallback([](int fromUserId, const String& fromNickname, bool isTyping) {
+                (void)fromNickname; // nickname not needed for status dot
+                
+                if (chatScreen != nullptr && isChatScreenActive && chatScreen->isActive() &&
+                    chatScreen->getFriendUserId() == fromUserId) {
+                    if (isTyping) {
+                        chatScreen->setFriendStatus(2);  // typing
+                    } else {
+                        // Revert to presence (online/offline) when typing stops
+                        bool online = false;
+                        if (socialScreen != nullptr) {
+                            online = socialScreen->isFriendOnline(fromUserId);
+                        }
+                        chatScreen->setFriendStatus(online ? 1 : 0);
+                    }
+                }
+            });
             // Set callback for game events (invites/respond/ready)
             socketManager->setOnGameEventCallback(SocialScreen::onGameEvent);
             socketManager->setOnGameMoveCallback([](int sessionId, int userId, int row, int col, const String& gameStatus, int winnerId, int currentTurn) {

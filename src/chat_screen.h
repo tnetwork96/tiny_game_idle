@@ -197,7 +197,9 @@ public:
     void handleKeyPress(String key);
     
     // Thêm tin nhắn
-    void addMessage(String text, bool isUser = true);
+    // persist=true: lưu vào file lịch sử (dùng cho message do user gửi hoặc system message)
+    // persist=false: chỉ update UI, không ghi file (dùng cho message nhận từ socket vì SocketManager đã lưu)
+    void addMessage(String text, bool isUser = true, bool persist = true);
     
     // Gửi tin nhắn hiện tại
     void sendMessage();

@@ -127,6 +127,9 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->pendingGameName = "";
     this->screenState = STATE_NORMAL;
     this->isActive = false;  // Initially inactive
+
+    // Presence cache init
+    this->statusCacheCount = 0;
     
     this->onAddFriendSuccessCallback = nullptr;
     this->onOpenChatCallback = nullptr;
@@ -153,6 +156,79 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     
     // Set static instance for callbacks
     s_socialScreenInstance = this;
+}
+
+void SocialScreen::recordStatusInCache(int userId, bool online) {
+    if (userId <= 0) {
+        return;
+    }
+
+    unsigned long now = millis();
+
+    // Update existing entry
+    for (int i = 0; i < statusCacheCount; i++) {
+        if (statusCache[i].userId == userId) {
+            statusCache[i].online = online;
+            statusCache[i].lastUpdateMs = now;
+            return;
+        }
+    }
+
+    // Add new entry if space available
+    if (statusCacheCount < MAX_STATUS_CACHE) {
+        statusCache[statusCacheCount].userId = userId;
+        statusCache[statusCacheCount].online = online;
+        statusCache[statusCacheCount].lastUpdateMs = now;
+        statusCacheCount++;
+        return;
+    }
+
+    // Cache full: replace the oldest entry
+    int oldestIndex = 0;
+    unsigned long oldestTime = statusCache[0].lastUpdateMs;
+    for (int i = 1; i < MAX_STATUS_CACHE; i++) {
+        if (statusCache[i].lastUpdateMs < oldestTime) {
+            oldestTime = statusCache[i].lastUpdateMs;
+            oldestIndex = i;
+        }
+    }
+    statusCache[oldestIndex].userId = userId;
+    statusCache[oldestIndex].online = online;
+    statusCache[oldestIndex].lastUpdateMs = now;
+}
+
+bool SocialScreen::getCachedStatus(int userId, bool* outOnline) const {
+    if (userId <= 0 || outOnline == nullptr) {
+        return false;
+    }
+    for (int i = 0; i < statusCacheCount; i++) {
+        if (statusCache[i].userId == userId) {
+            *outOnline = statusCache[i].online;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SocialScreen::isFriendOnline(int friendUserId) const {
+    if (friendUserId <= 0) {
+        return false;
+    }
+
+    // Prefer current friends list if loaded
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends != nullptr && friends[i].userId == friendUserId) {
+            return friends[i].online;
+        }
+    }
+
+    // Fallback to cached presence (handles race: status updates before list load)
+    bool cachedOnline = false;
+    if (getCachedStatus(friendUserId, &cachedOnline)) {
+        return cachedOnline;
+    }
+
+    return false;
 }
 
 SocialScreen::~SocialScreen() {
@@ -1946,6 +2022,12 @@ void SocialScreen::parseFriendsString(const String& friendsString) {
                         // Parse online status
                         String onlineStr = entry.substring(comma2 + 1);
                         friends[entryIndex].online = (onlineStr == "1");
+
+                        // Override with cached presence if we have it (avoids race)
+                        bool cachedOnline = false;
+                        if (getCachedStatus(friends[entryIndex].userId, &cachedOnline)) {
+                            friends[entryIndex].online = cachedOnline;
+                        }
                     } else {
                         // Fallback: old format "nickname,online" (no userId)
                         String onlineStr = entry.substring(comma1 + 1);
@@ -2112,6 +2194,9 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
     Serial.print(friendUserId);
     Serial.print(", isOnline: ");
     Serial.println(isOnline ? "true" : "false");
+
+    // Always record presence update (even if friends list not loaded yet).
+    recordStatusInCache(friendUserId, isOnline);
     
     // Check child screen: if STATE_PLAYING_GAME and caroGameScreen is active, don't draw
     if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {

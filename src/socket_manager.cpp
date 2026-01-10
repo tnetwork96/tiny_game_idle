@@ -752,7 +752,8 @@ void SocketManager::parseChatMessage(const String& message) {
     if (isSocialParentActive && isChatScreenActive && currentChatFriendUserId == fromUserId && 
         chatScreen != nullptr && chatScreen->isActive()) {
         Serial.println("Socket Manager: ✅ Parent active + ChatScreen active - adding message");
-        chatScreen->addMessage(chatMessage, false);  // false = message từ friend
+        // persist=false because SocketManager already saves incoming messages to file
+        chatScreen->addMessage(chatMessage, false, false);  // false = message từ friend
         chatScreen->redrawMessages();  // Chỉ vẽ lại phần messages
         Serial.println("Socket Manager: Message added to ChatScreen and redrawn");
         messageDisplayed = true;
@@ -1010,77 +1011,13 @@ void SocketManager::parseUserStatusUpdate(const String& message) {
     String status = message.substring(statusStart, statusEnd);
     Serial.print("Socket Manager: Parsed status: ");
     Serial.println(status);
-    
-    // Check parent screen active first before updating UI
-    if (socialScreen != nullptr) {
-        bool isParentActive = isSocialScreenActive && socialScreen->getActive();
-        
-        if (isParentActive) {
-            // Check child screen state to determine if we should update UI
-            SocialScreen::ScreenState screenState = socialScreen->getScreenState();
-            
-            // Check child screen active first
-            if (screenState == SocialScreen::STATE_PLAYING_GAME) {
-                // Check if caro game screen is active
-                if (socialScreen->getCaroGameScreen() != nullptr && 
-                    socialScreen->getCaroGameScreen()->isActive()) {
-                    Serial.println("Socket Manager: Caro game active - skip UI update");
-                    return;  // Skip callback, don't update UI
-                }
-            } else if (screenState == SocialScreen::STATE_WAITING_GAME) {
-                // Check if lobby is active
-                if (socialScreen->getGameLobby() != nullptr && 
-                    socialScreen->getGameLobby()->isActive()) {
-                    // Lobby active - can update status in lobby
-                    if (onUserStatusUpdateCallback != nullptr) {
-                        onUserStatusUpdateCallback(userId, status);
-                    }
-                    return;
-                }
-            } else if (screenState == SocialScreen::STATE_NORMAL) {
-                // Check if on Friends tab
-                bool isOnFriendsTab = socialScreen->getCurrentTab() == SocialScreen::TAB_FRIENDS;
-                if (isOnFriendsTab) {
-                    // Check if MiniAddFriend is active (if so, don't update)
-                    if (socialScreen->getCurrentTab() == SocialScreen::TAB_ADD_FRIEND) {
-                        if (socialScreen->getMiniAddFriend() != nullptr && 
-                            socialScreen->getMiniAddFriend()->isActive()) {
-                            // MiniAddFriend active - just update data
-                            if (onUserStatusUpdateCallback != nullptr) {
-                                onUserStatusUpdateCallback(userId, status);
-                            }
-                            return;
-                        }
-                    }
-                    // Friends tab active - update status dot
-                    if (onUserStatusUpdateCallback != nullptr) {
-                        onUserStatusUpdateCallback(userId, status);
-                    }
-                } else {
-                    // Not on Friends tab - just update data
-                    Serial.println("Socket Manager: User status updated but not on Friends tab - data updated only");
-                    if (onUserStatusUpdateCallback != nullptr) {
-                        onUserStatusUpdateCallback(userId, status);
-                    }
-                }
-            } else {
-                // Other states - just update data
-                if (onUserStatusUpdateCallback != nullptr) {
-                    onUserStatusUpdateCallback(userId, status);
-                }
-            }
-        } else {
-            // Parent not active - don't call callback at all
-            Serial.println("Socket Manager: Social screen not active - skipping callback (no UI update)");
-            return;  // Don't call callback, just return
-        }
+
+    // Always forward presence updates to the callback.
+    // SocialScreen::updateFriendStatus() already knows when to redraw vs update data only.
+    if (onUserStatusUpdateCallback != nullptr) {
+        onUserStatusUpdateCallback(userId, status);
     } else {
-        // No social screen - just call callback
-        if (onUserStatusUpdateCallback != nullptr) {
-            onUserStatusUpdateCallback(userId, status);
-        } else {
-            Serial.println("Socket Manager: ⚠️ No callback set for user status update");
-        }
+        Serial.println("Socket Manager: ⚠️ No callback set for user status update");
     }
 }
 

@@ -161,6 +161,9 @@ public:
     
     // Update friend online status
     void updateFriendStatus(int friendUserId, bool isOnline);
+
+    // Query friend online status (uses current list, falls back to cached presence)
+    bool isFriendOnline(int friendUserId) const;
     
     // Static callback wrapper for user status update
     static void onUserStatusUpdate(int userId, const String& status);
@@ -224,6 +227,19 @@ private:
     int friendsCount;
     int selectedFriendIndex;
     int friendsScrollOffset;
+
+    // Presence cache to avoid race: status updates may arrive before friends list loads.
+    struct StatusCacheEntry {
+        int userId;
+        bool online;
+        unsigned long lastUpdateMs;
+    };
+    static const int MAX_STATUS_CACHE = 32;
+    StatusCacheEntry statusCache[MAX_STATUS_CACHE];
+    int statusCacheCount;
+
+    void recordStatusInCache(int userId, bool online);
+    bool getCachedStatus(int userId, bool* outOnline) const;
 
     // Notifications data
     ApiClient::NotificationEntry* notifications;
