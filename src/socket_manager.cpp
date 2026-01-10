@@ -762,6 +762,11 @@ void SocketManager::parseChatMessage(const String& message) {
     }
     
     if (messageDisplayed) {
+        // Even if message is shown in an active chat, keep friends list ordered by recent activity.
+        // SocialScreen will defer any UI redraw to the main loop (and will not draw over chat).
+        if (socialScreen != nullptr) {
+            socialScreen->bumpFriendToTop(fromUserId);
+        }
         return;  // Message đã được hiển thị, không cần xử lý badge
     }
     

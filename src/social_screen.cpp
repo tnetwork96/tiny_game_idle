@@ -146,6 +146,11 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->pendingReloadFriends = false;
     this->pendingReloadFriendsSinceMs = 0;
     this->lastFriendsReloadMs = 0;
+
+    // Deferred UI refresh flags (avoid drawing from WebSocket task)
+    this->pendingFriendsUiRefresh = false;
+    this->pendingFriendsUiRefreshSinceMs = 0;
+    this->lastFriendsUiRefreshMs = 0;
     
     // Red dot badge for unread notifications
     this->hasUnreadNotification = false;
@@ -400,6 +405,81 @@ void SocialScreen::setHasUnreadChat(bool hasUnread) {
     hasUnreadChatFlag = hasUnread;
 }
 
+void SocialScreen::bumpFriendToTop(int friendUserId) {
+    if (friends == nullptr || friendsCount <= 1) {
+        return;
+    }
+
+    int idx = -1;
+    for (int i = 0; i < friendsCount; i++) {
+        if (friends[i].userId == friendUserId) {
+            idx = i;
+            break;
+        }
+    }
+    if (idx <= 0) {
+        // Not found or already at top
+        return;
+    }
+
+    // Preserve selection by userId (not by index) to avoid "jumping" focus.
+    int selectedUserId = -1;
+    if (selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
+        selectedUserId = friends[selectedFriendIndex].userId;
+    }
+
+    // Preserve scroll anchor (top visible item) to avoid visual jumps when list reorders.
+    int topVisibleUserId = -1;
+    // If we're already at the top, keep scrollOffset at 0 so the newest friend is actually visible.
+    // Only preserve anchor when user has scrolled down.
+    if (friendsScrollOffset > 0 && friendsScrollOffset < friendsCount) {
+        topVisibleUserId = friends[friendsScrollOffset].userId;
+    }
+
+    // Move friend at idx to the front (stable shift).
+    FriendItem moved = friends[idx];
+    for (int j = idx; j > 0; j--) {
+        friends[j] = friends[j - 1];
+    }
+    friends[0] = moved;
+
+    // Re-resolve selectedFriendIndex by selected userId.
+    if (selectedUserId > 0) {
+        for (int i = 0; i < friendsCount; i++) {
+            if (friends[i].userId == selectedUserId) {
+                selectedFriendIndex = i;
+                break;
+            }
+        }
+    }
+
+    // Re-resolve scroll offset by anchor userId (best-effort).
+    if (topVisibleUserId > 0) {
+        for (int i = 0; i < friendsCount; i++) {
+            if (friends[i].userId == topVisibleUserId) {
+                friendsScrollOffset = i;
+                break;
+            }
+        }
+    }
+
+    // Clamp scroll offset to valid range based on visible items.
+    const uint16_t cardHeight = currentTheme.rowHeight;
+    const uint16_t cardSpacing = 4;
+    const uint16_t headerHeight = currentTheme.headerHeight;
+    const uint16_t startY = headerHeight + 4;
+    int visibleItems = (SCREEN_HEIGHT - startY) / (cardHeight + cardSpacing);
+    if (visibleItems <= 0) visibleItems = 1;
+    int maxOffset = friendsCount - visibleItems;
+    if (maxOffset < 0) maxOffset = 0;
+    if (friendsScrollOffset < 0) friendsScrollOffset = 0;
+    if (friendsScrollOffset > maxOffset) friendsScrollOffset = maxOffset;
+
+    // Defer UI refresh to main loop (avoid drawing from WebSocket task).
+    pendingFriendsUiRefresh = true;
+    pendingFriendsUiRefreshSinceMs = millis();
+}
+
 void SocialScreen::addUnreadChatForFriend(int friendUserId) {
     for (int i = 0; i < friendsCount; i++) {
         if (friends[i].userId == friendUserId) {
@@ -410,11 +490,15 @@ void SocialScreen::addUnreadChatForFriend(int friendUserId) {
             Serial.print(friendUserId);
             Serial.print("). Unread count: ");
             Serial.println(friends[i].unreadCount);
-            
-            // Redraw friend card nếu đang visible và đang ở Friends tab
-            if (currentTab == TAB_FRIENDS) {
-                redrawFriendCard(i, (i == selectedFriendIndex));
-            }
+
+            // Ensure UI eventually reflects the new unread badge.
+            // (Even if the friend is already at the top and no reorder happens.)
+            pendingFriendsUiRefresh = true;
+            pendingFriendsUiRefreshSinceMs = millis();
+
+            // Move this friend to top as "most recent" activity.
+            // UI refresh is deferred to main loop to avoid drawing from WebSocket task.
+            bumpFriendToTop(friendUserId);
             return;
         }
     }
@@ -2525,6 +2609,26 @@ void SocialScreen::update() {
             pendingReloadFriends = false;
             lastFriendsReloadMs = now;
             loadFriends();
+        }
+    }
+
+    // Deferred friends UI refresh (e.g., re-ordering on incoming chat).
+    // Do drawing from main loop only (this method runs in main loop).
+    if (pendingFriendsUiRefresh) {
+        unsigned long now = millis();
+
+        // Only redraw when it is safe/visible to avoid drawing over chat or game.
+        bool canDraw =
+            isActive &&
+            screenState == STATE_NORMAL &&
+            currentTab == TAB_FRIENDS &&
+            !suppressUiRedrawWhileChat;
+
+        // Debounce to collapse bursts of chat messages into one redraw.
+        if (canDraw && now - lastFriendsUiRefreshMs >= 100 && now - pendingFriendsUiRefreshSinceMs >= 30) {
+            pendingFriendsUiRefresh = false;
+            lastFriendsUiRefreshMs = now;
+            drawContentArea();
         }
     }
     

@@ -127,6 +127,8 @@ public:
     
     // Manage unread chat messages per friend
     void addUnreadChatForFriend(int friendUserId);
+    // Move friend to top of list (used for "recent activity" ordering)
+    void bumpFriendToTop(int friendUserId);
     void clearUnreadChatForFriend(int friendUserId);
     int getUnreadCountForFriend(int friendUserId) const;
     
@@ -350,6 +352,11 @@ private:
     bool pendingReloadFriends;
     unsigned long pendingReloadFriendsSinceMs;
     unsigned long lastFriendsReloadMs;
+
+    // Deferred UI refresh for friends list (avoid drawing from WebSocket task)
+    bool pendingFriendsUiRefresh;
+    unsigned long pendingFriendsUiRefreshSinceMs;
+    unsigned long lastFriendsUiRefreshMs;
 };
 
 #endif
