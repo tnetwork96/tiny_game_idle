@@ -267,7 +267,7 @@ void WiFiManager::update() {
             
             // Quay lại màn hình password để nhập lại
             currentState = WIFI_STATE_PASSWORD;
-            wifiPassword->clearPassword();  // Clear password để nhập lại
+            // Keep the entered password so user can edit it (don't wipe on failure)
             wifiPassword->setOnEnterPressedCallback(onEnterPressedWrapper);  // Set lại callback
             wifiPassword->draw();  // Hiển thị lại màn hình password
         } else if (elapsed > 20000) {
@@ -293,7 +293,7 @@ void WiFiManager::update() {
             
             // Quay lại màn hình password để nhập lại
             currentState = WIFI_STATE_PASSWORD;
-            wifiPassword->clearPassword();  // Clear password để nhập lại
+            // Keep the entered password so user can edit it (don't wipe on failure/timeout)
             wifiPassword->setOnEnterPressedCallback(onEnterPressedWrapper);  // Set lại callback
             wifiPassword->draw();  // Hiển thị lại màn hình password
         }

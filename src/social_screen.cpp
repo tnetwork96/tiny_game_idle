@@ -1783,6 +1783,26 @@ void SocialScreen::handleExit() {
 }
 
 void SocialScreen::handleKeyPress(const String& key) {
+    // If confirmation dialog is visible, it is modal: route LEFT/RIGHT/SELECT/EXIT to dialog only.
+    // This prevents any keyboard/list redraws from happening on top of the confirm UI.
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        if (key == "left" || key == "|l") {
+            confirmationDialog->handleLeft();
+            return;
+        } else if (key == "right" || key == "|r") {
+            confirmationDialog->handleRight();
+            return;
+        } else if (key == "select" || key == "|e") {
+            confirmationDialog->handleSelect();
+            return;
+        } else if (key == "exit" || key == "<" || key == "|b") {
+            confirmationDialog->handleCancel();
+            return;
+        }
+        // Ignore all other keys while dialog is open
+        return;
+    }
+
     // Handle new navigation key format first (similar to WiFi password screen)
     if (key == "up") {
         handleUp();

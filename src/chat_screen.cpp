@@ -1047,6 +1047,35 @@ void ChatScreen::handleKeyPress(String key) {
     // IMPORTANT: do NOT map "|e" to "select" because the keyboard Enter key token is "|e"
     // and mapping it to "select" would cause recursion and reset the ESP32.
 
+    // If confirmation dialog is visible, it is modal:
+    // route LEFT/RIGHT/SELECT/EXIT to dialog only and prevent keyboard redraw.
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        // Ensure keyboard cannot redraw on top of the dialog
+        if (keyboard != nullptr) {
+            keyboard->setDrawingEnabled(false);
+        }
+
+        if (key == "left") {
+            confirmationDialog->handleLeft();
+            return;
+        }
+        if (key == "right") {
+            confirmationDialog->handleRight();
+            return;
+        }
+        // Accept both "select" and the keyboard-enter token "|e" as dialog select
+        if (key == "select" || key == "|e") {
+            confirmationDialog->handleSelect();
+            return;
+        }
+        if (key == "exit" || key == "<" || key == "|b") {
+            confirmationDialog->handleCancel();
+            return;
+        }
+        // Ignore all other keys while dialog is open
+        return;
+    }
+
     // Handle navigation keys from main ("up/down/left/right/select/exit")
     if (key == "exit") {
         // If keyboard is open, close it first

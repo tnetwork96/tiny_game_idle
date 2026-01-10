@@ -200,6 +200,12 @@ void LoginScreen::drawSuccessScreen() {
 }
 
 void LoginScreen::draw() {
+    // If confirmation dialog is visible, never allow the keyboard to redraw on top
+    const bool dialogVisible = (confirmationDialog && confirmationDialog->isVisible());
+    if (keyboard != nullptr) {
+        keyboard->setDrawingEnabled(!dialogVisible);
+    }
+
     switch (state) {
         case LOGIN_USERNAME:
             drawUsernameScreen();
@@ -242,6 +248,11 @@ void LoginScreen::ensureAlphabetMode() {
 void LoginScreen::goToUsernameStep() {
     state = LOGIN_USERNAME;
     showUsernameEmpty = false;
+    // When returning from a modal confirmation dialog, keyboard drawing may be disabled.
+    // Re-enable it here because this function draws directly (does not call LoginScreen::draw()).
+    if (keyboard != nullptr) {
+        keyboard->setDrawingEnabled(true);
+    }
     drawUsernameScreen();
 }
 
@@ -252,6 +263,11 @@ void LoginScreen::resetToUsernameStep() {
 void LoginScreen::goToPinStep() {
     state = LOGIN_PIN;
     pinScreen->setUsername(username);
+    // When returning from a modal confirmation dialog, keyboard drawing may be disabled.
+    // Re-enable it here because this function draws directly (does not call LoginScreen::draw()).
+    if (keyboard != nullptr) {
+        keyboard->setDrawingEnabled(true);
+    }
     // Don't reset PIN if it was already loaded from saved credentials
     // Only reset if pinInput is empty (user manually navigated to PIN step)
     String currentPin = pinScreen->getPin();
@@ -356,6 +372,29 @@ void LoginScreen::handleUsernameKey(const String& key) {
 }
 
 void LoginScreen::handleKeyPress(const String& key) {
+    // If a confirmation dialog is visible, it is modal: route LEFT/RIGHT/SELECT/EXIT to dialog only.
+    // This prevents thumbwheel movement from calling keyboard->moveCursorByCommand() which redraws the keyboard.
+    if (state == LOGIN_SHOWING_DIALOG && confirmationDialog && confirmationDialog->isVisible()) {
+        if (key == "left" || key == "|l") {
+            confirmationDialog->handleLeft();
+            return;
+        }
+        if (key == "right" || key == "|r") {
+            confirmationDialog->handleRight();
+            return;
+        }
+        if (key == "select" || key == "|e") {
+            confirmationDialog->handleSelect();
+            return;
+        }
+        if (key == "exit" || key == "<" || key == "|b") {
+            confirmationDialog->handleCancel();
+            return;
+        }
+        // Ignore all other keys while dialog is open
+        return;
+    }
+
     // Handle new navigation key format first (similar to WiFi password screen)
     if (key == "up") {
         handleUp();
