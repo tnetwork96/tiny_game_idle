@@ -493,7 +493,50 @@ async def reject_friend_request(request: RejectFriendRequestRequest):
                 WHERE id = %s
             ''', (request.notification_id,))
             
+            # Create notification for the sender (reverse signal) + push via WebSocket (best-effort)
+            notification_message = None
+            notification_id = None
+            notification_created_at = None
+            try:
+                cursor.execute('SELECT COALESCE(nickname, username) as display_name FROM users WHERE id = %s', (request.user_id,))
+                recipient = cursor.fetchone()
+                recipient_display_name = recipient['display_name'] if recipient else f"User {request.user_id}"
+
+                # Avoid duplicate notifications
+                cursor.execute('''
+                    SELECT id FROM notifications
+                    WHERE user_id = %s AND type = 'friend_request_rejected' AND related_id = %s
+                ''', (from_user_id, friend_request_id))
+
+                if not cursor.fetchone():
+                    notification_message = f"{recipient_display_name} rejected your friend request"
+                    cursor.execute('''
+                        INSERT INTO notifications (user_id, type, message, related_id, read)
+                        VALUES (%s, 'friend_request_rejected', %s, %s, FALSE)
+                        RETURNING id, created_at
+                    ''', (from_user_id, notification_message, friend_request_id))
+                    notification_result = cursor.fetchone()
+                    notification_id = notification_result['id'] if notification_result else None
+                    notification_created_at = notification_result['created_at'] if notification_result else None
+            except Exception as notif_err:
+                # Don't fail the reject if reverse-signal notification fails
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create reject reverse-notification: {str(notif_err)}")
+
             conn.commit()
+
+            # Push reverse signal to sender (best-effort)
+            try:
+                if notification_id is not None and notification_message is not None:
+                    notification_data = {
+                        "id": notification_id,
+                        "type": "friend_request_rejected",
+                        "message": notification_message,
+                        "timestamp": notification_created_at.isoformat() if notification_created_at else datetime.now().isoformat(),
+                        "read": False
+                    }
+                    await websocket_manager.send_notification_to_user(from_user_id, notification_data)
+            except Exception as ws_err:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to push reject reverse-signal via WebSocket: {str(ws_err)}")
             
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request {friend_request_id} rejected by user {request.user_id} (from {from_user_id})")
             return RejectFriendRequestResponse(

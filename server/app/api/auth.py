@@ -577,10 +577,13 @@ async def send_friend_request(request: SendFriendRequestRequest):
             conn.commit()
 
             # Ensure recipient notification exists and is unread (best-effort).
+            # Also push realtime notification via WebSocket so the recipient sees it instantly.
             try:
-                create_friend_request_notification(request.from_user_id, to_user_id, request_id)
+                notification_data = create_friend_request_notification(request.from_user_id, to_user_id, request_id)
+                if notification_data:
+                    await websocket_manager.send_notification_to_user(to_user_id, notification_data)
             except Exception as notif_error:
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create/refresh notification for friend request {request_id}: {str(notif_error)}")
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create/refresh/push notification for friend request {request_id}: {str(notif_error)}")
 
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request pending: user_id {request.from_user_id} -> {display_name} (id: {request_id})")
 
@@ -697,21 +700,37 @@ def create_friend_request_notification(from_user_id: int, to_user_id: int, reque
         
         notification_message = f"{sender_display_name} sent you a friend request"
         existing = cursor.fetchone()
+        notification_row = None
         if existing:
             # Refresh existing notification to be unread again (idempotent).
             cursor.execute('''
                 UPDATE notifications
                 SET message = %s, read = FALSE, updated_at = CURRENT_TIMESTAMP
                 WHERE id = %s
+                RETURNING id, created_at
             ''', (notification_message, existing["id"]))
+            notification_row = cursor.fetchone()
         else:
             cursor.execute('''
                 INSERT INTO notifications (user_id, type, message, related_id, read)
                 VALUES (%s, 'friend_request', %s, %s, FALSE)
+                RETURNING id, created_at
             ''', (to_user_id, notification_message, request_id))
+            notification_row = cursor.fetchone()
         
         conn.commit()
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Created/refreshed notification for friend request {request_id}: '{notification_message}'")
+
+        if notification_row:
+            created_at = notification_row.get("created_at")
+            return {
+                "id": notification_row.get("id"),
+                "type": "friend_request",
+                "message": notification_message,
+                "timestamp": created_at.isoformat() if isinstance(created_at, datetime) else datetime.now().isoformat(),
+                "read": False,
+            }
+        return None
         
     except Exception as e:
         if conn:
@@ -723,6 +742,7 @@ def create_friend_request_notification(from_user_id: int, to_user_id: int, reque
     finally:
         if conn:
             conn.close()
+    return None
 
 @router.get("/notifications/{user_id}", response_model=NotificationsResponse)
 async def get_notifications(user_id: int):

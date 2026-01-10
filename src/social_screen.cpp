@@ -141,6 +141,11 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->popupMessage = "";
     this->popupShowTime = 0;
     this->popupVisible = false;
+
+    // Deferred reload flags (avoid doing HTTP calls from WebSocket task)
+    this->pendingReloadFriends = false;
+    this->pendingReloadFriendsSinceMs = 0;
+    this->lastFriendsReloadMs = 0;
     
     // Red dot badge for unread notifications
     this->hasUnreadNotification = false;
@@ -2509,6 +2514,19 @@ void SocialScreen::update() {
     if (screenState == STATE_PLAYING_GAME && caroGameScreen != nullptr && caroGameScreen->isActive()) {
         caroGameScreen->update();
     }
+
+    // Deferred friends reload (triggered by WebSocket notifications like friend_request_accepted).
+    // Do HTTP calls from main loop only (this method runs in main loop).
+    if (pendingReloadFriends && userId > 0 && serverHost.length() > 0) {
+        unsigned long now = millis();
+        // Small debounce to avoid repeated reload storms
+        if (now - lastFriendsReloadMs >= 500 && now - pendingReloadFriendsSinceMs >= 50) {
+            Serial.println("Social Screen: Deferred reload friends triggered");
+            pendingReloadFriends = false;
+            lastFriendsReloadMs = now;
+            loadFriends();
+        }
+    }
     
 }
 
@@ -3088,6 +3106,15 @@ void SocialScreen::addNotificationFromSocket(int id, const String& type, const S
             // If not on notifications tab, notification will be visible when user switches to notifications tab
             Serial.println("Social Screen: Not on notifications tab, badge shown. Notification will be visible when user switches to notifications tab");
         }
+    }
+
+    // Senior behavior: if we receive a "friend_request_accepted" signal, refresh friends list.
+    // Do NOT call loadFriends() here (this can be invoked from the WebSocket task).
+    if (!read && (type == "friend_request_accepted" || type == "friend_request_rejected")) {
+        pendingReloadFriends = true;
+        pendingReloadFriendsSinceMs = millis();
+        Serial.print("Social Screen: Scheduled deferred friends reload due to notification type: ");
+        Serial.println(type);
     }
 }
 

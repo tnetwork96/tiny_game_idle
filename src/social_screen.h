@@ -345,6 +345,11 @@ private:
     
     // Red dot badge for unread chat messages
     bool hasUnreadChatFlag;
+
+    // Deferred reload flags (avoid doing HTTP calls from WebSocket task)
+    bool pendingReloadFriends;
+    unsigned long pendingReloadFriendsSinceMs;
+    unsigned long lastFriendsReloadMs;
 };
 
 #endif
