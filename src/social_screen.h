@@ -182,6 +182,9 @@ public:
     void setActive(bool active);
     bool getActive() const { return isActive; }
     
+    // Suppress UI redraw while chat is active (to avoid drawing friend list over chat)
+    void setSuppressUiRedrawWhileChat(bool suppress) { suppressUiRedrawWhileChat = suppress; }
+    
     // Getter methods for child screens (for keyboard routing and socket checks)
     CaroGameScreen* getCaroGameScreen() const { return caroGameScreen; }
     GameLobbyScreen* getGameLobby() const { return gameLobby; }
@@ -269,6 +272,7 @@ private:
     
     ScreenState screenState;
     bool isActive;  // Track if SocialScreen is currently active/visible
+    bool suppressUiRedrawWhileChat;  // Suppress UI redraws when ChatScreen is active (to avoid drawing over chat)
     
     // Semaphore for thread-safe access to notifications array
     SemaphoreHandle_t notificationsMutex;

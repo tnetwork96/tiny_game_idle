@@ -127,6 +127,7 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
     this->pendingGameName = "";
     this->screenState = STATE_NORMAL;
     this->isActive = false;  // Initially inactive
+    this->suppressUiRedrawWhileChat = false;  // Initially allow redraws
 
     // Presence cache init
     this->statusCacheCount = 0;
@@ -381,6 +382,11 @@ void SocialScreen::drawSidebar() {
 }
 
 void SocialScreen::redrawSidebar() {
+    // Suppress redraw if chat is active (to avoid drawing over chat screen)
+    if (suppressUiRedrawWhileChat) {
+        Serial.println("Social Screen: Suppressing sidebar redraw - chat is active");
+        return;
+    }
     // Redraw sidebar to update badges
     drawSidebar();
 }
@@ -2240,20 +2246,24 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
             Serial.println(isOnline ? "online" : "offline");
             
             // Redraw friend card if we're on the friends tab and status changed
-            // Only draw if parent active AND not in game playing state
-            if (statusChanged && screenState == STATE_NORMAL && currentTab == TAB_FRIENDS) {
+            // Only draw if parent active AND not in game playing state AND not suppressing redraw (chat active)
+            if (statusChanged && screenState == STATE_NORMAL && currentTab == TAB_FRIENDS && !suppressUiRedrawWhileChat) {
                 bool isSelected = (i == selectedFriendIndex);
                 Serial.print("Social Screen: Redrawing friend card at index ");
                 Serial.println(i);
                 redrawFriendCard(i, isSelected);
             } else if (statusChanged) {
-                // If not on friends tab, just log (will update when user navigates to friends tab)
-                Serial.println("Social Screen: Status changed but not on friends tab - will update when navigated");
+                if (suppressUiRedrawWhileChat) {
+                    Serial.println("Social Screen: Status changed but suppressing redraw - chat is active");
+                } else {
+                    // If not on friends tab, just log (will update when user navigates to friends tab)
+                    Serial.println("Social Screen: Status changed but not on friends tab - will update when navigated");
+                }
             }
 
             // Nếu đang ở lobby chờ, cập nhật danh sách bạn trong lobby với online flag mới
-            // Check parent active AND lobby active
-            if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && gameLobby->isActive() && friendsCount > 0) {
+            // Check parent active AND lobby active AND not suppressing redraw
+            if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && gameLobby->isActive() && friendsCount > 0 && !suppressUiRedrawWhileChat) {
                 GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
                 for (int j = 0; j < friendsCount; j++) {
                     miniFriends[j] = {friends[j].nickname, friends[j].online};

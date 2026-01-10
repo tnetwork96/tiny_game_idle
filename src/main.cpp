@@ -545,6 +545,12 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
             socketManager->setCurrentChatFriendUserId(-1);
         }
         
+        // Re-enable SocialScreen UI redraws now that chat is closed
+        if (socialScreen != nullptr) {
+            socialScreen->setSuppressUiRedrawWhileChat(false);
+            Serial.println("Main: Re-enabled SocialScreen UI redraws - chat closed");
+        }
+        
         isSocialScreenActive = true;
         
         // Set SocialScreen active
@@ -567,6 +573,12 @@ void onOpenChat(int friendUserId, const String& friendNickname) {
     isChatScreenActive = true;
     // isSocialScreenActive = false;  // ❌ REMOVED - parent stays active
     // Keep isSocialScreenActive = true (parent still active)
+    
+    // Suppress SocialScreen UI redraws while chat is active (to avoid drawing friend list over chat)
+    if (socialScreen != nullptr) {
+        socialScreen->setSuppressUiRedrawWhileChat(true);
+        Serial.println("Main: Suppressed SocialScreen UI redraws - chat is active");
+    }
     
     // Set ChatScreen active
     if (chatScreen != nullptr) {

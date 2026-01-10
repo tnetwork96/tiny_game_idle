@@ -531,9 +531,11 @@ void SocketManager::parseNotificationMessage(const String& message) {
         socialScreen->addNotificationFromSocket(notificationId, notificationType, notificationMessage, notificationTimestamp, notificationRead);
         Serial.println("Socket Manager: Notification forwarded");
         
-        // Redraw sidebar to show badge
-        if (isParentActive) {
+        // Redraw sidebar to show badge (but not if chat is active - avoid drawing over chat)
+        if (isParentActive && !isChatScreenActive) {
             socialScreen->redrawSidebar();
+        } else if (isChatScreenActive) {
+            Serial.println("Socket Manager: Suppressing sidebar redraw - chat is active");
         }
     } else {
         Serial.println("Socket Manager: ⚠️  socialScreen is null!");
@@ -817,9 +819,13 @@ void SocketManager::parseChatMessage(const String& message) {
             // User is not viewing Friends tab, set badge trên Friends icon
             socialScreen->setHasUnreadChat(true);
             
-            // Redraw sidebar if Social screen is active AND visible to show badge immediately
-            Serial.println("Socket Manager: Redrawing sidebar to show badge immediately");
-            socialScreen->redrawSidebar();
+            // Redraw sidebar if Social screen is active AND visible to show badge immediately (but not if chat is active)
+            if (!isChatScreenActive) {
+                Serial.println("Socket Manager: Redrawing sidebar to show badge immediately");
+                socialScreen->redrawSidebar();
+            } else {
+                Serial.println("Socket Manager: Suppressing sidebar redraw - chat is active");
+            }
         } else {
             // User is on Friends tab, badge sẽ hiển thị trên friend card
             Serial.println("Socket Manager: User is on Friends tab, badge will show on friend card");
