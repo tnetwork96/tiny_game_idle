@@ -1206,6 +1206,17 @@ ApiClient::FriendRequestResult ApiClient::sendFriendRequest(int fromUserId, cons
     
     String trimmedNickname = toNickname;
     trimmedNickname.trim();
+    trimmedNickname.replace("\r", "");
+    trimmedNickname.replace("\n", "");
+    // Defensive: allow users to paste quotes like "Admin"
+    while (trimmedNickname.length() > 0 && (trimmedNickname.charAt(0) == '"' || trimmedNickname.charAt(0) == '\'')) {
+        trimmedNickname.remove(0, 1);
+        trimmedNickname.trim();
+    }
+    while (trimmedNickname.length() > 0 && (trimmedNickname.charAt(trimmedNickname.length() - 1) == '"' || trimmedNickname.charAt(trimmedNickname.length() - 1) == '\'')) {
+        trimmedNickname.remove(trimmedNickname.length() - 1, 1);
+        trimmedNickname.trim();
+    }
     if (trimmedNickname.length() == 0) {
         Serial.println("API Client: Empty nickname!");
         result.message = "Nickname cannot be empty";

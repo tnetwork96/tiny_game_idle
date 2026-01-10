@@ -238,7 +238,14 @@ void MiniAddFriendScreen::handleKeyPress(const String& key) {
         handleRight();
         return;
     } else if (key == "|e") {
-        handleSelect();
+        // IMPORTANT:
+        // MiniKeyboard emits "|e" via its onKeySelected callback when the Enter key is selected.
+        // If we call handleSelect() here, it will call keyboard->moveCursor("select") again,
+        // which re-triggers the callback and causes infinite recursion -> stack overflow -> reboot.
+        // So treat "|e" as a direct "submit" signal.
+        if (enteredName.length() > 0) {
+            submitRequested = true;
+        }
         return;
     } else if (key == "<" || key == "|b") {
         handleExit();

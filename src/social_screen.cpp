@@ -1214,20 +1214,20 @@ void SocialScreen::handleContentNavigation(const String& key) {
     } else if (currentTab == TAB_NOTIFICATIONS) {
         // If confirmation dialog is showing, handle dialog navigation
         if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
-            if (key == "|l") {
+            if (key == "left" || key == "|l") {
                 confirmationDialog->handleLeft();
-            } else if (key == "|r") {
+            } else if (key == "right" || key == "|r") {
                 confirmationDialog->handleRight();
-            } else if (key == "|e") {
+            } else if (key == "select" || key == "|e") {
                 confirmationDialog->handleSelect();
-            } else if (key == "<" || key == "|b") {
+            } else if (key == "exit" || key == "<" || key == "|b") {
                 confirmationDialog->handleCancel();
             }
             return;
         }
         
         // Handle Enter key for accepting friend requests
-        if (key == "|e") {
+        if (key == "select" || key == "|e") {
             if (selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
                 ApiClient::NotificationEntry* notification = &notifications[selectedNotificationIndex];
                 
@@ -1314,7 +1314,7 @@ void SocialScreen::handleContentNavigation(const String& key) {
         
         // Navigate notifications list with partial redraw
         int oldIndex = selectedNotificationIndex;
-        if (key == "|u" && selectedNotificationIndex > 0) {
+        if ((key == "up" || key == "|u") && selectedNotificationIndex > 0) {
             selectedNotificationIndex--;
             // Adjust scroll if needed
             const uint16_t cardHeight = 48;
@@ -1332,7 +1332,7 @@ void SocialScreen::handleContentNavigation(const String& key) {
                 redrawNotificationCard(oldIndex, false);
                 redrawNotificationCard(selectedNotificationIndex, true);
             }
-        } else if (key == "|d" && selectedNotificationIndex < notificationsCount - 1) {
+        } else if ((key == "down" || key == "|d") && selectedNotificationIndex < notificationsCount - 1) {
             selectedNotificationIndex++;
             // Adjust scroll if needed
             const uint16_t cardHeight = 48;

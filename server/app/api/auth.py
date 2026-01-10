@@ -401,8 +401,26 @@ async def send_friend_request(request: SendFriendRequestRequest):
     """
     conn = None
     try:
+        def normalize_lookup_name(value: str) -> str:
+            """
+            Normalize user-supplied nickname/username for lookup.
+            - Trims whitespace
+            - Strips wrapping quotes (handles users typing/pasting: "Admin")
+            - Removes CR/LF to avoid accidental multi-line inputs
+            """
+            if value is None:
+                return ""
+            v = value.strip()
+            v = v.replace("\r", "").replace("\n", "")
+            # Strip wrapping quotes defensively (multiple times)
+            while len(v) > 0 and v[0] in ("'", '"'):
+                v = v[1:].strip()
+            while len(v) > 0 and v[-1] in ("'", '"'):
+                v = v[:-1].strip()
+            return v
+
         # Input validation: trim whitespace
-        to_nickname = request.to_nickname.strip() if request.to_nickname else ""
+        to_nickname = normalize_lookup_name(request.to_nickname) if request.to_nickname else ""
         
         # Validate input
         if not to_nickname:
@@ -436,23 +454,33 @@ async def send_friend_request(request: SendFriendRequestRequest):
                 message="Sender user not found"
             )
         
-        # Get to_user_id from nickname (case-insensitive lookup with fallback to username)
-        # Use LOWER() for case-insensitive comparison
+        # Resolve to_user_id from nickname (case-insensitive lookup with fallback to username).
+        # Note: nickname is not enforced unique at DB level, so we must handle ambiguous matches.
         cursor.execute('''
             SELECT id, COALESCE(nickname, username) as display_name
             FROM users 
             WHERE LOWER(COALESCE(nickname, username)) = LOWER(%s)
+            ORDER BY id ASC
         ''', (to_nickname,))
-        to_user = cursor.fetchone()
-        
-        if not to_user:
+        matches = cursor.fetchall()
+
+        if not matches:
             return SendFriendRequestResponse(
                 success=False,
                 message=f"User '{to_nickname}' not found"
             )
-        
-        to_user_id = to_user['id']
-        display_name = to_user['display_name']
+
+        if len(matches) > 1:
+            # Without UI changes, we cannot prompt user to choose.
+            # Encourage using a unique identifier (username) or changing nickname.
+            return SendFriendRequestResponse(
+                success=False,
+                message=f"Nickname '{to_nickname}' is not unique. Please use username or choose a unique nickname."
+            )
+
+        to_user = matches[0]
+        to_user_id = to_user["id"]
+        display_name = to_user["display_name"]
         
         # Check if trying to send request to self
         if request.from_user_id == to_user_id:
@@ -473,110 +501,137 @@ async def send_friend_request(request: SendFriendRequestRequest):
                 message=f"You are already friends with '{display_name}'"
             )
         
-        # Check for existing friend requests (all statuses, both directions)
+        # Check for existing friend requests (both directions).
+        # Note: friend_requests has UNIQUE(from_user_id, to_user_id), so "resend after reject"
+        # must UPDATE the existing row back to pending instead of INSERTing a new one.
         cursor.execute('''
-            SELECT id, status, from_user_id, created_at FROM friend_requests 
-            WHERE (from_user_id = %s AND to_user_id = %s) 
+            SELECT id, status, from_user_id, to_user_id, created_at, updated_at
+            FROM friend_requests
+            WHERE (from_user_id = %s AND to_user_id = %s)
                OR (from_user_id = %s AND to_user_id = %s)
-            ORDER BY created_at DESC
-            LIMIT 1
         ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
-        
-        existing_request = cursor.fetchone()
-        if existing_request:
-            existing_status = existing_request['status']
-            existing_from_id = existing_request['from_user_id']
-            
-            if existing_status == 'pending':
-                if existing_from_id == request.from_user_id:
-                    return SendFriendRequestResponse(
-                        success=False,
-                        message=f"Friend request to '{display_name}' is already pending. Please wait for a response."
-                    )
-                else:
-                    return SendFriendRequestResponse(
-                        success=False,
-                        message=f"'{display_name}' has already sent you a friend request. Check your notifications to accept it."
-                    )
-            elif existing_status == 'accepted':
-                # This shouldn't happen if friends check above works, but handle it anyway
-                return SendFriendRequestResponse(
-                    success=False,
-                    message=f"You are already friends with '{display_name}'"
-                )
-            elif existing_status == 'rejected':
-                # Allow resending after rejection (user might have changed their mind)
-                # But check if it was recently rejected (e.g., within last hour) to prevent spam
-                # For now, allow resending immediately
-                pass  # Continue to create new request
-        
-        # Use transaction to ensure atomicity
+        request_rows = cursor.fetchall()
+
+        outgoing = None  # from current user -> to_user
+        incoming = None  # from to_user -> current user
+        for r in request_rows:
+            if r["from_user_id"] == request.from_user_id and r["to_user_id"] == to_user_id:
+                outgoing = r
+            elif r["from_user_id"] == to_user_id and r["to_user_id"] == request.from_user_id:
+                incoming = r
+
+        # If the other user already sent a pending request, keep UX consistent:
+        # user should accept it from notifications (no UI changes).
+        if incoming and incoming["status"] == "pending":
+            return SendFriendRequestResponse(
+                success=False,
+                message=f"'{display_name}' has already sent you a friend request. Check your notifications to accept it.",
+                request_id=incoming["id"],
+                status="pending"
+            )
+
+        # Idempotent: outgoing pending = already pending.
+        if outgoing and outgoing["status"] == "pending":
+            return SendFriendRequestResponse(
+                success=False,
+                message=f"Friend request to '{display_name}' is already pending. Please wait for a response.",
+                request_id=outgoing["id"],
+                status="pending"
+            )
+
+        # Outgoing accepted should be impossible if friends table is consistent, but handle anyway.
+        if outgoing and outgoing["status"] == "accepted":
+            return SendFriendRequestResponse(
+                success=False,
+                message=f"You are already friends with '{display_name}'",
+                request_id=outgoing["id"],
+                status="accepted"
+            )
+
+        # Create or revive outgoing request
+        request_id = None
         try:
-            # Create friend request (with UNIQUE constraint protection)
-            cursor.execute('''
-                INSERT INTO friend_requests (from_user_id, to_user_id, status)
-                VALUES (%s, %s, 'pending')
-                RETURNING id
-            ''', (request.from_user_id, to_user_id))
-            
-            request_row = cursor.fetchone()
-            if not request_row:
-                raise Exception("Failed to create friend request")
-            
-            request_id = request_row['id']
-            
-            # Create notification for the recipient (may fail, but don't rollback request)
+            if outgoing and outgoing["status"] == "rejected":
+                # Revive the same request row back to pending (fits UNIQUE constraint).
+                cursor.execute('''
+                    UPDATE friend_requests
+                    SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = %s AND status = 'rejected'
+                    RETURNING id
+                ''', (outgoing["id"],))
+                row = cursor.fetchone()
+                request_id = row["id"] if row else outgoing["id"]
+            else:
+                # Insert a new outgoing request. If a race happens, UNIQUE will trip and we'll handle below.
+                cursor.execute('''
+                    INSERT INTO friend_requests (from_user_id, to_user_id, status)
+                    VALUES (%s, %s, 'pending')
+                    RETURNING id
+                ''', (request.from_user_id, to_user_id))
+                row = cursor.fetchone()
+                request_id = row["id"] if row else None
+
+            if not request_id:
+                raise Exception("Failed to create/update friend request")
+
+            conn.commit()
+
+            # Ensure recipient notification exists and is unread (best-effort).
             try:
                 create_friend_request_notification(request.from_user_id, to_user_id, request_id)
             except Exception as notif_error:
-                # Log but don't fail the request
-                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create notification for friend request {request_id}: {str(notif_error)}")
-            
-            conn.commit()
-            
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request created: user_id {request.from_user_id} -> {display_name} (id: {request_id})")
-            
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to create/refresh notification for friend request {request_id}: {str(notif_error)}")
+
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Friend request pending: user_id {request.from_user_id} -> {display_name} (id: {request_id})")
+
             return SendFriendRequestResponse(
                 success=True,
                 message=f"Friend request sent to '{display_name}'",
                 request_id=request_id,
                 status="pending"
             )
-            
+
         except psycopg2.IntegrityError as integrity_err:
-            # Handle UNIQUE constraint violation (race condition)
+            # Handle UNIQUE constraint violation (race condition) and re-check state.
             conn.rollback()
             error_msg = str(integrity_err)
             if "unique" in error_msg.lower() or "duplicate" in error_msg.lower():
-                # Check what the actual state is
                 cursor.execute('''
-                    SELECT status, from_user_id FROM friend_requests 
-                    WHERE (from_user_id = %s AND to_user_id = %s) 
+                    SELECT id, status, from_user_id
+                    FROM friend_requests
+                    WHERE (from_user_id = %s AND to_user_id = %s)
                        OR (from_user_id = %s AND to_user_id = %s)
                     ORDER BY created_at DESC
                     LIMIT 1
                 ''', (request.from_user_id, to_user_id, to_user_id, request.from_user_id))
-                
                 duplicate = cursor.fetchone()
                 if duplicate:
-                    if duplicate['status'] == 'pending':
-                        if duplicate['from_user_id'] == request.from_user_id:
+                    if duplicate["status"] == "pending":
+                        if duplicate["from_user_id"] == request.from_user_id:
                             return SendFriendRequestResponse(
                                 success=False,
-                                message=f"Friend request to '{display_name}' is already pending"
+                                message=f"Friend request to '{display_name}' is already pending",
+                                request_id=duplicate["id"],
+                                status="pending"
                             )
-                        else:
-                            return SendFriendRequestResponse(
-                                success=False,
-                                message=f"'{display_name}' has already sent you a friend request"
-                            )
-                
+                        return SendFriendRequestResponse(
+                            success=False,
+                            message=f"'{display_name}' has already sent you a friend request",
+                            request_id=duplicate["id"],
+                            status="pending"
+                        )
+                    if duplicate["status"] == "accepted":
+                        return SendFriendRequestResponse(
+                            success=False,
+                            message=f"You are already friends with '{display_name}'",
+                            request_id=duplicate["id"],
+                            status="accepted"
+                        )
                 return SendFriendRequestResponse(
                     success=False,
                     message="Friend request already exists"
                 )
-            else:
-                raise  # Re-raise if it's a different integrity error
+            raise
         
     except psycopg2.IntegrityError as e:
         if conn:
@@ -633,25 +688,30 @@ def create_friend_request_notification(from_user_id: int, to_user_id: int, reque
                 print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Could not get display name for user {from_user_id}")
                 return
         
-        # Check if notification already exists for this friend request
+        # Insert/refresh notification with nickname-based message.
+        # On resend/revive, we want the recipient to see it again (set read=FALSE).
         cursor.execute('''
-            SELECT id FROM notifications 
+            SELECT id, read FROM notifications 
             WHERE user_id = %s AND type = 'friend_request' AND related_id = %s
         ''', (to_user_id, request_id))
         
-        if cursor.fetchone():
-            # Notification already exists, skip
-            return
-        
-        # Insert notification with nickname-based message
         notification_message = f"{sender_display_name} sent you a friend request"
-        cursor.execute('''
-            INSERT INTO notifications (user_id, type, message, related_id, read)
-            VALUES (%s, 'friend_request', %s, %s, FALSE)
-        ''', (to_user_id, notification_message, request_id))
+        existing = cursor.fetchone()
+        if existing:
+            # Refresh existing notification to be unread again (idempotent).
+            cursor.execute('''
+                UPDATE notifications
+                SET message = %s, read = FALSE, updated_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            ''', (notification_message, existing["id"]))
+        else:
+            cursor.execute('''
+                INSERT INTO notifications (user_id, type, message, related_id, read)
+                VALUES (%s, 'friend_request', %s, %s, FALSE)
+            ''', (to_user_id, notification_message, request_id))
         
         conn.commit()
-        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Created notification for friend request {request_id}: '{notification_message}'")
+        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Created/refreshed notification for friend request {request_id}: '{notification_message}'")
         
     except Exception as e:
         if conn:
