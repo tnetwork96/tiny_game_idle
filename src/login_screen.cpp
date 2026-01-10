@@ -474,8 +474,8 @@ void LoginScreen::handleKeyPress(const String& key) {
                     // Account exists but PIN is wrong
                     Serial.println("Login Screen: Wrong PIN!");
                     pinScreen->reset();
-                    // Show error and go back to PIN step
-                    goToPinStep();
+                    // Return to login (username) screen on wrong PIN
+                    goToUsernameStep();
                 }
             }
         } else if (pinScreen->wantsUsernameStep()) {
