@@ -1039,11 +1039,75 @@ void ChatScreen::redrawMessages() {
 }
 
 void ChatScreen::handleKeyPress(String key) {
-    // Xử lý các phím đặc biệt
+    // Normalize backward-compat navigation keys
+    if (key == "|u") key = "up";
+    else if (key == "|d") key = "down";
+    else if (key == "|l") key = "left";
+    else if (key == "|r") key = "right";
+    // IMPORTANT: do NOT map "|e" to "select" because the keyboard Enter key token is "|e"
+    // and mapping it to "select" would cause recursion and reset the ESP32.
+
+    // Handle navigation keys from main ("up/down/left/right/select/exit")
+    if (key == "exit") {
+        // If keyboard is open, close it first
+        if (keyboardVisible) {
+            keyboardVisible = false;
+            if (keyboard != nullptr) {
+                keyboard->setDrawingEnabled(false);
+            }
+            needsRedraw = true;
+            draw();
+            return;
+        }
+        // Otherwise exit chat screen
+        if (onExitCallback != nullptr) {
+            onExitCallback();
+        }
+        return;
+    }
+
+    // Keyboard Enter token -> send message
     if (key == "|e") {
-        // Enter - gửi tin nhắn
         sendMessage();
-    } else if (key == "<") {
+        return;
+    }
+
+    if (key == "up" || key == "down" || key == "left" || key == "right") {
+        // If keyboard is visible, navigate the keyboard grid
+        if (keyboardVisible && keyboard != nullptr) {
+            keyboard->setDrawingEnabled(true);
+            keyboard->moveCursorByCommand(key, 0, 0);
+            return;
+        }
+
+        // Otherwise navigate within chat UI (scroll/titlebar)
+        if (key == "up") handleUp();
+        else if (key == "down") handleDown();
+        else if (key == "left") handleLeft();
+        else if (key == "right") handleRight();
+        return;
+    }
+
+    if (key == "select") {
+        // If keyboard is visible, SELECT should pick the current key
+        if (keyboardVisible && keyboard != nullptr) {
+            keyboard->setDrawingEnabled(true);
+            keyboard->moveCursorByCommand("select", 0, 0);
+            return;
+        }
+
+        // If keyboard is not visible, SELECT opens it (enter typing mode)
+        keyboardVisible = true;
+        if (keyboard != nullptr) {
+            keyboard->setDrawingEnabled(true);
+        }
+        needsRedraw = true;
+        draw();
+        return;
+    }
+
+    // Xử lý các phím đặc biệt
+    if (key == "<") {
         // Delete - xóa ký tự cuối
         if (currentMessage.length() > 0 && inputCursorPos > 0) {
             currentMessage.remove(inputCursorPos - 1, 1);
@@ -1092,30 +1156,29 @@ void ChatScreen::addMessage(String text, bool isUser) {
     
     // Đánh dấu cần vẽ lại messages
     needsMessagesRedraw = true;
+    // Ensure draw() actually runs so the new message appears immediately
+    needsRedraw = true;
     // drawMessages() will be called via flag system
 }
 
 void ChatScreen::sendMessage() {
-    if (currentMessage.length() > 0) {
-        // Yêu cầu phải có ít nhất 1 icon trước khi gửi
-        if (!containsIcon(currentMessage)) {
-            // Hiển thị hint nhỏ ngay trên ô input
-            uint16_t screenWidth = 320;
-            uint16_t inputBoxX = (screenWidth - inputBoxWidth) / 2;
-            int16_t hintY = static_cast<int16_t>(inputBoxY) - 12;
-            if (hintY < 0) hintY = 0;
-            // Xóa vùng hint cũ và vẽ thông báo
-            tft->fillRect(inputBoxX, hintY, inputBoxWidth, 10, bgColor);
-            tft->setTextSize(1);
-            tft->setTextColor(OFFLINE_RED, bgColor);
-            tft->setCursor(inputBoxX, hintY);
-            tft->print("Add an icon to send");
-            // Nhấn mạnh viền dưới ô input
-            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 2, inputBoxWidth, OFFLINE_RED);
-            tft->drawFastHLine(inputBoxX, inputBoxY + inputBoxHeight - 1, inputBoxWidth, OFFLINE_RED);
-            return;
+    // Always hide keyboard when pressing send (whether message is empty or not)
+    if (keyboardVisible) {
+        keyboardVisible = false;
+        if (keyboard != nullptr) {
+            keyboard->setDrawingEnabled(false);
         }
-        addMessage(currentMessage, true);  // Thêm vào UI và lưu file
+    }
+
+    // If empty, just redraw (so keyboard closes) and return
+    if (currentMessage.length() == 0) {
+        needsRedraw = true;
+        draw();
+        return;
+    }
+
+    // Allow sending any non-empty message (no icon requirement)
+    addMessage(currentMessage, true);  // Thêm vào UI và lưu file
         
         // Debug: Kiểm tra socketManager và friendUserId
         Serial.print("Chat: Debug - socketManager: ");
@@ -1143,8 +1206,9 @@ void ChatScreen::sendMessage() {
         inputCursorPos = 0;
         needsInputRedraw = true;
         needsMessagesRedraw = true;  // Message was added, so messages need redraw too
-        drawCurrentMessage();
-    }
+        // Full redraw so the new message and layout (keyboard hidden) are visible immediately
+        needsRedraw = true;
+        draw();
 }
 
 void ChatScreen::handleUp() {
@@ -1323,6 +1387,9 @@ void ChatScreen::handleSelect() {
     
     // Toggle keyboard visibility (when not in Title Bar and not in popup)
     keyboardVisible = !keyboardVisible;
+    if (keyboard != nullptr) {
+        keyboard->setDrawingEnabled(keyboardVisible);
+    }
     // Bố cục thay đổi -> đánh dấu cần vẽ lại toàn bộ
     needsRedraw = true;
     draw();
