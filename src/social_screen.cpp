@@ -1589,14 +1589,14 @@ void SocialScreen::switchTab(Tab newTab) {
         }
         
         currentTab = newTab;
-        // Auto-focus input when switching to Add Friend tab
+        // Keep focus on SIDEBAR when switching tabs; user must press SELECT to enter content.
         if (newTab == TAB_ADD_FRIEND) {
-            focusMode = FOCUS_CONTENT;
+            focusMode = FOCUS_SIDEBAR;
             // Reset miniAddFriend to clear any previous input (also resets keyboard)
             if (miniAddFriend != nullptr) {
                 miniAddFriend->reset();
-                // Set miniAddFriend active if SocialScreen is active
-                miniAddFriend->setActive(isActive);
+                // Only activate when user enters content (SELECT)
+                miniAddFriend->setActive(false);
             }
         } else {
             // Reset focus to sidebar when switching to other tabs
@@ -1623,12 +1623,8 @@ void SocialScreen::navigateToAddFriend() {
     switchTab(TAB_ADD_FRIEND);
     // Sync navigation state
     syncNavigation();
-    // Ensure focus is on content (keyboard)
-    focusMode = FOCUS_CONTENT;
-    // Reset keyboard and input
-    if (miniAddFriend != nullptr) {
-        miniAddFriend->reset();
-    }
+    // Keep focus on sidebar; user must press SELECT to enter content.
+    focusMode = FOCUS_SIDEBAR;
     // Draw the screen
     draw();
 }
@@ -1701,22 +1697,20 @@ void SocialScreen::openChatWithFriend(int friendIndex) {
 
 // Navigation handlers
 void SocialScreen::handleUp() {
-    if (focusMode == FOCUS_SIDEBAR) {
-        // Focus on sidebar: navigate between tabs
-        handleTabNavigation("up");
-    } else if (focusMode == FOCUS_CONTENT) {
-        // Focus on content: navigate within content (scroll lists or keyboard)
+    // Sidebar: UP changes tabs. Content: UP navigates inside content.
+    if (focusMode == FOCUS_CONTENT) {
         handleContentNavigation("up");
+    } else {
+        handleTabNavigation("up");
     }
 }
 
 void SocialScreen::handleDown() {
-    if (focusMode == FOCUS_SIDEBAR) {
-        // Focus on sidebar: navigate between tabs
-        handleTabNavigation("down");
-    } else if (focusMode == FOCUS_CONTENT) {
-        // Focus on content: navigate within content (scroll lists or keyboard)
+    // Sidebar: DOWN changes tabs. Content: DOWN navigates inside content.
+    if (focusMode == FOCUS_CONTENT) {
         handleContentNavigation("down");
+    } else {
+        handleTabNavigation("down");
     }
 }
 
@@ -1744,40 +1738,8 @@ void SocialScreen::handleLeft() {
 
 void SocialScreen::handleRight() {
     if (focusMode == FOCUS_SIDEBAR) {
-        // Right: Move focus to content
-        focusMode = FOCUS_CONTENT;
-        drawSidebar();
-        
-        // Set selection to first item when moving focus to content (only highlight when focus is on content)
-        if (currentTab == TAB_FRIENDS) {
-            if (friendsCount > 0) {
-                // Select first friend when moving focus to content
-                selectedFriendIndex = 0;
-                friendsScrollOffset = 0;
-                redrawFriendCard(selectedFriendIndex, true);  // Highlight first item
-            } else {
-                drawContentArea();
-            }
-        } else if (currentTab == TAB_NOTIFICATIONS) {
-            if (notificationsCount > 0) {
-                // Select first notification when moving focus to content
-                selectedNotificationIndex = 0;
-                notificationsScrollOffset = 0;
-                redrawNotificationCard(selectedNotificationIndex, true);  // Highlight first item
-            } else {
-                drawContentArea();
-            }
-        } else if (currentTab == TAB_GAMES) {
-            // For games tab, select first game
-            selectedGameIndex = 0;
-            selectedGameInviteIndex = (gameInviteCount > 0) ? 0 : -1;
-            drawContentArea();  // Redraw to show selection
-        } else if (currentTab == TAB_ADD_FRIEND) {
-            // For Add Friend tab, keyboard is already active, just redraw
-            drawContentArea();
-        } else {
-            drawContentArea();
-        }
+        // RIGHT does nothing on sidebar; use SELECT to move focus to content.
+        return;
     } else if (focusMode == FOCUS_CONTENT) {
         // Right: navigate within content (keyboard or lists)
         handleContentNavigation("right");
@@ -1860,7 +1822,8 @@ void SocialScreen::handleKeyPress(const String& key) {
                 pendingGameName = "";
                 // Ensure we are on Games tab to show menu again
                 switchTab(TAB_GAMES);
-                focusMode = FOCUS_CONTENT;
+                // Keep focus on sidebar; user must press SELECT to enter content.
+                focusMode = FOCUS_SIDEBAR;
                 draw();
                 return;
             }
@@ -1871,11 +1834,11 @@ void SocialScreen::handleKeyPress(const String& key) {
     
     // Popup notification disabled - no need to check or hide popup
     
-    // If on Add Friend tab and typing, forward to MiniAddFriendScreen
-    if (currentTab == TAB_ADD_FRIEND && 
+    // If on Add Friend tab, only forward typing/navigation keys when already in CONTENT.
+    // Entering CONTENT should be done via SELECT (see handleSelect()).
+    if (currentTab == TAB_ADD_FRIEND &&
+        focusMode == FOCUS_CONTENT &&
         (key.length() == 1 || key == "|e" || key == "select" || key == "<" || key == "exit" || key == "123" || key == "ABC")) {
-        // When typing in Add Friend, focus should be on content
-        focusMode = FOCUS_CONTENT;
         handleContentNavigation(key);
         return;
     }
@@ -1897,21 +1860,7 @@ void SocialScreen::handleKeyPress(const String& key) {
         }
         return;
     } else if (key == "|r") {
-        // Right: Move focus to content
-        if (focusMode == FOCUS_SIDEBAR) {
-            focusMode = FOCUS_CONTENT;
-            // Redraw sidebar tabs to show focus change
-            drawSidebar();
-            // Redraw selected card
-            if (currentTab == TAB_FRIENDS && selectedFriendIndex >= 0 && selectedFriendIndex < friendsCount) {
-                redrawFriendCard(selectedFriendIndex, true);
-            } else if (currentTab == TAB_NOTIFICATIONS && selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
-                redrawNotificationCard(selectedNotificationIndex, true);
-            } else {
-                // Redraw content area if no selection
-                drawContentArea();
-            }
-        }
+        // RIGHT does nothing on sidebar; use Enter/Select to move focus to content.
         return;
     }
     
@@ -2558,8 +2507,8 @@ void SocialScreen::syncNavigation() {
             break;
             
         case TAB_ADD_FRIEND:
-            // Focus mode should be CONTENT for keyboard input
-            focusMode = FOCUS_CONTENT;
+            // Keep focus on sidebar; user must press SELECT to enter content.
+            focusMode = FOCUS_SIDEBAR;
             // Reset miniAddFriend if needed
             if (miniAddFriend != nullptr) {
                 miniAddFriend->reset();

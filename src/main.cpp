@@ -150,10 +150,41 @@ void handleHardwareInputs() {
         onKeyboardKeySelected("down");
     }
 
-    // Read Select button - map to "select"
-    if (readButtonPressed(btnSelect)) {
-        onKeyboardKeySelected("select");
+    // Select button:
+    // - Short press -> "select"
+    // - Hold 2 seconds -> "exit" (fires once, does not also trigger "select")
+    readButtonPressed(btnSelect);  // update debounce state every loop
+    static bool selectWasHeld = false;
+    static unsigned long selectHoldStartMs = 0;
+    static bool selectLongFired = false;
+    static bool selectPendingClick = false;
+    const bool selectHeld = (btnSelect.stableState != btnSelect.idleState);
+    const unsigned long nowMs2 = millis();
+
+    if (selectHeld && !selectWasHeld) {
+        // press edge
+        selectHoldStartMs = nowMs2;
+        selectLongFired = false;
+        selectPendingClick = true;
     }
+
+    if (selectHeld && !selectLongFired && selectHoldStartMs != 0 && (nowMs2 - selectHoldStartMs) >= 2000) {
+        onKeyboardKeySelected("exit");
+        selectLongFired = true;
+        selectPendingClick = false;
+    }
+
+    if (!selectHeld && selectWasHeld) {
+        // release edge
+        if (selectPendingClick && !selectLongFired) {
+            onKeyboardKeySelected("select");
+        }
+        selectHoldStartMs = 0;
+        selectLongFired = false;
+        selectPendingClick = false;
+    }
+
+    selectWasHeld = selectHeld;
 
     // Read analog value from GPIO 32 (VR1 net ADC, 0-4095)
     // Average more samples to reduce noise (helps consistent stepping)
