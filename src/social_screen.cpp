@@ -1641,10 +1641,6 @@ void SocialScreen::handleContentNavigation(const String& key) {
             Serial.print("Social Screen: Entered room for game ");
             Serial.println(pendingGameName);
             
-            // Tự động nhấn nút START khi vào lobby (sau khi đã tạo session)
-            Serial.println("Social Screen: Auto-pressing START button");
-            gameLobby->triggerStart();
-            
             draw();
         }
         
@@ -1747,10 +1743,6 @@ void SocialScreen::handleContentNavigation(const String& key) {
 
             Serial.print("Social Screen: Entered room for game ");
             Serial.println(pendingGameName);
-            
-            // Tự động nhấn nút START khi vào lobby (sau khi đã tạo session)
-            Serial.println("Social Screen: Auto-pressing START button");
-            gameLobby->triggerStart();
             
             draw();
         }
