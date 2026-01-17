@@ -123,6 +123,11 @@ SocialScreen::SocialScreen(Adafruit_ST7789* tft, Keyboard* keyboard) {
         gameInvites[i].eventType = "";
         gameInvites[i].hostNickname = "";
     }
+    
+    // Initialize game invite pending data
+    pendingGameInviteSessionId = -1;
+    pendingGameInviteGameType = "";
+    pendingGameInviteHostNickname = "";
     this->selectedGameIndex = 0;
     this->pendingGameName = "";
     this->screenState = STATE_NORMAL;
@@ -1320,6 +1325,18 @@ void SocialScreen::handleContentNavigation(const String& key) {
             if (selectedNotificationIndex >= 0 && selectedNotificationIndex < notificationsCount) {
                 ApiClient::NotificationEntry* notification = &notifications[selectedNotificationIndex];
                 
+                // Debug: Log notification details
+                Serial.println("=== NOTIFICATION CLICK DEBUG ===");
+                Serial.print("Notification type: [");
+                Serial.print(notification->type);
+                Serial.println("]");
+                Serial.print("Notification message: [");
+                Serial.print(notification->message);
+                Serial.println("]");
+                Serial.print("Notification relatedId: ");
+                Serial.println(notification->relatedId);
+                Serial.println("================================");
+                
                 // Check if this is a friend request notification
                 if (notification->type == "friend_request") {
                     // Validate inputs before showing confirmation
@@ -1364,8 +1381,49 @@ void SocialScreen::handleContentNavigation(const String& key) {
                     
                     // Redraw to show dialog
                     draw();
+                } else if (notification->type == "game_invite") {
+                    // Handle game invite notification
+                    Serial.println("Social Screen: Game invite notification selected");
+                    
+                    // Extract session ID from related_id
+                    int sessionId = notification->relatedId;
+                    
+                    if (sessionId <= 0) {
+                        Serial.println("Social Screen: Invalid session ID for game invite");
+                        return;
+                    }
+                    
+                    // Extract host name and game type from message
+                    // Message format: "{host_nickname} invited you to play {game_type}"
+                    String message = notification->message;
+                    String hostName = "Host";
+                    String gameType = "Game";
+                    
+                    int invitedPos = message.indexOf(" invited you to play ");
+                    if (invitedPos > 0) {
+                        hostName = message.substring(0, invitedPos);
+                        gameType = message.substring(invitedPos + 21); // Skip " invited you to play "
+                    }
+                    
+                    // Store session info for accept action
+                    pendingGameInviteSessionId = sessionId;
+                    pendingGameInviteGameType = gameType;
+                    pendingGameInviteHostNickname = hostName;
+                    
+                    // Show confirmation dialog
+                    String confirmMessage = "Join " + gameType + " game\nwith " + hostName + "?";
+                    confirmationDialog->show(
+                        confirmMessage,
+                        "YES",
+                        "NO",
+                        onConfirmAcceptGameInvite,
+                        onCancelAcceptGameInvite
+                    );
+                    
+                    // Redraw to show dialog
+                    draw();
                 } else {
-                    Serial.print("Social Screen: Notification type is not friend_request: ");
+                    Serial.print("Social Screen: Notification type not handled: ");
                     Serial.println(notification->type);
                 }
             }
@@ -3091,6 +3149,138 @@ void SocialScreen::doCancelAcceptFriendRequest() {
             draw();  // Full redraw if on different tab
         }
     }
+}
+
+// Static callback wrapper for game invite confirm
+void SocialScreen::onConfirmAcceptGameInvite() {
+    if (s_socialScreenInstance != nullptr) {
+        s_socialScreenInstance->doAcceptGameInvite();
+    }
+}
+
+// Static callback wrapper for game invite cancel
+void SocialScreen::onCancelAcceptGameInvite() {
+    if (s_socialScreenInstance != nullptr) {
+        s_socialScreenInstance->doCancelGameInvite();
+    }
+}
+
+// Instance method: Accept game invite
+void SocialScreen::doAcceptGameInvite() {
+    Serial.println("Social Screen: Accepting game invite...");
+    
+    // Hide dialog first
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    
+    // Validate inputs
+    if (pendingGameInviteSessionId <= 0) {
+        Serial.println("Social Screen: Invalid session ID");
+        draw();
+        return;
+    }
+    
+    if (userId <= 0 || serverHost.length() == 0) {
+        Serial.println("Social Screen: Invalid user or server config");
+        draw();
+        return;
+    }
+    
+    // Call API to accept invite
+    Serial.print("Social Screen: Responding to session ");
+    Serial.print(pendingGameInviteSessionId);
+    Serial.print(" with accept=true, userId=");
+    Serial.println(userId);
+    
+    ApiClient::GameSessionResult result = ApiClient::respondGameInvite(
+        pendingGameInviteSessionId, 
+        userId, 
+        true,  // accept
+        serverHost, 
+        serverPort
+    );
+    
+    if (result.success) {
+        Serial.println("Social Screen: ✅ Game invite accepted!");
+        Serial.print("  Message: ");
+        Serial.println(result.message);
+        
+        // Navigate to game lobby as guest
+        screenState = STATE_WAITING_GAME;
+        pendingGameName = pendingGameInviteGameType;
+        currentGameSessionId = pendingGameInviteSessionId;
+        currentGameHostName = pendingGameInviteHostNickname;
+        currentGameGuestName = (ownerNickname.length() > 0) ? ownerNickname : "Guest";
+        
+        // Setup game lobby
+        if (gameLobby == nullptr) {
+            gameLobby = new GameLobbyScreen(tft, currentTheme);
+            gameLobby->setOnStartGame([]() {
+                if (s_socialScreenInstance != nullptr) {
+                    s_socialScreenInstance->startGame();
+                }
+            });
+            gameLobby->setOnExit([]() {
+                if (s_socialScreenInstance != nullptr) {
+                    s_socialScreenInstance->exitLobby();
+                }
+            });
+        }
+        
+        // Setup lobby as guest (swap host/guest names)
+        gameLobby->setup(pendingGameName, currentGameHostName);
+        gameLobby->setGuest(currentGameGuestName);
+        gameLobby->setGuestReady(true);  // Guest is ready after accepting
+        
+        // Set session context
+        gameLobby->setSessionContext(
+            pendingGameInviteSessionId,
+            -1,  // Not host
+            serverHost,
+            serverPort
+        );
+        
+        gameLobby->setActive(true);
+        
+        // Set friends list (empty for now)
+        gameLobby->setFriends(nullptr, 0);
+        
+        // Draw lobby
+        gameLobby->draw();
+        
+        Serial.println("Social Screen: Navigated to game lobby as guest");
+        
+    } else {
+        Serial.print("Social Screen: ❌ Failed to accept game invite: ");
+        Serial.println(result.message);
+        
+        // Show error and return to normal state
+        draw();
+    }
+    
+    // Clear pending data
+    pendingGameInviteSessionId = -1;
+    pendingGameInviteGameType = "";
+    pendingGameInviteHostNickname = "";
+}
+
+// Instance method: Cancel game invite
+void SocialScreen::doCancelGameInvite() {
+    Serial.println("Social Screen: Game invite cancelled by user");
+    
+    // Hide dialog
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    
+    // Clear pending data
+    pendingGameInviteSessionId = -1;
+    pendingGameInviteGameType = "";
+    pendingGameInviteHostNickname = "";
+    
+    // Redraw
+    draw();
 }
 
 void SocialScreen::addNotificationFromSocket(int id, const String& type, const String& message, const String& timestamp, bool read) {

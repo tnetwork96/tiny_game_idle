@@ -1163,6 +1163,20 @@ ApiClient::NotificationsResult ApiClient::getNotifications(int userId, const Str
                                 result.notifications[notificationIdx].read = (readStr == "true");
                             }
                             
+                            // Parse related_id (optional field)
+                            result.notifications[notificationIdx].relatedId = -1;
+                            int relatedIdx = notificationObj.indexOf("\"related_id\":");
+                            if (relatedIdx >= 0) {
+                                int relatedStart = relatedIdx + 13;
+                                int relatedEnd = notificationObj.indexOf(",", relatedStart);
+                                if (relatedEnd < 0) relatedEnd = notificationObj.indexOf("}", relatedStart);
+                                String relatedStr = notificationObj.substring(relatedStart, relatedEnd);
+                                relatedStr.trim();
+                                if (relatedStr.length() > 0 && relatedStr != "null") {
+                                    result.notifications[notificationIdx].relatedId = relatedStr.toInt();
+                                }
+                            }
+                            
                             notificationIdx++;
                             pos = notificationEnd + 1;
                         }

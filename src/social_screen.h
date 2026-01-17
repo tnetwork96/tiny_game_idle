@@ -323,13 +323,22 @@ private:
     // Confirmation dialog callbacks (static wrappers)
     static void onConfirmAcceptFriendRequest();
     static void onCancelAcceptFriendRequest();
+    static void onConfirmAcceptGameInvite();
+    static void onCancelAcceptGameInvite();
     
     // Instance callback methods for confirmation dialog
     void doAcceptFriendRequest();
     void doCancelAcceptFriendRequest();
+    void doAcceptGameInvite();
+    void doCancelGameInvite();
     
     // Store notification ID for accept action
     int pendingAcceptNotificationId;
+    
+    // Store game invite session info for accept action
+    int pendingGameInviteSessionId;
+    String pendingGameInviteGameType;
+    String pendingGameInviteHostNickname;
     
     // Notification popup/toast
     String popupMessage;

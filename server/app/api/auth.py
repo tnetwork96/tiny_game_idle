@@ -48,6 +48,7 @@ class NotificationEntry(BaseModel):
     message: str
     timestamp: str
     read: bool
+    related_id: Optional[int] = None  # Session ID for game_invite, request ID for friend_request
 
 class NotificationsResponse(BaseModel):
     success: bool
@@ -759,7 +760,7 @@ async def get_notifications(user_id: int):
         
         # First, try to get notifications from notifications table
         cursor.execute('''
-            SELECT id, type, message, created_at, read
+            SELECT id, type, message, created_at, read, related_id
             FROM notifications
             WHERE user_id = %s
             ORDER BY created_at DESC
@@ -773,6 +774,7 @@ async def get_notifications(user_id: int):
             message = row['message']
             created_at = row['created_at']
             read = row['read']
+            related_id = row.get('related_id')  # May be None
             
             # Format timestamp as ISO 8601
             if isinstance(created_at, datetime):
@@ -786,7 +788,8 @@ async def get_notifications(user_id: int):
                 type=notification_type,
                 message=message,
                 timestamp=timestamp_str,
-                read=bool(read)
+                read=bool(read),
+                related_id=related_id
             )
             notifications.append(notification)
         

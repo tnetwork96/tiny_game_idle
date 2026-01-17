@@ -34,6 +34,7 @@ public:
         String message;
         String timestamp;
         bool read;
+        int relatedId;  // Session ID for game_invite, friend_request_id for friend_request
     };
     
     struct NotificationsResult {
