@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
 #include "social_theme.h"
+#include "confirmation_dialog.h"
 
 class GameLobbyScreen {
 public:
@@ -24,6 +25,7 @@ public:
     };
 
     GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme);
+    ~GameLobbyScreen();
     
     void setup(const String& gameName, const String& hostName);
     void draw();
@@ -79,6 +81,17 @@ private:
     void drawPlayerSlots();
     void drawPlayerCard(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const LobbyPlayer& player, bool isHost);
     void drawStartButton();
+
+    void showInviteConfirmation();
+    void doConfirmInvite();
+    void doCancelInvite();
+
+    static void onConfirmInvite();
+    static void onCancelInvite();
+
+    ConfirmationDialog* confirmationDialog;
+    int pendingInviteFriendIndex;
+    String pendingInviteFriendName;
 };
 
 #endif

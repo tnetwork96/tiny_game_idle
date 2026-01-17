@@ -920,12 +920,13 @@ void SocialScreen::draw() {
     }
     
     if (screenState == STATE_WAITING_GAME) {
+        // Ensure confirmation dialog does not block lobby navigation
+        if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+            confirmationDialog->hide();
+        }
         if (gameLobby != nullptr) {
             gameLobby->update();  // Check auto-start timer
             gameLobby->draw();
-        }
-        if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
-            confirmationDialog->draw();
         }
         return;
     }
@@ -1625,6 +1626,9 @@ void SocialScreen::handleContentNavigation(const String& key) {
             }
             // Select: Enter game room lobby
             screenState = STATE_WAITING_GAME;
+            if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+                confirmationDialog->hide();
+            }
             pendingGameName = String(GAME_NAMES[selectedGameIndex]);
             
             // Get current user's name
@@ -1728,6 +1732,9 @@ void SocialScreen::handleContentNavigation(const String& key) {
             }
             // Enter game room lobby
             screenState = STATE_WAITING_GAME;
+            if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+                confirmationDialog->hide();
+            }
             pendingGameName = String(GAME_NAMES[selectedGameIndex]);
             
             // Get current user's name
@@ -2020,7 +2027,7 @@ void SocialScreen::handleExit() {
 void SocialScreen::handleKeyPress(const String& key) {
     // If confirmation dialog is visible, it is modal: route LEFT/RIGHT/SELECT/EXIT to dialog only.
     // This prevents any keyboard/list redraws from happening on top of the confirm UI.
-    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+    if (screenState == STATE_NORMAL && confirmationDialog != nullptr && confirmationDialog->isVisible()) {
         if (key == "left" || key == "|l") {
             confirmationDialog->handleLeft();
             return;

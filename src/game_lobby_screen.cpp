@@ -1,5 +1,7 @@
 #include "game_lobby_screen.h"
 
+static GameLobbyScreen* s_gameLobbyInstance = nullptr;
+
 GameLobbyScreen::GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme) {
     this->tft = tft;
     this->theme = theme;
@@ -12,6 +14,18 @@ GameLobbyScreen::GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme)
     this->active = false;  // Initially inactive
     this->onStart = nullptr;
     this->onExit = nullptr;
+    this->confirmationDialog = new ConfirmationDialog(tft);
+    this->pendingInviteFriendIndex = -1;
+    this->pendingInviteFriendName = "";
+    s_gameLobbyInstance = this;
+}
+
+GameLobbyScreen::~GameLobbyScreen() {
+    if (confirmationDialog != nullptr) {
+        delete confirmationDialog;
+        confirmationDialog = nullptr;
+    }
+    s_gameLobbyInstance = nullptr;
 }
 
 void GameLobbyScreen::setup(const String& gameName, const String& hostName) {
@@ -63,6 +77,10 @@ void GameLobbyScreen::draw() {
 
     drawPlayerSlots();
     drawStartButton();
+
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        confirmationDialog->draw();
+    }
 
 }
 
@@ -198,7 +216,7 @@ void GameLobbyScreen::handleRight() {
 
 void GameLobbyScreen::handleSelect() {
     if (currentFocus == FOCUS_LEFT_PANEL) {
-        Serial.println("Lobby: Inviting friend " + lobbyFriends[selectedFriendIndex].name);
+        showInviteConfirmation();
     } else if (currentFocus == FOCUS_RIGHT_PANEL && startButtonFocused) {
         // Luôn cho phép click START (bỏ điều kiện check guest)
         if (onStart) {
@@ -214,6 +232,23 @@ void GameLobbyScreen::handleExit() {
 }
 
 void GameLobbyScreen::handleKeyPress(const String& key) {
+    if (confirmationDialog != nullptr && confirmationDialog->isVisible()) {
+        if (key == "left" || key == "|l") {
+            confirmationDialog->handleLeft();
+            return;
+        } else if (key == "right" || key == "|r") {
+            confirmationDialog->handleRight();
+            return;
+        } else if (key == "select" || key == "|e") {
+            confirmationDialog->handleSelect();
+            return;
+        } else if (key == "exit" || key == "<" || key == "|b") {
+            confirmationDialog->handleCancel();
+            return;
+        }
+        return;
+    }
+
     // Handle new navigation key format first (similar to WiFi password screen)
     if (key == "up") {
         handleUp();
@@ -297,5 +332,67 @@ void GameLobbyScreen::update() {
             // Mark as checked to avoid repeated checks
             autoStartTriggered = true;
         }
+    }
+}
+
+void GameLobbyScreen::showInviteConfirmation() {
+    if (lobbyFriends == nullptr || friendsCount <= 0) {
+        return;
+    }
+
+    if (selectedFriendIndex < 0 || selectedFriendIndex >= friendsCount) {
+        return;
+    }
+
+    pendingInviteFriendIndex = selectedFriendIndex;
+    pendingInviteFriendName = lobbyFriends[selectedFriendIndex].name;
+
+    String confirmMessage = "Invite " + pendingInviteFriendName + "\nto this game?";
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->show(
+            confirmMessage,
+            "YES",
+            "NO",
+            onConfirmInvite,
+            onCancelInvite
+        );
+    }
+
+    draw();
+}
+
+void GameLobbyScreen::doConfirmInvite() {
+    if (pendingInviteFriendIndex < 0 || pendingInviteFriendIndex >= friendsCount || lobbyFriends == nullptr) {
+        if (confirmationDialog != nullptr) {
+            confirmationDialog->hide();
+        }
+        draw();
+        return;
+    }
+
+    Serial.println("Lobby: Inviting friend " + pendingInviteFriendName);
+
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    draw();
+}
+
+void GameLobbyScreen::doCancelInvite() {
+    if (confirmationDialog != nullptr) {
+        confirmationDialog->hide();
+    }
+    draw();
+}
+
+void GameLobbyScreen::onConfirmInvite() {
+    if (s_gameLobbyInstance != nullptr) {
+        s_gameLobbyInstance->doConfirmInvite();
+    }
+}
+
+void GameLobbyScreen::onCancelInvite() {
+    if (s_gameLobbyInstance != nullptr) {
+        s_gameLobbyInstance->doCancelInvite();
     }
 }
