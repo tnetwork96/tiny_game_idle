@@ -568,6 +568,60 @@ ApiClient::GameSessionResult ApiClient::createGameSession(int hostUserId, const 
     return result;
 }
 
+ApiClient::GameSessionResult ApiClient::inviteToSession(int sessionId, int hostUserId, const int* participantIds, int participantCount, const String& serverHost, uint16_t port) {
+    GameSessionResult result;
+    result.success = false;
+    result.message = "";
+    result.sessionId = sessionId;
+    result.status = "";
+    result.participantCount = 0;
+
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("API Client: WiFi not connected!");
+        result.message = "WiFi not connected";
+        return result;
+    }
+
+    HTTPClient http;
+    String url = "http://" + serverHost + ":" + String(port) + "/api/games/" + String(sessionId) + "/invite";
+    Serial.print("API Client: Inviting to session: ");
+    Serial.println(url);
+
+    http.begin(url);
+    http.addHeader("Content-Type", "application/json");
+    http.setTimeout(7000);
+
+    String payload = "{\"host_user_id\":";
+    payload += String(hostUserId);
+    payload += ",\"participant_ids\":[";
+    for (int i = 0; i < participantCount; i++) {
+        payload += String(participantIds[i]);
+        if (i < participantCount - 1) payload += ",";
+    }
+    payload += "]}";
+
+    Serial.print("API Client: Payload: ");
+    Serial.println(payload);
+
+    int httpCode = http.POST(payload);
+    Serial.print("API Client: HTTP response code: ");
+    Serial.println(httpCode);
+
+    if (httpCode > 0) {
+        String response = http.getString();
+        Serial.print("API Client: Response: ");
+        Serial.println(response);
+        parseGameSessionResponse(response, result);
+    } else {
+        Serial.print("API Client: Invite to session failed: ");
+        Serial.println(http.errorToString(httpCode));
+        result.message = "HTTP error: " + String(httpCode);
+    }
+
+    http.end();
+    return result;
+}
+
 ApiClient::GameSessionResult ApiClient::respondGameInvite(int sessionId, int userId, bool accept, const String& serverHost, uint16_t port) {
     GameSessionResult result;
     result.success = false;

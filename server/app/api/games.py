@@ -338,6 +338,17 @@ async def invite_to_session(session_id: int, request: InviteRequest):
         }
         await _broadcast_game_event(invited_now, event_data)
 
+        # Also notify existing participants (including host) for lobby sync
+        cursor.execute(
+            "SELECT user_id FROM game_participants WHERE session_id = %s",
+            (session_id,),
+        )
+        participant_rows = cursor.fetchall()
+        participant_ids = [p["user_id"] for p in participant_rows if "user_id" in p]
+        notify_existing = [uid for uid in participant_ids if uid not in invited_now]
+        if notify_existing:
+            await _broadcast_game_event(notify_existing, event_data)
+
         payload = _build_session_payload(cursor, session_id)
         return GameSessionResponse(
             success=True,

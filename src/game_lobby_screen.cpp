@@ -1,4 +1,5 @@
 #include "game_lobby_screen.h"
+#include "api_client.h"
 
 static GameLobbyScreen* s_gameLobbyInstance = nullptr;
 
@@ -17,6 +18,10 @@ GameLobbyScreen::GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme)
     this->confirmationDialog = new ConfirmationDialog(tft);
     this->pendingInviteFriendIndex = -1;
     this->pendingInviteFriendName = "";
+    this->currentSessionId = -1;
+    this->hostUserId = -1;
+    this->serverHost = "";
+    this->serverPort = 8080;
     s_gameLobbyInstance = this;
 }
 
@@ -53,6 +58,13 @@ void GameLobbyScreen::clearGuest() {
 void GameLobbyScreen::setFriends(MiniFriend* friends, int count) {
     this->lobbyFriends = friends;
     this->friendsCount = count;
+}
+
+void GameLobbyScreen::setSessionInfo(int sessionId, int hostUserId, const String& serverHost, uint16_t serverPort) {
+    this->currentSessionId = sessionId;
+    this->hostUserId = hostUserId;
+    this->serverHost = serverHost;
+    this->serverPort = serverPort;
 }
 
 void GameLobbyScreen::draw() {
@@ -370,7 +382,35 @@ void GameLobbyScreen::doConfirmInvite() {
         return;
     }
 
-    Serial.println("Lobby: Inviting friend " + pendingInviteFriendName);
+    int friendUserId = lobbyFriends[pendingInviteFriendIndex].userId;
+    
+    Serial.print("Lobby: Inviting friend ");
+    Serial.print(pendingInviteFriendName);
+    Serial.print(" (userId=");
+    Serial.print(friendUserId);
+    Serial.println(")");
+
+    // Send invite if session and server info are set
+    if (currentSessionId > 0 && hostUserId > 0 && serverHost.length() > 0 && friendUserId > 0) {
+        int participantIds[1] = {friendUserId};
+        ApiClient::GameSessionResult result = ApiClient::inviteToSession(
+            currentSessionId,
+            hostUserId,
+            participantIds,
+            1,
+            serverHost,
+            serverPort
+        );
+        
+        if (result.success) {
+            Serial.println("Lobby: ✅ Invite sent successfully");
+        } else {
+            Serial.print("Lobby: ❌ Failed to send invite: ");
+            Serial.println(result.message);
+        }
+    } else {
+        Serial.println("Lobby: ⚠️ Cannot send invite - missing session/server/user info");
+    }
 
     if (confirmationDialog != nullptr) {
         confirmationDialog->hide();

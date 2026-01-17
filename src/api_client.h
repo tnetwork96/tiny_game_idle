@@ -93,6 +93,7 @@ public:
     static FriendRequestResult cancelFriendRequest(int fromUserId, int toUserId, const String& serverHost, uint16_t port);
     static FriendRequestResult removeFriend(int userId, int friendId, const String& serverHost, uint16_t port);
     static GameSessionResult createGameSession(int hostUserId, const String& gameType, int maxPlayers, const int* participantIds, int participantCount, const String& serverHost, uint16_t port);
+    static GameSessionResult inviteToSession(int sessionId, int hostUserId, const int* participantIds, int participantCount, const String& serverHost, uint16_t port);
     static GameSessionResult respondGameInvite(int sessionId, int userId, bool accept, const String& serverHost, uint16_t port);
     static GameSessionResult setGameReady(int sessionId, int userId, bool ready, const String& serverHost, uint16_t port);
     static GameSessionResult leaveGameSession(int sessionId, int userId, const String& serverHost, uint16_t port);

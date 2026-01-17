@@ -22,6 +22,7 @@ public:
     struct MiniFriend {
         String name;
         bool online;
+        int userId;  // For invites
     };
 
     GameLobbyScreen(Adafruit_ST7789* tft, const SocialTheme& theme);
@@ -45,6 +46,9 @@ public:
     void setGuestReady(bool ready);
     void clearGuest();
     void setFriends(MiniFriend* friends, int count);
+    
+    // Set session and server info for invites
+    void setSessionInfo(int sessionId, int hostUserId, const String& serverHost, uint16_t serverPort);
 
     // Callbacks
     typedef void (*OnStartGameCallback)();
@@ -92,6 +96,12 @@ private:
     ConfirmationDialog* confirmationDialog;
     int pendingInviteFriendIndex;
     String pendingInviteFriendName;
+    
+    // Session info for invites
+    int currentSessionId;
+    int hostUserId;
+    String serverHost;
+    uint16_t serverPort;
 };
 
 #endif

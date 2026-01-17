@@ -451,6 +451,77 @@ class WebSocketManager:
         except Exception as e:
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error in send_online_friends_to_user: {str(e)}")
             logger.error(f"Error syncing online friends: {str(e)}", exc_info=True)
+
+    async def send_pending_game_invites_to_user(self, user_id: int):
+        """
+        Sync pending game invites for a user when they connect.
+        Sends game_event payloads for any invited sessions that are still waiting/ready.
+        """
+        try:
+            if user_id not in self.user_to_client:
+                return
+            target_client_id = self.user_to_client[user_id]
+            if target_client_id not in self.active_connections:
+                return
+            target_ws = self.active_connections[target_client_id]
+
+            import os
+            import psycopg2
+            from psycopg2.extras import RealDictCursor
+
+            DATABASE_URL = os.getenv(
+                "DATABASE_URL",
+                "postgresql://tinygame:tinygame123@localhost:5432/tiny_game",
+            )
+            conn = psycopg2.connect(DATABASE_URL)
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute(
+                """
+                SELECT gs.id AS session_id,
+                       gs.game_type,
+                       gs.status AS session_status,
+                       gs.host_user_id,
+                       COALESCE(u.nickname, u.username) AS host_nickname
+                FROM game_participants gp
+                JOIN game_sessions gs ON gs.id = gp.session_id
+                JOIN users u ON u.id = gs.host_user_id
+                WHERE gp.user_id = %s
+                  AND gp.status = 'invited'
+                  AND gs.status IN ('waiting', 'ready')
+                ORDER BY gs.updated_at DESC, gs.id DESC
+                """,
+                (user_id,),
+            )
+            rows = cursor.fetchall()
+            cursor.close()
+            conn.close()
+
+            if not rows:
+                return
+
+            sent = 0
+            for row in rows:
+                event_data = {
+                    "event_type": "invite",
+                    "session_id": row["session_id"],
+                    "game_type": row["game_type"],
+                    "host_user_id": row["host_user_id"],
+                    "host_nickname": row["host_nickname"],
+                    "status": row["session_status"],
+                }
+                message = {"type": "game_event", "event": event_data}
+                try:
+                    await target_ws.send_text(json.dumps(message))
+                    sent += 1
+                except Exception as e:
+                    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Error sending pending invite to user {user_id}: {str(e)}")
+
+            if sent > 0:
+                print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ✅ Synced {sent} pending game invites to user {user_id}")
+
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ❌ Error in send_pending_game_invites_to_user: {str(e)}")
+            logger.error(f"Error syncing pending invites: {str(e)}", exc_info=True)
     
     async def cleanup_typing_indicators(self):
         """Clean up expired typing indicators (auto-timeout after 5 seconds)"""
@@ -532,6 +603,12 @@ class WebSocketManager:
                         await self.send_online_friends_to_user(user_id)
                     except Exception as sync_error:
                         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to sync online friends: {str(sync_error)}")
+
+                    # 3) Sync: send any pending game invites (if user was offline)
+                    try:
+                        await self.send_pending_game_invites_to_user(user_id)
+                    except Exception as invite_sync_error:
+                        print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] ⚠️ Warning: Failed to sync game invites: {str(invite_sync_error)}")
                 
                 # Send acknowledgment
                 ack = {

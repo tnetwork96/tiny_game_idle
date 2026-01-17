@@ -821,36 +821,6 @@ void SocialScreen::drawGameMenu() {
     const uint16_t GAME_ROW_SPACING = 2;
     uint16_t startY = headerHeight + 4;
     
-    // Show incoming game invites (compact list)
-    if (gameInviteCount > 0) {
-        tft->setTextSize(1);
-        tft->setTextColor(currentTheme.colorAccent, currentTheme.colorBg);
-        tft->setCursor(CONTENT_X + 10, startY);
-        tft->print("INVITES");
-        startY += 14;
-        
-        int invitesToShow = (gameInviteCount < 3) ? gameInviteCount : 3;
-        for (int i = 0; i < invitesToShow; i++) {
-            uint16_t y = startY + i * 14;
-            bool highlighted = (i == selectedGameInviteIndex);
-            if (highlighted) {
-                tft->fillRoundRect(CONTENT_X + 8, y - 2, CONTENT_WIDTH - 16, 14, 3, currentTheme.colorHighlight);
-                tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorHighlight);
-            } else {
-                tft->setTextColor(currentTheme.colorTextMain, currentTheme.colorBg);
-            }
-            String line = "#" + String(gameInvites[i].sessionId) + " ";
-            line += gameInvites[i].gameType;
-            line += " (" + gameInvites[i].status + ")";
-            tft->setCursor(CONTENT_X + 12, y);
-            int maxWidth = (CONTENT_WIDTH - 24) / 6;
-            if (line.length() > maxWidth) {
-                line = line.substring(0, maxWidth - 3) + "...";
-            }
-            tft->print(line);
-        }
-        startY += invitesToShow * 14 + 6;
-    }
     
     // Visible items (for potential scrolling)
     const int visibleItems = (SCREEN_HEIGHT - startY) / (GAME_ROW_HEIGHT + GAME_ROW_SPACING);
@@ -1693,11 +1663,16 @@ void SocialScreen::handleContentNavigation(const String& key) {
             if (friendsCount > 0) {
                 GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
                 for (int i = 0; i < friendsCount; i++) {
-                    miniFriends[i] = {friends[i].nickname, friends[i].online};
+                    miniFriends[i] = {friends[i].nickname, friends[i].online, friends[i].userId};
                 }
                 gameLobby->setFriends(miniFriends, friendsCount);
                 // Note: In a real app, we'd need to manage the lifecycle of this array.
                 // For this simple implementation, let's just pass it.
+            }
+            
+            // Set session info for invites
+            if (gameLobby != nullptr && currentGameSessionId > 0) {
+                gameLobby->setSessionInfo(currentGameSessionId, userId, serverHost, serverPort);
             }
 
             Serial.print("Social Screen: Entered room for game ");
@@ -1799,11 +1774,16 @@ void SocialScreen::handleContentNavigation(const String& key) {
             if (friendsCount > 0) {
                 GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
                 for (int i = 0; i < friendsCount; i++) {
-                    miniFriends[i] = {friends[i].nickname, friends[i].online};
+                    miniFriends[i] = {friends[i].nickname, friends[i].online, friends[i].userId};
                 }
                 gameLobby->setFriends(miniFriends, friendsCount);
                 // Note: In a real app, we'd need to manage the lifecycle of this array.
                 // For this simple implementation, let's just pass it.
+            }
+            
+            // Set session info for invites (second path - backward compatibility)
+            if (gameLobby != nullptr && currentGameSessionId > 0) {
+                gameLobby->setSessionInfo(currentGameSessionId, userId, serverHost, serverPort);
             }
 
             Serial.print("Social Screen: Entered room for game ");
@@ -2453,7 +2433,7 @@ void SocialScreen::updateFriendStatus(int friendUserId, bool isOnline) {
             if (statusChanged && screenState == STATE_WAITING_GAME && gameLobby != nullptr && gameLobby->isActive() && friendsCount > 0 && !suppressUiRedrawWhileChat) {
                 GameLobbyScreen::MiniFriend* miniFriends = new GameLobbyScreen::MiniFriend[friendsCount];
                 for (int j = 0; j < friendsCount; j++) {
-                    miniFriends[j] = {friends[j].nickname, friends[j].online};
+                    miniFriends[j] = {friends[j].nickname, friends[j].online, friends[j].userId};
                 }
                 gameLobby->setFriends(miniFriends, friendsCount);
                 gameLobby->draw();  // refresh lobby list with status dots
@@ -3429,6 +3409,8 @@ void SocialScreen::addGameInviteFromSocket(int sessionId, const String& gameType
                 drawContentArea();
             }
         }
+        // Remove any realtime notification tied to this invite
+        removeNotificationById(-sessionId);
         return;
     }
 
@@ -3458,6 +3440,14 @@ void SocialScreen::addGameInviteFromSocket(int sessionId, const String& gameType
     Serial.print(sessionId);
     Serial.print(" status: ");
     Serial.println(status);
+
+    // Realtime notification for game invite
+    if (eventType == "invite") {
+        String displayHost = hostNickname.length() > 0 ? hostNickname : "Host";
+        String displayGame = gameType.length() > 0 ? gameType : "Game";
+        String message = displayHost + " invited you to play " + displayGame;
+        addNotificationFromSocket(-sessionId, "game_invite", message, "", false);
+    }
 
     // Nếu đang ở lobby chờ, không vẽ lại Game Center để tránh bị "văng" khỏi lobby
     if (screenState == STATE_WAITING_GAME) {
