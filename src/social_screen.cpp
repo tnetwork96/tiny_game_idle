@@ -3233,14 +3233,6 @@ void SocialScreen::doAcceptGameInvite() {
         gameLobby->setGuest(currentGameGuestName);
         gameLobby->setGuestReady(true);  // Guest is ready after accepting
         
-        // Set session context
-        gameLobby->setSessionContext(
-            pendingGameInviteSessionId,
-            -1,  // Not host
-            serverHost,
-            serverPort
-        );
-        
         gameLobby->setActive(true);
         
         // Set friends list (empty for now)
