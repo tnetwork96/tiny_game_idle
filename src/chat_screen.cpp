@@ -589,22 +589,25 @@ void ChatScreen::drawMessages() {
         tft->print("Loading...");
     }
     
-    int lineHeight = 24;  // Khoảng cách cho text size 2 (16px text + 8px spacing)
-    int padding = 4;
-    int startY = chatAreaY + padding;
-    int maxLines = getVisibleLines();
+    int lineHeight = 20;  // Giảm từ 24 xuống 20 để tin nhắn khít hơn và dễ fit
+    int padding = 2;      // Giảm padding để tận dụng tối đa không gian
+    
+    // *** LOGIC MỚI: Vẽ từ DƯỚI LÊN - Tin nhắn mới xuất hiện ở đáy (ngay trên input box) ***
+    // Trừ thêm 16px (chiều cao font size 2 thực tế) để sát ô nhập
+    int bottomY = inputBoxY - padding - 16;  
+    
+    // Loại bỏ maxLines để lấp đầy toàn bộ khoảng trống (fit here).
     // Nén khoảng cách giữa các nhóm tin nhắn (khác người gửi) để tăng mật độ
     const int groupGapPx = 2;            // Gap nhỏ giữa các nhóm (sát hơn)
     const int gapReduction = lineHeight - groupGapPx;  // Lượng nén so với 1 dòng đầy đủ
-    int groupTransitions = 0;            // Số lần đổi người gửi đã render
     
     // LƯU Ý: Nền chat area đã được vẽ trong draw(), không cần xóa lại
     // Chỉ cần vẽ tin nhắn lên trên nền đã có
     uint16_t scrollbarWidth = 4;
     
-    // Logic: Vẽ tin nhắn từ trên xuống (tin nhắn cũ ở trên, mới ở dưới)
-    // Khi có nhiều tin nhắn hơn số dòng hiển thị, chỉ hiển thị các tin nhắn mới nhất
-    // Tin nhắn mới nhất luôn ở dưới cùng, tin nhắn cũ tự động đẩy lên (giống Facebook/Messenger)
+    // Logic MỚI: Vẽ tin nhắn từ dưới lên (tin nhắn mới ở dưới, cũ đẩy lên trên)
+    // Tin nhắn mới nhất xuất hiện ngay vị trí "TEXT HERE" (bottomY)
+    // Tin nhắn cũ tự động đẩy lên phía trên khi có tin mới
     
     // Tính tổng số dòng của tất cả tin nhắn
     int totalLines = 0;
@@ -627,61 +630,14 @@ void ChatScreen::drawMessages() {
         totalLines += numLines;
     }
     
-    // Tính index tin nhắn bắt đầu hiển thị dựa trên scrollOffset (số dòng)
-    // scrollOffset là số dòng đã cuộn lên
-    int startIndex = 0;
-    int linesBeforeStart = 0;
-    
-    if (messageCount > 0 && scrollOffset > 0) {
-        // Tìm tin nhắn bắt đầu dựa trên số dòng đã cuộn
-        for (int i = 0; i < messageCount; i++) {
-            int linesForThisMessage = lineCounts[i];
-            if (hasSpacing[i]) {
-                linesForThisMessage += 1;  // Thêm spacing
-            }
-            
-            if (linesBeforeStart + linesForThisMessage > scrollOffset) {
-                startIndex = i;
-                break;
-            }
-            linesBeforeStart += linesForThisMessage;
-        }
-    }
-    
-    // Tính số dòng đã bỏ qua trong tin nhắn đầu tiên (nếu scrollOffset nằm giữa tin nhắn)
-    int linesSkippedInFirstMessage = 0;
-    if (startIndex > 0 || scrollOffset > 0) {
-        int linesBeforeFirst = 0;
-        for (int i = 0; i < startIndex; i++) {
-            int linesForThisMessage = lineCounts[i];
-            if (hasSpacing[i]) {
-                linesForThisMessage += 1;
-            }
-            linesBeforeFirst += linesForThisMessage;
-        }
-        linesSkippedInFirstMessage = scrollOffset - linesBeforeFirst;
-        if (linesSkippedInFirstMessage < 0) linesSkippedInFirstMessage = 0;
-        if (linesSkippedInFirstMessage > lineCounts[startIndex]) {
-            linesSkippedInFirstMessage = lineCounts[startIndex];
-        }
-    }
-    
-    // Vẽ từ trên xuống: tin nhắn cũ ở trên, mới ở dưới
-    // Mỗi tin nhắn có thể xuống nhiều dòng nếu dài hơn 20 ký tự
+    // *** VẼ NGƯỢC: Từ tin nhắn MỚI NHẤT (index cao) về tin nhắn CŨ (index thấp) ***
     int lineIndex = 0;
-    for (int i = startIndex; i < messageCount && lineIndex < maxLines; i++) {
+    int groupTransitions = 0;
+    
+    // Bắt đầu từ tin nhắn cuối cùng (mới nhất) và vẽ ngược lên.
+    // Loại bỏ điều kiện lineIndex < maxLines để lấp đầy toàn bộ khoảng trống (fit here).
+    for (int i = messageCount - 1; i >= 0; i--) {
         if (i >= 0 && i < messageCount) {
-            // Kiểm tra nếu tin nhắn này khác người gửi với tin nhắn trước đó
-            // -> thêm khoảng cách (message group spacing)
-            if (i > startIndex && messages[i].isUser != messages[i-1].isUser) {
-                // Khác người gửi -> thêm khoảng cách (nén nhỏ hơn 1 dòng)
-                groupTransitions++;
-                lineIndex++;
-                
-                // Kiểm tra không vượt quá maxLines
-                if (lineIndex >= maxLines) break;
-            }
-            
             uint16_t msgColor = messages[i].isUser ? userMessageColor : otherMessageColor;
             tft->setTextColor(msgColor, chatAreaBgColor);
             tft->setTextSize(2);  // Cỡ chữ tầm trung (size 2)
@@ -693,31 +649,34 @@ void ChatScreen::drawMessages() {
             int messageLength = messageText.length();
             int numLines = lineCounts[i];  // Sử dụng số dòng đã tính
             
-            // Vẽ từng dòng của tin nhắn
-            int startLine = (i == startIndex) ? linesSkippedInFirstMessage : 0;
-            for (int line = startLine; line < numLines && lineIndex < maxLines; line++) {
+            // Vẽ từng dòng của tin nhắn TỪ DƯỚI LÊN (dòng cuối trước, dòng đầu sau)
+            for (int line = numLines - 1; line >= 0; line--) {
                 int startChar = line * charsPerLine;
                 int endChar = (startChar + charsPerLine < messageLength) ? (startChar + charsPerLine) : messageLength;
                 String lineText = messageText.substring(startChar, endChar);
                 
-                // Tính vị trí Y
-                int yPos = startY + lineIndex * lineHeight - groupTransitions * gapReduction;
+                // Tính vị trí Y: ĐI LÊN từ bottomY.
+                // Cộng (groupTransitions * gapReduction) để GIẢM khoảng trống (vì ta đang trừ lineHeight)
+                int yPos = bottomY - (lineIndex * lineHeight) + (groupTransitions * gapReduction);
+                
+                // ABSOLUTE FIT: Cho phép vẽ nếu yPos còn nằm trong phạm vi hiển thị.
+                // Với font size 2, ta cho phép yPos đi lên tận chatAreaY - 12 (chớm qua tiêu đề một chút để triệt tiêu kẽ hở)
+                if (yPos < (int)chatAreaY - 12) break;
                 
                 // Tính vị trí X: user căn phải, other căn trái
-            uint16_t textX;
-            uint16_t approxWidth = lineText.length() * 12;  // ước lượng
-            if (messages[i].isUser) {
-                // Tin nhắn của user: căn phải
-                textX = chatAreaWidth - approxWidth - margin;
-            } else {
-                // Tin nhắn của người khác: căn trái
-                textX = margin;
-            }
+                uint16_t textX;
+                uint16_t approxWidth = lineText.length() * 12;  // ước lượng
+                if (messages[i].isUser) {
+                    // Tin nhắn của user: căn phải
+                    textX = chatAreaWidth - approxWidth - margin;
+                } else {
+                    // Tin nhắn của người khác: căn trái
+                    textX = margin;
+                }
                 
-                // Vẽ bubble background nếu bật decor
-                if (showMessageBubbles && line == 0) {
-                    // Chỉ vẽ bubble cho dòng đầu tiên của mỗi tin nhắn
-                    int bubbleWidth = lineText.length() * 12 + 10;  // Width của dòng đầu
+                // Vẽ bubble background nếu bật decor (chỉ cho dòng cuối của mỗi tin nhắn)
+                if (showMessageBubbles && line == numLines - 1) {
+                    int bubbleWidth = lineText.length() * 12 + 10;
                     int bubbleHeight = lineHeight;
                     int bubbleX = messages[i].isUser ? (textX - 5) : (textX - 5);
                     int bubbleY = yPos - 2;
@@ -742,6 +701,17 @@ void ChatScreen::drawMessages() {
                 
                 lineIndex++;
             }
+            
+            // Thêm spacing giữa các nhóm người gửi khác nhau (khi vẽ ngược)
+            if (i > 0 && messages[i].isUser != messages[i-1].isUser) {
+                groupTransitions++;
+                lineIndex++;
+            }
+
+            // Kiểm tra nếu tin tiếp theo sẽ vượt giới hạn trên thì dừng sớm
+            // SÁT THẬT SÁT: Cho phép vẽ đến tận pixel cuối cùng của chatAreaY
+            int nextY = bottomY - (lineIndex * lineHeight) + (groupTransitions * gapReduction);
+            if (nextY < (int)chatAreaY - 14) break; 
         }
     }
     
