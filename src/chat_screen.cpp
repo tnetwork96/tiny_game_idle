@@ -873,16 +873,11 @@ void ChatScreen::drawCurrentMessage() {
     if (verticalPadding < 2) verticalPadding = 2;  // Đảm bảo có tối thiểu một chút padding
     uint16_t textY = inputBoxY + verticalPadding;
     
-    
-    // --- KHẮC PHỤC VẤN ĐỀ CHÂN CHỮ ---
-    // Thay vì tính textAreaHeight theo textHeight (dễ bị sót chân chữ),
-    // ta xóa toàn bộ vùng an toàn bên trong Input Box (trừ viền 2px).
-    uint16_t clearY = inputBoxY + 2; 
-    uint16_t clearHeight = inputBoxHeight - 4;
-    
-    // Xóa vùng text cũ (mở rộng vùng xóa theo chiều dọc)
-    tft->fillRect(textX, clearY, inputBoxWidth - 10, clearHeight, inputBoxBgColor);
-    // --- HẾT PHẦN SỬA ---
+    // Xóa vùng text cũ
+    uint16_t textAreaHeight = inputBoxHeight > (verticalPadding * 2)
+                                ? (inputBoxHeight - verticalPadding * 2)
+                                : inputBoxHeight;
+    tft->fillRect(textX, textY, inputBoxWidth - 10, textAreaHeight, inputBoxBgColor);
     
     // Vẽ tin nhắn đang nhập (có icon)
     tft->setTextSize(2);  // Cỡ chữ tầm trung
